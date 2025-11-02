@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>词忆 - 网络连接测试</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+        
+        .status {
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 500;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #17a2b8;
+        }
+        
+        .info-grid {
+            display: grid;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .info-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            word-break: break-all;
+        }
+        
+        .copy-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 8px;
+            transition: all 0.3s;
+        }
+        
+        .copy-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-primary {
+            display: block;
+            width: 100%;
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .device-icon {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .tips {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .tips-title {
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        
+        .tips-list {
+            font-size: 14px;
+            color: #856404;
+            line-height: 1.8;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="device-icon" id="deviceIcon">📱</div>
+        <h1>网络连接测试</h1>
+        
+        <div class="status success">
+            ✅ 连接成功！服务器运行正常
+        </div>
+        
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-label">访问设备</div>
+                <div class="info-value" id="deviceType">检测中...</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">当前访问地址</div>
+                <div class="info-value" id="currentUrl">-</div>
+                <button class="copy-btn" onclick="copyUrl()">复制地址</button>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">浏览器</div>
+                <div class="info-value" id="browser">-</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">LocalStorage状态</div>
+                <div class="info-value" id="storageStatus">-</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">连接时间</div>
+                <div class="info-value" id="timestamp">-</div>
+            </div>
+        </div>
+        
+        <button class="btn-primary" onclick="goToApp()">
+            前往词忆应用 →
+        </button>
+        
+        <div class="tips">
+            <div class="tips-title">💡 提示</div>
+            <ul class="tips-list">
+                <li>如果是手机访问，建议添加到主屏幕</li>
+                <li>确保PC和手机使用相同的IP地址访问</li>
+                <li>localhost和IP地址的数据不会同步</li>
+                <li>保持PC服务器窗口打开</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        // 检测设备类型
+        function detectDevice() {
+            const ua = navigator.userAgent;
+            if (/mobile/i.test(ua)) {
+                document.getElementById('deviceIcon').textContent = '📱';
+                return '手机' + (/(iPad|iPhone|iPod)/i.test(ua) ? ' (iOS)' : /(Android)/i.test(ua) ? ' (Android)' : '');
+            } else if (/tablet|ipad/i.test(ua)) {
+                document.getElementById('deviceIcon').textContent = '📱';
+                return '平板';
+            } else {
+                document.getElementById('deviceIcon').textContent = '💻';
+                return '电脑';
+            }
+        }
+        
+        // 检测浏览器
+        function detectBrowser() {
+            const ua = navigator.userAgent;
+            if (ua.indexOf('Chrome') > -1 && ua.indexOf('Edge') === -1) return 'Chrome';
+            if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) return 'Safari';
+            if (ua.indexOf('Firefox') > -1) return 'Firefox';
+            if (ua.indexOf('Edge') > -1) return 'Edge';
+            return '未知浏览器';
+        }
+        
+        // 检测LocalStorage
+        function checkStorage() {
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                return '✅ 正常可用';
+            } catch (e) {
+                return '❌ 不可用';
+            }
+        }
+        
+        // 复制URL
+        function copyUrl() {
+            const url = document.getElementById('currentUrl').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                alert('✅ 地址已复制到剪贴板');
+            }).catch(() => {
+                // 备用方案
+                const textArea = document.createElement('textarea');
+                textArea.value = url;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('✅ 地址已复制到剪贴板');
+            });
+        }
+        
+        // 前往应用
+        function goToApp() {
+            window.location.href = 'index.html';
+        }
+        
+        // 初始化
+        window.onload = function() {
+            document.getElementById('deviceType').textContent = detectDevice();
+            document.getElementById('currentUrl').textContent = window.location.href.replace('network-test.html', 'index.html');
+            document.getElementById('browser').textContent = detectBrowser();
+            document.getElementById('storageStatus').textContent = checkStorage();
+            document.getElementById('timestamp').textContent = new Date().toLocaleString('zh-CN');
+        };
+    </script>
+</body>
+</html>
+

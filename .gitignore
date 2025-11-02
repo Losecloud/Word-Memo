@@ -1,0 +1,50 @@
+# 操作系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# 备份文件
+*.bak
+*.backup
+
+# 依赖和构建（如果使用）
+node_modules/
+dist/
+build/
+
+# 用户数据和测试文件（不应提交）
+*.xlsx
+*.pdf
+*.csv
+!examples/*.csv
+!examples/*.xlsx
+!examples/template.csv
+!data/*.xlsx
+
+# 环境配置
+.env
+.env.local
+
+# GitHub Pages相关
+.jekyll-cache/
+.jekyll-metadata
+_site/
+

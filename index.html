@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="词忆 - 专注高效的背单词工具，支持多词书管理、智能复习、AI工坊。纯前端应用，数据本地存储，支持离线使用。">
+    <meta name="keywords" content="背单词,词忆,单词记忆,英语学习,词汇学习,艾宾浩斯,PWA,离线学习">
+    <meta name="author" content="词忆团队">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="词忆">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://your-username.github.io/reciting/">
+    <meta property="og:title" content="词忆 - 高效背单词工具">
+    <meta property="og:description" content="专注、高效、现代化的背单词工具，支持多词书管理、智能复习、AI工坊等功能。">
+    <meta property="og:image" content="https://your-username.github.io/reciting/static/image/icon-512.png">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://your-username.github.io/reciting/">
+    <meta property="twitter:title" content="词忆 - 高效背单词工具">
+    <meta property="twitter:description" content="专注、高效、现代化的背单词工具，支持多词书管理、智能复习、AI工坊等功能。">
+    <meta property="twitter:image" content="https://your-username.github.io/reciting/static/image/icon-512.png">
+    
+    <title>词忆 - 背单词</title>
+    <link rel="icon" type="image/svg+xml" href="static/image/book.svg">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="static/image/icon-192.png">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="header-container">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+                <span class="logo-text">词忆</span>
+            </div>
+            <div class="header-center">
+                <button class="btn-ai-workshop" id="aiWorkshopBtn">
+                    <span class="ai-icon">✨</span>
+                    <span>AI工坊</span>
+                </button>
+            </div>
+            <div class="header-actions">
+                <button class="btn-icon" id="darkModeToggle" title="切换暗黑模式">
+                    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="5"/>
+                        <line x1="12" y1="1" x2="12" y2="3"/>
+                        <line x1="12" y1="21" x2="12" y2="23"/>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                        <line x1="1" y1="12" x2="3" y2="12"/>
+                        <line x1="21" y1="12" x2="23" y2="12"/>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+                <button class="btn-icon" id="settingsBtn" title="设置">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧词书列表（PC端） -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h3>词书列表</h3>
+                <button class="btn-text" id="toggleSidebar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M15 18l-6-6 6-6"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="book-list-container">
+                <div class="book-list" id="bookList">
+                    <!-- 动态生成词书列表 -->
+                </div>
+                <button class="btn-add-book" id="addBookBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    添加词书
+                </button>
+            </div>
+        </aside>
+
+        <!-- 中间主学习区域 -->
+        <main class="main-content">
+            <!-- 欢迎页面 -->
+            <div class="welcome-screen" id="welcomeScreen">
+                <div class="welcome-content">
+                    <div class="welcome-icon">
+                        <img src="static/image/book.svg" alt="词忆" class="welcome-icon-img">
+                    </div>
+                    <h1 class="welcome-title">欢迎来到词忆</h1>
+                    <p class="welcome-subtitle">开始你的高效背单词之旅</p>
+                    
+                    <div class="upload-area" id="uploadArea">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <p class="upload-text">拖拽文件到此处或点击上传</p>
+                        <p class="upload-hint">支持 TXT、CSV、DOCX、Excel 格式</p>
+                        <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.xls,.docx" hidden>
+                        <button class="btn-primary" id="uploadBtn">选择文件</button>
+                    </div>
+
+                    <div class="or-divider">
+                        <span>或</span>
+                    </div>
+
+                    <button class="btn-secondary" id="useDemoBtn">使用示例单词</button>
+                    <a href="#" class="link" id="downloadTemplate">下载文档模板</a>
+                </div>
+            </div>
+
+            <!-- 单词编辑预览页面 -->
+            <div class="word-editor-screen hidden" id="wordEditorScreen">
+                <div class="editor-header">
+                    <h2>单词列表预览</h2>
+                    <div class="editor-actions">
+                        <button class="btn-secondary" id="addWordBtn">添加单词</button>
+                        <button class="btn-primary" id="startLearningBtn">开始学习</button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <div class="editor-table-wrapper">
+                        <table class="editor-table" id="editorTable">
+                            <thead>
+                                <tr>
+                                    <th>单词</th>
+                                    <th>音标</th>
+                                    <th>释义</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="editorTableBody">
+                                <!-- 动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 学习页面 -->
+            <div class="learning-screen hidden" id="learningScreen">
+                <!-- 进度条 -->
+                <div class="progress-bar">
+                    <div class="progress-info">
+                        <span class="progress-text">
+                            <span id="currentIndex">0</span> / <span id="totalWords">0</span>
+                        </span>
+                        <span class="accuracy-text">
+                            正确率: <span id="accuracy">0%</span>
+                        </span>
+                    </div>
+                    <div class="progress-track" id="progressTrack">
+                        <!-- 动态生成异色进度条 -->
+                    </div>
+                </div>
+
+                <!-- 单词卡片区域 -->
+                <div class="card-container">
+                    <div class="word-card" id="wordCard">
+                        <!-- 模式1: 看单词选释义 -->
+                        <div class="mode-select-meaning" id="modeSelectMeaning">
+                            <div class="card-header">
+                                <button class="btn-icon btn-sound" id="soundBtn1">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                    </svg>
+                                </button>
+                                <!-- 上次答题记录 -->
+                                <div class="last-word-badge" id="lastWordBadge1"></div>
+                            </div>
+                            <div class="word-display">
+                                <h2 class="word-text" id="wordText">apple</h2>
+                                <p class="word-phonetic" id="wordPhonetic">/ˈæpl/</p>
+                                <div class="word-meta">
+                                    <span class="word-pos" id="wordPos">n.</span>
+                                    <button class="btn-favorite" id="favoriteBtn1" title="收藏/取消收藏">
+                                        <span class="favorite-icon favorite-gray">⭐</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="options-container" id="optionsContainer">
+                                <!-- 动态生成选项 -->
+                            </div>
+                        </div>
+
+                        <!-- 模式2: 看释义拼单词 -->
+                        <div class="mode-spell-word hidden" id="modeSpellWord">
+                            <div class="card-header">
+                                <button class="btn-icon btn-sound" id="soundBtn2">
+                                    
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                    </svg>
+                                </button>
+                                <!-- 上次答题记录 -->
+                                <div class="last-word-badge" id="lastWordBadge2"></div>
+                            </div>
+                            <div class="meaning-display">
+                                <div class="meaning-content">
+                                    <div class="meaning-line">
+                                        <span class="meaning-part-of-speech" id="meaningPartOfSpeech">n.</span>
+                                        <p class="meaning-text" id="meaningText">苹果；苹果树</p>
+                                        <div class="word-meta-inline">
+                                            <span class="meaning-pos" id="meaningPos">A1</span>
+                                            <button class="btn-favorite" id="favoriteBtn2" title="收藏/取消收藏">
+                                                <span class="favorite-icon favorite-gray">⭐</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="example-sentence" id="exampleSentence">
+                                    I eat an apple every day.
+                                </p>
+                            </div>
+                            <div class="spell-input-area">
+                                <div class="letter-slots" id="letterSlots">
+                                    <!-- 动态生成下划线 -->
+                                </div>
+                                <input type="text" class="hidden-input" id="spellInput" autocomplete="off" autocapitalize="off">
+                            </div>
+                            <div class="spell-actions">
+                                <button class="btn-secondary" id="hintBtn">
+                                    <span class="hotkey-hint">h</span>
+                                    提示
+                                </button>
+                                <button class="btn-secondary" id="unknownSpellBtn">
+                                    <span class="hotkey-hint" id="unknownSpellHotkey"></span>
+                                    不知道
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 结果反馈叠加层 -->
+                        <div class="feedback-overlay hidden" id="feedbackOverlay">
+                            <div class="feedback-content">
+                                <div class="feedback-icon" id="feedbackIcon">✓</div>
+                                <p class="feedback-text" id="feedbackText">太棒了！</p>
+                                <div class="correct-answer" id="correctAnswer"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 底部操作栏 -->
+                <div class="learning-actions">
+                    <button class="btn-text" id="skipBtn">跳过</button>
+                    <button class="btn-primary" id="nextBtn" disabled>下一个</button>
+                    <button class="btn-text" id="exitLearningBtn">退出</button>
+                </div>
+            </div>
+
+            <!-- 学习完成页面 -->
+            <div class="completion-screen hidden" id="completionScreen">
+                <div class="completion-content">
+                    <div class="completion-icon">🎉</div>
+                    <h2 class="completion-title">恭喜完成学习！</h2>
+                    <div class="stats-summary">
+                        <div class="stat-item">
+                            <div class="stat-value" id="statsTotal">20</div>
+                            <div class="stat-label">学习单词</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="statsCorrect">18</div>
+                            <div class="stat-label">正确</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="statsWrong">2</div>
+                            <div class="stat-label">错误</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="statsAccuracy">90%</div>
+                            <div class="stat-label">正确率</div>
+                        </div>
+                    </div>
+                    <div class="completion-actions">
+                        <button class="btn-secondary" id="reviewWrongBtn">复习错题</button>
+                        <button class="btn-primary" id="continueBtn">继续学习</button>
+                        <button class="btn-text" id="backHomeBtn">返回首页</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI工坊页面 -->
+            <div class="ai-workshop-screen hidden" id="aiWorkshopScreen">
+                <div class="ai-workshop-header">
+                    <h2 class="ai-workshop-title">
+                        <span class="ai-icon-large">✨</span>
+                        AI 创意工坊
+                    </h2>
+                    <button class="btn-text" id="closeAiWorkshopBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                        关闭
+                    </button>
+                </div>
+
+                <!-- 应用区主页 -->
+                <div class="workshop-apps-grid" id="workshopAppsGrid">
+                    <div class="workshop-app-card" data-app="reading">
+                        <div class="workshop-app-icon">📚</div>
+                        <h3 class="workshop-app-title">阅读联想记忆</h3>
+                        <p class="workshop-app-desc">根据收藏的单词生成趣味故事，在阅读中记忆单词</p>
+                        <button class="btn-primary workshop-app-btn">开始使用</button>
+                    </div>
+                    
+                    <div class="workshop-app-card" data-app="synonym">
+                        <div class="workshop-app-icon">🔄</div>
+                        <h3 class="workshop-app-title">同义替换练习</h3>
+                        <p class="workshop-app-desc">从混合选项中选出正确的同义词，每题包含3个干扰项</p>
+                        <button class="btn-primary workshop-app-btn">开始使用</button>
+                    </div>
+                </div>
+
+                <!-- 阅读联想记忆功能 -->
+                <div class="reading-app-container hidden" id="readingAppContainer">
+                <div class="ai-feature-card">
+                    <div class="ai-feature-header">
+                        <h3>📖 阅读联想记忆</h3>
+                        <p class="ai-feature-desc">根据收藏的单词生成趣味故事，在阅读中记忆单词</p>
+                    </div>
+
+                    <!-- 输入表单 -->
+                    <div class="ai-story-form" id="aiStoryForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">故事主题</label>
+                                <select class="form-select" id="storyTheme">
+                                    <option value="科技">🚀 科技未来</option>
+                                    <option value="玄幻">🔮 玄幻修仙</option>
+                                    <option value="悬疑">🔍 悬疑推理</option>
+                                    <option value="恋爱">💕 浪漫爱情</option>
+                                    <option value="冒险">🗺️ 冒险探险</option>
+                                    <option value="历史">📜 历史穿越</option>
+                                    <option value="奇幻">🦄 奇幻魔法</option>
+                                    <option value="商业">💼 商业职场</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">难度等级</label>
+                                <select class="form-select" id="storyDifficulty">
+                                    <option value="A1">A1 (初级)</option>
+                                    <option value="A2">A2 (初中级)</option>
+                                    <option value="B1">B1 (中级)</option>
+                                    <option value="B2" selected>B2 (中高级)</option>
+                                    <option value="C1">C1 (高级)</option>
+                                    <option value="C2">C2 (精通)</option>
+                                    <option value="雅思">雅思 (IELTS)</option>
+                                    <option value="考研">考研 (Postgraduate)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    AI模型选择
+                                    <span class="form-hint">(不同模型生成风格不同)</span>
+                                </label>
+                                <select class="form-select" id="aiModel">
+                                    <option value="Qwen/Qwen3-30B-A3B" selected>Qwen3-30B-A3B (通义千问3-30B)</option>
+                                    <option value="deepseek-ai/DeepSeek-R1">DeepSeek-R1 (深度求索R1)</option>
+                                    <option value="inclusionAI/Ling-1T">Ling-1T (多语言模型)</option>
+                                    <option value="Qwen/Qwen3-235B-A22B">Qwen3-235B-A22B (通义千问3-235B)</option>
+                                    <option value="zai-org/GLM-4.6">GLM-4.6 (智谱GLM-4.6)</option>
+                                    <option value="tencent/Hunyuan-A13B-Instruct">Hunyuan-A13B (腾讯混元A13B)</option>
+                                    <option value="ByteDance-Seed/Seed-OSS-36B-Instruct">Seed-OSS-36B (字节跳动Seed-36B)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <!-- 占位，保持两列布局 -->
+                            </div>
+                        </div>
+
+                        <!-- 关键词选择区域 -->
+                        <div class="form-group">
+                            <label class="form-label">
+                                选择关键词
+                                <span class="form-hint">(可多选词单，系统自动随机挑选单词)</span>
+                            </label>
+                            
+                            <!-- 选择模式切换 -->
+                            <div class="keyword-mode-tabs">
+                                <button class="keyword-mode-tab active" data-mode="books" id="tabBooks">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                                    </svg>
+                                    <span>从词单挑选</span>
+                                </button>
+                                <button class="keyword-mode-tab" data-mode="favorites" id="tabFavorites">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                    </svg>
+                                    <span>收藏单词</span>
+                                </button>
+                                <button class="keyword-mode-tab" data-mode="input" id="tabInput">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                    <span>手动输入</span>
+                                </button>
+                            </div>
+
+                            <!-- 模式内容区 -->
+                            <div class="keyword-mode-content">
+                                <!-- 词单选择模式 -->
+                                <div class="keyword-mode-panel active" id="panelBooks">
+                                    <div class="book-selector" id="bookSelector">
+                                        <!-- 动态生成词单列表 -->
+                                    </div>
+                                        <div class="auto-select-control">
+                                            <label>随机挑选</label>
+                                            <input type="number" id="autoSelectCount" class="auto-select-input" value="10" min="3" max="20">
+                                            <span class="auto-select-unit">个单词</span>
+                                            <button class="btn-primary btn-auto-select" id="autoSelectBtn">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                    <rect x="3" y="3" width="7" height="7"/>
+                                                    <rect x="14" y="3" width="7" height="7"/>
+                                                    <rect x="14" y="14" width="7" height="7"/>
+                                                    <rect x="3" y="14" width="7" height="7"/>
+                                                </svg>
+                                                立即挑选
+                                            </button>
+                                        </div>
+                                     </div>
+
+                                <!-- 收藏单词模式 -->
+                                <div class="keyword-mode-panel" id="panelFavorites">
+                                    <div class="keyword-selector" id="keywordSelector">
+                                        <div class="keyword-empty" id="keywordEmpty">
+                                            暂无收藏单词，请先在学习中收藏一些单词
+                                        </div>
+                                        <div class="keyword-list" id="keywordList">
+                                            <!-- 动态生成收藏单词 -->
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 手动输入模式 -->
+                                <div class="keyword-mode-panel" id="panelInput">
+                                    <div class="keyword-input-wrapper">
+                                        <input type="text" 
+                                               id="keywordInput" 
+                                               class="keyword-input" 
+                                               placeholder="输入英文单词，停顿0.5秒自动添加..."
+                                               autocomplete="off"
+                                               spellcheck="false">
+                                        <div class="keyword-input-hint">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                <circle cx="12" cy="12" r="10"/>
+                                                <path d="M12 16v-4"/>
+                                                <path d="M12 8h.01"/>
+                                            </svg>
+                                            <span>红色波浪线表示可能拼写错误或不在CEFR词汇表</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 已选择的关键词 -->
+                            <div class="selected-keywords" id="selectedKeywords">
+                                <!-- 显示已选择的关键词 -->
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn-primary btn-generate" id="generateStoryBtn">
+                                <span class="generate-icon">✨</span>
+                                生成故事
+                            </button>
+                            <button class="btn-secondary" id="useDemoStoryBtn">
+                                <span>📝</span>
+                                使用示例故事（调试用）
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 故事展示区 -->
+                    <div class="ai-story-display hidden" id="aiStoryDisplay">
+                        <div class="story-header">
+                            <h3 class="story-title" id="storyTitle"></h3>
+                            <div class="story-meta">
+                                <span class="story-meta-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                                    </svg>
+                                    <span id="storyThemeMeta"></span>
+                                </span>
+                                <span class="story-meta-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    <span id="storyWordCount"></span> 词
+                                </span>
+                            </div>
+                        </div>
+                        <div class="story-content" id="storyContent">
+                            <!-- 故事内容 -->
+                        </div>
+                        
+                        <!-- 单词列表（可折叠） -->
+                        <div class="story-vocabulary" id="storyVocabulary">
+                            <div class="vocabulary-header">
+                                <h4>📚 本文生词</h4>
+                                <span class="vocabulary-count" id="vocabularyCount">0 个单词</span>
+                            </div>
+                            <div class="vocabulary-list" id="vocabularyList">
+                                <!-- 动态生成单词列表 -->
+                            </div>
+                        </div>
+                        
+                        <div class="story-actions">
+                            <button class="btn-secondary" id="regenerateStoryBtn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <polyline points="23 4 23 10 17 10"/>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                </svg>
+                                重新生成
+                            </button>
+                            <button class="btn-primary" id="showQuestionsBtn">
+                                开始答题
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 阅读理解题 -->
+                    <div class="ai-questions-display hidden" id="aiQuestionsDisplay">
+                        <div class="questions-header">
+                            <h3>📝 阅读理解练习</h3>
+                            <p>根据上面的故事，完成以下题目</p>
+                        </div>
+                        <div class="questions-list" id="questionsList">
+                            <!-- 动态生成题目 -->
+                        </div>
+                        <div class="questions-actions">
+                            <button class="btn-secondary" id="backToStoryBtn">返回故事</button>
+                            <button class="btn-primary" id="submitAnswersBtn">提交答案</button>
+                            <button class="btn-text" id="exitExamBtn">结束考试</button>
+                        </div>
+                    </div>
+
+                    <!-- 答题结果 -->
+                    <div class="ai-results-display hidden" id="aiResultsDisplay">
+                        <div class="results-header">
+                            <div class="results-icon" id="resultsIcon">🎉</div>
+                            <h3 class="results-title" id="resultsTitle">太棒了！</h3>
+                            <p class="results-score">
+                                得分：<span id="resultsScore">0</span> / <span id="resultsTotal">0</span>
+                            </p>
+                        </div>
+                        <div class="results-details" id="resultsDetails">
+                            <!-- 详细答题结果 -->
+                        </div>
+                        <div class="results-actions">
+                            <button class="btn-secondary" id="reviewQuestionsBtn">查看解析</button>
+                            <button class="btn-primary" id="newStoryBtn">生成新故事</button>
+                            <button class="btn-text" id="exitExamBtn2">结束考试</button>
+                        </div>
+                    </div>
+                </div>
+                </div>
+                
+                <!-- 同义替换练习功能 -->
+                <div class="synonym-app-container hidden" id="synonymAppContainer">
+                    <div class="synonym-header">
+                        <button class="btn-text" id="backToWorkshopBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            返回工坊
+                        </button>
+                        <h3>🔄 同义替换练习</h3>
+                    </div>
+
+                    <!-- 开始配置页面 -->
+                    <div class="synonym-config" id="synonymConfig">
+                        <div class="synonym-intro">
+                            <div class="synonym-intro-icon">📖</div>
+                            <h2>同义替换练习</h2>
+                            <p>从混合选项中选出正确的同义词/替换词（每题3个干扰项），提升词汇替换能力</p>
+                        </div>
+
+                        <div class="synonym-settings">
+                            <div class="form-group">
+                                <label class="form-label">词汇数据</label>
+                                <div class="file-upload-area" id="synonymFileUpload">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="17 8 12 3 7 8"/>
+                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                    </svg>
+                                    <p>点击上传同义词Excel文件</p>
+                                    <p class="file-hint">支持 .xlsx, .xls 格式</p>
+                                    <input type="file" id="synonymFileInput" accept=".xlsx,.xls" hidden>
+                                </div>
+                                <div class="file-status hidden" id="synonymFileStatus">
+                                    <span class="status-icon">✓</span>
+                                    <span class="status-text" id="synonymFileName">已加载文件</span>
+                                    <span class="status-count" id="synonymWordCount">0 个单词</span>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">练习模式</label>
+                                    <select class="form-select" id="synonymMode">
+                                        <option value="sequential">正序练习</option>
+                                        <option value="random">乱序练习</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">单词数量</label>
+                                    <input type="number" class="form-select" id="synonymCount" value="20" min="5" max="100">
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="btn-primary" id="startSynonymBtn" disabled>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <polygon points="5 3 19 12 5 21 5 3"/>
+                                    </svg>
+                                    开始练习
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 练习页面 -->
+                    <div class="synonym-practice hidden" id="synonymPractice">
+                        <!-- 进度条 -->
+                        <div class="progress-bar">
+                            <div class="progress-info">
+                                <span class="progress-text">
+                                    <span id="synonymCurrentIndex">0</span> / <span id="synonymTotalWords">0</span>
+                                </span>
+                                <span class="accuracy-text">
+                                    正确率: <span id="synonymAccuracy">0%</span>
+                                </span>
+                            </div>
+                            <div class="progress-track" id="synonymProgressTrack"></div>
+                        </div>
+
+                        <!-- 单词卡片 -->
+                        <div class="card-container">
+                            <div class="word-card" id="synonymWordCard">
+                                <div class="card-header">
+                                    <button class="btn-icon btn-sound" id="synonymSoundBtn">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                        </svg>
+                                    </button>
+                                    <div class="last-word-badge" id="synonymLastBadge"></div>
+                                </div>
+
+                                <div class="word-display">
+                                    <h2 class="word-text" id="synonymWordText">trait</h2>
+                                    <p class="word-phonetic" id="synonymWordPhonetic">/treɪt/</p>
+                                    <div class="word-meta">
+                                        <span class="word-pos" id="synonymWordPos">n.</span>
+                                        <span class="word-meaning" id="synonymWordMeaning">特性，特征</span>
+                                        <span class="word-level" id="synonymWordLevel">B2</span>
+                                    </div>
+                                </div>
+
+                                <div class="synonym-question">
+                                    <p class="question-label">
+                                        请从下方选择同义替换词
+                                        <span class="question-hint">（<span id="synonymAnswerCount">0</span>/<span id="synonymTotalAnswer">?</span>个）</span>
+                                    </p>
+                                </div>
+
+                                <div class="synonym-options-grid" id="synonymOptionsGrid">
+                                    <!-- 动态生成选项 -->
+                                </div>
+
+                                <!-- 结果反馈 -->
+                                <div class="feedback-overlay hidden" id="synonymFeedbackOverlay">
+                                    <div class="feedback-content">
+                                        <div class="feedback-icon" id="synonymFeedbackIcon">✓</div>
+                                        <p class="feedback-text" id="synonymFeedbackText">完全正确！</p>
+                                        <div class="correct-answer" id="synonymCorrectAnswer"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 底部操作栏 -->
+                        <div class="learning-actions">
+                            <button class="btn-text" id="synonymSkipBtn">跳过</button>
+                            <button class="btn-primary" id="synonymSubmitBtn">提交答案</button>
+                            <button class="btn-text" id="synonymExitBtn">退出</button>
+                        </div>
+                    </div>
+
+                    <!-- 完成页面 -->
+                    <div class="synonym-completion hidden" id="synonymCompletion">
+                        <div class="completion-content">
+                            <div class="completion-icon">🎉</div>
+                            <h2 class="completion-title">练习完成！</h2>
+                            <div class="stats-summary">
+                                <div class="stat-item">
+                                    <div class="stat-value" id="synonymStatsTotal">0</div>
+                                    <div class="stat-label">练习单词</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="synonymStatsCorrect">0</div>
+                                    <div class="stat-label">完全正确</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="synonymStatsPartial">0</div>
+                                    <div class="stat-label">部分正确</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value" id="synonymStatsAccuracy">0%</div>
+                                    <div class="stat-label">正确率</div>
+                                </div>
+                            </div>
+                            <div class="completion-actions">
+                                <button class="btn-secondary" id="synonymReviewBtn">查看错题</button>
+                                <button class="btn-primary" id="synonymRestartBtn">再来一次</button>
+                                <button class="btn-text" id="synonymBackBtn">返回工坊</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 单词表浏览页面 -->
+            <div class="word-list-screen hidden" id="wordListScreen">
+                <div class="word-list-header">
+                    <div class="word-list-title-section">
+                        <h2 class="word-list-title">
+                            <span class="word-list-icon" id="wordListIcon">📖</span>
+                            <span id="wordListBookName">词书名称</span>
+                        </h2>
+                        <p class="word-list-subtitle">
+                            共 <span id="wordListTotalCount">0</span> 个单词
+                        </p>
+                    </div>
+                    <div class="word-list-actions">
+                        <button class="btn-word-list-action" id="toggleEditModeBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            <span id="editModeText">编辑</span>
+                        </button>
+                        <button class="btn-word-list-action" id="exportWordListBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            <span>导出</span>
+                        </button>
+                        <button class="btn-word-list-action btn-word-list-close" id="closeWordListBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                            <span>关闭</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="word-list-table-wrapper">
+                    <table class="word-list-table" id="wordListTable">
+                        <thead>
+                            <tr>
+                                <th class="word-list-col-edit hidden" id="editColumnHeader">编辑</th>
+                                <th class="word-list-col-index">序号</th>
+                                <th class="word-list-col-word">单词</th>
+                                <th class="word-list-col-phonetic">音标</th>
+                                <th class="word-list-col-meaning">释义</th>
+                                <th class="word-list-col-example">例句</th>
+                            </tr>
+                        </thead>
+                        <tbody id="wordListTableBody">
+                            <!-- 动态生成单词列表 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 加载遮罩 -->
+            <div class="loading-overlay hidden" id="loadingOverlay">
+                <div class="loading-content">
+                    <div class="loading-spinner"></div>
+                    <p class="loading-text" id="loadingText">正在解析文档...</p>
+                    <div class="loading-progress">
+                        <div class="loading-progress-bar" id="loadingProgressBar"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 右侧统计面板（PC端） -->
+        <aside class="stats-panel" id="statsPanel">
+            <div class="stats-header">
+                <h3>今日统计</h3>
+            </div>
+            <div class="stats-content">
+                <div class="stat-card">
+                    <div class="stat-icon">⏱️</div>
+                    <div class="stat-info">
+                        <div class="stat-number" id="todayTime">0</div>
+                        <div class="stat-name">学习时长（分钟）</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📖</div>
+                    <div class="stat-info">
+                        <div class="stat-number" id="todayWords">0</div>
+                        <div class="stat-name">学习单词</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <div class="stat-number" id="todayMastery">0%</div>
+                        <div class="stat-name">掌握率</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">❌</div>
+                    <div class="stat-info">
+                        <div class="stat-number" id="todayWrong">0</div>
+                        <div class="stat-name">错题数</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="review-reminder" id="reviewReminder">
+                <h4>待复习</h4>
+                <div id="reviewBooksList" class="review-books-list">
+                    <!-- 动态生成词书复习列表 -->
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div class="modal hidden" id="settingsModal">
+        <div class="modal-overlay" id="modalOverlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>设置</h3>
+                <button class="btn-icon" id="closeModalBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label class="setting-label">学习模式</label>
+                    <select class="setting-select" id="learningMode">
+                        <option value="mixed">模式①+②交替</option>
+                        <option value="selectOnly">仅看单词选释义</option>
+                        <option value="spellOnly">仅看释义拼单词</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">单词顺序</label>
+                    <select class="setting-select" id="wordOrder">
+                        <option value="sequential">正序（按词书顺序）</option>
+                        <option value="random">乱序（随机记忆）</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">每次学习单词量</label>
+                    <input type="number" class="setting-input" id="wordsPerSession" 
+                           value="20" min="-1" placeholder="输入单词数量（-1为无限）">
+                    <div class="setting-hint">输入-1表示无限制，直到退出为止</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">发音口音</label>
+                    <select class="setting-select" id="voiceAccent">
+                        <option value="en-US" selected>美式英语</option>
+                        <option value="en-GB">英式英语</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">声优选择</label>
+                    <select class="setting-select" id="voiceModel">
+                        <option value="">自动选择（推荐）</option>
+                        <!-- 动态加载可用声优 -->
+                    </select>
+                    <div class="setting-hint">根据上面选择的口音自动推荐最佳声优</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <span>语速设置</span>
+                        <span class="time-value"><span id="voiceRateValue">1.0</span>x</span>
+                    </label>
+                    <input type="range" class="setting-slider" id="voiceRate" 
+                           min="0.5" max="2.0" step="0.1" value="1.0">
+                    <div class="slider-marks">
+                        <span>0.5x（很慢）</span>
+                        <span>1.0x（正常）</span>
+                        <span>1.5x（较快）</span>
+                        <span>2.0x（很快）</span>
+                    </div>
+                    <div class="setting-hint">建议：初学者 0.8x，熟练者 1.2-1.5x</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <span>自动发音</span>
+                        <input type="checkbox" class="setting-checkbox" id="autoSound" checked>
+                    </label>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <span>音效提示</span>
+                        <input type="checkbox" class="setting-checkbox" id="enableSoundEffects" checked>
+                    </label>
+                    <div class="setting-hint">答对/答错时播放音效</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">动画效果类型</label>
+                    <select class="setting-select" id="animationType">
+                        <option value="particles" selected>粒子（撒花）</option>
+                        <option value="ripple">涟漪（波纹）</option>
+                        <option value="fireworks">烟花（爆炸）</option>
+                        <option value="glow">光晕（脉动）</option>
+                        <option value="confetti">彩纸（飘落）</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">动画效果强度</label>
+                    <select class="setting-select" id="animationLevel">
+                        <option value="low">弱</option>
+                        <option value="medium" selected>中</option>
+                        <option value="high">强</option>
+                    </select>
+                </div>
+                
+                <!-- 快捷键设置 -->
+                <div class="setting-group">
+                    <label class="setting-label">选项快捷键设置</label>
+                    <div class="hotkey-grid">
+                        <div class="hotkey-item">
+                            <label>单词选项①</label>
+                            <input type="text" class="hotkey-input" id="hotkey4" maxlength="1" value="4">
+                        </div>
+                        <div class="hotkey-item">
+                            <label>单词选项②</label>
+                            <input type="text" class="hotkey-input" id="hotkey5" maxlength="1" value="5">
+                        </div>
+                        <div class="hotkey-item">
+                            <label>无正确答案</label>
+                            <input type="text" class="hotkey-input" id="hotkey6" maxlength="1" value="6">
+                        </div>
+                        <div class="hotkey-item">
+                            <label>单词选项③</label>
+                            <input type="text" class="hotkey-input" id="hotkey1" maxlength="1" value="1">
+                        </div>
+                        <div class="hotkey-item">
+                            <label>单词选项④</label>
+                            <input type="text" class="hotkey-input" id="hotkey2" maxlength="1" value="2">
+                        </div>
+                        <div class="hotkey-item">
+                            <label>不知道</label>
+                            <input type="text" class="hotkey-input" id="hotkey3" maxlength="1" value="3">
+                        </div>
+                    </div>
+                    <div class="setting-hint">第一行：4-单词①、5-单词②、6-无正确答案；第二行：1-单词③、2-单词④、3-不知道</div>
+                </div>
+                
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <span>自动切换下一题</span>
+                        <input type="checkbox" class="setting-checkbox" id="autoNext" checked>
+                    </label>
+                </div>
+                <div class="setting-group" id="autoNextTimeGroup">
+                    <label class="setting-label">
+                        <span>自动切换时间</span>
+                        <span class="time-value"><span id="autoNextTimeValue">3.0</span>秒</span>
+                    </label>
+                    <input type="range" class="setting-slider" id="autoNextTime" 
+                           min="0" max="10" step="0.1" value="3">
+                    <div class="slider-marks">
+                        <span>0s</span>
+                        <span>2.5s</span>
+                        <span>5s</span>
+                        <span>7.5s</span>
+                        <span>10s</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="resetSettingsBtn">恢复默认</button>
+                <button class="btn-primary" id="saveSettingsBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 词书设置弹窗 -->
+    <div class="modal hidden" id="bookSettingsModal">
+        <div class="modal-overlay" id="bookSettingsOverlay"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3 id="bookSettingsTitle">词书设置</h3>
+                <button class="btn-icon" id="closeBookSettingsBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="book-settings-menu">
+                    <button class="book-settings-item" id="browseWordListBtn">
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                        </svg>
+                        <span>浏览词单</span>
+                    </button>
+                    <button class="book-settings-item" id="changeIconBtn">
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                            <line x1="9" y1="9" x2="9.01" y2="9"/>
+                            <line x1="15" y1="9" x2="15.01" y2="9"/>
+                        </svg>
+                        <span>更改图标</span>
+                    </button>
+                    <button class="book-settings-item" id="renameBookBtn">
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        <span>重命名</span>
+                    </button>
+                    <button class="book-settings-item" id="toggleOrderBtn">
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                        </svg>
+                        <span id="toggleOrderText">设置为乱序</span>
+                    </button>
+                    <button class="book-settings-item" id="addWordsBtn" disabled>
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        <span>添加新词</span>
+                        <span class="badge-dev">开发中</span>
+                    </button>
+                    <button class="book-settings-item" id="exportBookBtn">
+                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>导出词单</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emoji选择器弹窗 -->
+    <div class="modal hidden" id="emojiPickerModal">
+        <div class="modal-overlay" id="emojiPickerOverlay"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>选择图标</h3>
+                <button class="btn-icon" id="closeEmojiPickerBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body emoji-picker-body">
+                <!-- 搜索框 -->
+                <div class="emoji-search-bar">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"/>
+                        <path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    <input type="text" id="emojiSearchInput" class="emoji-search-input" placeholder="搜索图标...">
+                </div>
+                
+                <!-- 分类标签 -->
+                <div class="emoji-categories">
+                    <button class="emoji-category-btn active" data-category="all">全部</button>
+                    <button class="emoji-category-btn" data-category="learning">学习</button>
+                    <button class="emoji-category-btn" data-category="numbers">数字</button>
+                    <button class="emoji-category-btn" data-category="letters">字母</button>
+                    <button class="emoji-category-btn" data-category="math">数学</button>
+                    <button class="emoji-category-btn" data-category="business">商业</button>
+                    <button class="emoji-category-btn" data-category="law">法律</button>
+                    <button class="emoji-category-btn" data-category="medical">医疗</button>
+                    <button class="emoji-category-btn" data-category="tech">科技</button>
+                    <button class="emoji-category-btn" data-category="environment">环境</button>
+                    <button class="emoji-category-btn" data-category="transport">交通</button>
+                    <button class="emoji-category-btn" data-category="media">媒体</button>
+                    <button class="emoji-category-btn" data-category="culture">文化</button>
+                    <button class="emoji-category-btn" data-category="politics">政治</button>
+                    <button class="emoji-category-btn" data-category="nature">自然</button>
+                    <button class="emoji-category-btn" data-category="food">食物</button>
+                    <button class="emoji-category-btn" data-category="activity">活动</button>
+                    <button class="emoji-category-btn" data-category="objects">物品</button>
+                    <button class="emoji-category-btn" data-category="symbols">符号</button>
+                    <button class="emoji-category-btn" data-category="flags">旗帜</button>
+                </div>
+                
+                <!-- Emoji网格 -->
+                <div class="emoji-grid" id="emojiGrid">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 粒子动画容器 -->
+    <canvas id="particleCanvas" class="particle-canvas"></canvas>
+    
+    <!-- 文本选择浮动工具栏 -->
+    <div class="text-selection-toolbar hidden" id="textSelectionToolbar">
+        <button class="toolbar-btn" id="translateBtn" title="翻译">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>
+                <path d="m12 14-2 4m0 0-2 4m2-4 2 4m-2-4h4"/>
+            </svg>
+            翻译
+        </button>
+        <button class="toolbar-btn" id="highlightBtn" title="高亮">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 3v18m0-18 4 4m-4-4-4 4"/>
+            </svg>
+            高亮
+        </button>
+    </div>
+
+    <!-- 移动端底部导航栏 -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+        <button class="mobile-nav-btn" id="mobileToggleSidebar" title="词书列表">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+            <span>词书</span>
+        </button>
+        <button class="mobile-nav-btn mobile-nav-center" id="mobileOpenWorkshop" title="AI工坊">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 16v-4"/>
+                <path d="M12 8h.01"/>
+            </svg>
+            <span>AI工坊</span>
+        </button>
+        <button class="mobile-nav-btn" id="mobileToggleStats" title="今日统计">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>统计</span>
+        </button>
+    </nav>
+
+    <!-- JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="data/cefr-data.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/dictionary-api.js"></script>
+    <script src="js/word-parser.js"></script>
+    <script src="js/app.js"></script>
+    
+    <!-- Service Worker 注册 (PWA支持) -->
+    <script>
+        // 注册 Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(registration => {
+                        console.log('✅ Service Worker 注册成功:', registration.scope);
+                        
+                        // 检查更新
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // 有新版本可用
+                                    if (confirm('发现新版本！点击确定刷新页面以更新。')) {
+                                        newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                        window.location.reload();
+                                    }
+                                }
+                            });
+                        });
+                    })
+                    .catch(error => {
+                        console.log('❌ Service Worker 注册失败:', error);
+                    });
+                
+                // 监听 Service Worker 更新
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        refreshing = true;
+                        window.location.reload();
+                    }
+                });
+            });
+        }
+        
+        // 安装 PWA 提示（可选）
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // 可以在这里显示自定义的安装按钮
+            console.log('💡 可以安装为PWA应用');
+        });
+        
+        // 监听安装成功事件
+        window.addEventListener('appinstalled', () => {
+            console.log('✅ PWA 安装成功');
+            deferredPrompt = null;
+        });
+    </script>
+</body>
+</html>
+

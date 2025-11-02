@@ -1,0 +1,5939 @@
+// ============================================
+// 词忆 - 主应用逻辑
+// ============================================
+
+class WordMemoryApp {
+    constructor() {
+        this.books = []; // 所有词书
+        this.currentBook = null; // 当前选中的词书
+        this.currentSettingsBookId = null; // 当前设置的词书ID
+        this.currentWordIndex = 0;
+        this.currentMode = 'select'; // select 或 spell
+        this.sessionWords = [];
+        this.sessionResults = {
+            correct: 0,
+            wrong: 0,
+            unknown: 0
+        };
+        this.wordResults = []; // 记录每个单词的答题结果（用于异色进度条）
+        this.wordFirstResults = []; // 记录每个单词的初次答题结果（用于上一题标记）
+        this.hintUsedForWords = []; // 记录每个单词是否使用过提示
+        this.lastWordInfo = null; // 记录上一题的单词信息
+        this.settings = Storage.loadSettings();
+        this.hintCount = 3;
+        this.startTime = null;
+        this.autoNextTimer = null;
+        this.capsLockOn = false; // Caps Lock状态
+        this.availableVoices = []; // 可用的声优列表
+        this.speechSynthesisActivated = false; // 【Win11修复】标记speechSynthesis是否已激活
+        this.cefrData = null; // CEFR词汇数据
+        this.sessionStartIndex = 0; // 本次学习开始的索引
+        this.isReviewMode = false; // 是否处于复习模式
+        this.reviewingWrongCount = 0; // 正在复习的错题数量
+        this.isWordListEditMode = false; // 单词表是否处于编辑模式
+        this.currentWordListBookId = null; // 当前浏览的词书ID
+        
+        // AI工坊相关
+        this.selectedKeywords = []; // 选中的关键词
+        this.selectedBooks = []; // 选中的词单
+        this.currentStory = null; // 当前生成的故事
+        this.currentQuestions = []; // 当前题目
+        this.userAnswers = {}; // 用户答案
+        this.keywordInputTimer = null; // 输入计时器
+        
+        // 同义词练习相关
+        this.synonymData = []; // 同义词数据
+        this.synonymWords = []; // 当前练习的单词列表
+        this.synonymCurrentIndex = 0; // 当前题目索引
+        this.synonymCurrentWord = null; // 当前单词
+        this.synonymUserSelections = []; // 用户选择
+        this.synonymResults = []; // 答题结果
+        
+        // Emoji数据
+        this.emojiData = this.initEmojiData();
+        this.currentEmojiCategory = 'all';
+        
+        // 确保音效设置有默认值（兼容旧数据）
+        if (this.settings.enableSoundEffects === undefined) {
+            this.settings.enableSoundEffects = true;
+            Storage.saveSettings(this.settings);
+            console.log('✨ 已为旧数据启用音效开关（默认开启）');
+        }
+        
+        // 初始化音效
+        this.initSoundEffects();
+        
+        this.init();
+    }
+
+    // 初始化
+    init() {
+        this.initTheme();
+        this.initEventListeners();
+        this.loadCEFRData(); // 加载CEFR数据
+        this.migrateOldData(); // 迁移旧数据
+        this.loadBooks(); // 加载词书列表
+        this.updateStats();
+        this.checkReview();
+        this.loadAvailableVoices();
+    }
+
+    // 加载CEFR数据
+    loadCEFRData() {
+        try {
+            // 使用全局变量CEFR_DATA（已在cefr-data.js中定义）
+            if (typeof CEFR_DATA !== 'undefined') {
+                this.cefrData = CEFR_DATA;
+                console.log('CEFR数据加载成功');
+            } else {
+                console.warn('CEFR_DATA未定义，请确保cefr-data.js已正确加载');
+                this.cefrData = null;
+            }
+        } catch (error) {
+            console.error('CEFR数据加载失败:', error);
+            this.cefrData = null;
+        }
+    }
+
+    // 获取单词的CEFR等级
+    getWordCEFRLevel(word) {
+        if (!this.cefrData || !word) return null;
+        
+        const lowerWord = word.toLowerCase();
+        const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+        
+        for (const level of levels) {
+            if (this.cefrData[level] && this.cefrData[level].includes(lowerWord)) {
+                return level;
+            }
+        }
+        
+        return null;
+    }
+
+    // 初始化主题
+    initTheme() {
+        const theme = Storage.loadTheme();
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+
+    // 初始化事件监听
+    initEventListeners() {
+        // 上传按钮
+        document.getElementById('uploadBtn').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        // 文件选择
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        // 拖拽上传
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                this.handleFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+
+        // 使用示例单词
+        document.getElementById('useDemoBtn').addEventListener('click', () => {
+            this.loadDemoWords();
+        });
+
+        // 添加词书
+        document.getElementById('addBookBtn').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        // 下载模板
+        document.getElementById('downloadTemplate').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.downloadTemplate();
+        });
+
+        // 开始学习
+        document.getElementById('startLearningBtn').addEventListener('click', () => {
+            this.startLearning();
+        });
+
+        // 暗黑模式切换
+        document.getElementById('darkModeToggle').addEventListener('click', () => {
+            this.toggleTheme();
+        });
+
+        // 设置按钮
+        document.getElementById('settingsBtn').addEventListener('click', () => {
+            this.openSettings();
+        });
+
+        // 关闭设置
+        document.getElementById('closeModalBtn').addEventListener('click', () => {
+            this.closeSettings();
+        });
+
+        document.getElementById('modalOverlay').addEventListener('click', () => {
+            this.closeSettings();
+        });
+
+        // 保存设置
+        document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+            this.saveSettings();
+        });
+
+        // 恢复默认设置
+        document.getElementById('resetSettingsBtn').addEventListener('click', () => {
+            this.resetSettings();
+        });
+
+        // 学习页面控制
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            this.nextWord();
+        });
+
+        document.getElementById('skipBtn').addEventListener('click', () => {
+            this.skipWord();
+        });
+
+        document.getElementById('exitLearningBtn').addEventListener('click', () => {
+            this.exitLearning();
+        });
+
+        // 发音按钮
+        document.getElementById('soundBtn1').addEventListener('click', () => {
+            this.playSound();
+        });
+
+        document.getElementById('soundBtn2').addEventListener('click', () => {
+            this.playSound();
+        });
+
+        // 拼写模式控制
+        document.getElementById('spellInput').addEventListener('input', (e) => {
+            this.handleSpellInput(e.target.value);
+        });
+
+        document.getElementById('hintBtn').addEventListener('click', () => {
+            this.showHint();
+        });
+
+        document.getElementById('unknownSpellBtn').addEventListener('click', () => {
+            this.skipSpellWord();
+        });
+
+        // 监听Caps Lock状态
+        document.addEventListener('keydown', (e) => {
+            if (e.getModifierState) {
+                this.capsLockOn = e.getModifierState('CapsLock');
+            }
+            
+            // 选择模式快捷键监听
+            if (this.currentMode === 'select' && !document.getElementById('modeSelectMeaning').classList.contains('hidden')) {
+                this.handleHotkeyPress(e);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.getModifierState) {
+                this.capsLockOn = e.getModifierState('CapsLock');
+            }
+        });
+
+        // 完成页面按钮
+        document.getElementById('reviewWrongBtn').addEventListener('click', () => {
+            this.reviewWrongWords();
+        });
+
+        // continueBtn 的事件监听器已在 showCompletion 中动态设置
+        // 因为它可能是"继续学习"或"开启新一轮"
+
+        document.getElementById('backHomeBtn').addEventListener('click', () => {
+            // 保存学习进度后返回首页
+            this.updateBookLearningProgress();
+            this.backToHome();
+        });
+
+        // 词书设置相关事件
+        document.getElementById('closeBookSettingsBtn').addEventListener('click', () => {
+            this.closeBookSettings();
+        });
+
+        document.getElementById('bookSettingsOverlay').addEventListener('click', () => {
+            this.closeBookSettings();
+        });
+
+        document.getElementById('changeIconBtn').addEventListener('click', () => {
+            this.openEmojiPicker();
+        });
+
+        document.getElementById('renameBookBtn').addEventListener('click', () => {
+            this.renameBook();
+        });
+
+        document.getElementById('toggleOrderBtn').addEventListener('click', () => {
+            this.toggleBookOrder();
+        });
+        
+        // Emoji选择器相关事件
+        document.getElementById('closeEmojiPickerBtn').addEventListener('click', () => {
+            this.closeEmojiPicker();
+        });
+        
+        document.getElementById('emojiPickerOverlay').addEventListener('click', () => {
+            this.closeEmojiPicker();
+        });
+        
+        // Emoji分类切换
+        document.querySelectorAll('.emoji-category-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.emoji-category-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.filterEmojisByCategory(btn.dataset.category);
+            });
+        });
+        
+        // Emoji搜索
+        document.getElementById('emojiSearchInput').addEventListener('input', (e) => {
+            this.searchEmojis(e.target.value);
+        });
+
+        document.getElementById('exportBookBtn').addEventListener('click', () => {
+            this.exportBook();
+        });
+
+        // 浏览词单
+        document.getElementById('browseWordListBtn').addEventListener('click', () => {
+            this.showWordList();
+        });
+
+        // 关闭单词表页面
+        document.getElementById('closeWordListBtn').addEventListener('click', () => {
+            this.closeWordList();
+        });
+
+        // 导出单词表（复用导出功能）
+        document.getElementById('exportWordListBtn').addEventListener('click', () => {
+            this.exportBook();
+        });
+
+        // 切换单词表编辑模式
+        document.getElementById('toggleEditModeBtn').addEventListener('click', () => {
+            this.toggleWordListEditMode();
+        });
+
+        // 学习模式中的收藏按钮
+        document.getElementById('favoriteBtn1').addEventListener('click', () => {
+            this.toggleFavorite();
+        });
+
+        document.getElementById('favoriteBtn2').addEventListener('click', () => {
+            this.toggleFavorite();
+        });
+
+        // AI工坊相关事件
+        document.getElementById('aiWorkshopBtn').addEventListener('click', () => {
+            this.openAiWorkshop();
+        });
+
+        document.getElementById('closeAiWorkshopBtn').addEventListener('click', () => {
+            this.closeAiWorkshop();
+        });
+        
+        // 工坊应用卡片点击事件
+        document.querySelectorAll('.workshop-app-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const appName = card.dataset.app;
+                this.openWorkshopApp(appName);
+            });
+        });
+        
+        // 返回工坊按钮
+        document.getElementById('backToWorkshopBtn').addEventListener('click', () => {
+            this.showWorkshopHome();
+        });
+        
+        // 同义词练习事件
+        document.getElementById('synonymFileUpload').addEventListener('click', () => {
+            document.getElementById('synonymFileInput').click();
+        });
+
+        document.getElementById('synonymFileInput').addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                this.handleSynonymFileUpload(e.target.files[0]);
+            }
+        });
+
+        document.getElementById('startSynonymBtn').addEventListener('click', () => {
+            this.startSynonymPractice();
+        });
+
+        document.getElementById('synonymSoundBtn').addEventListener('click', () => {
+            this.playSynonymAudio();
+        });
+
+        document.getElementById('synonymSubmitBtn').addEventListener('click', () => {
+            this.submitSynonymAnswer();
+        });
+
+        document.getElementById('synonymSkipBtn').addEventListener('click', () => {
+            this.skipSynonymWord();
+        });
+
+        document.getElementById('synonymExitBtn').addEventListener('click', () => {
+            this.exitSynonymPractice();
+        });
+
+        document.getElementById('synonymRestartBtn').addEventListener('click', () => {
+            this.restartSynonymPractice();
+        });
+
+        document.getElementById('synonymBackBtn').addEventListener('click', () => {
+            this.showWorkshopHome();
+        });
+        
+        document.getElementById('synonymReviewBtn').addEventListener('click', () => {
+            this.reviewSynonymErrors();
+        });
+
+        document.getElementById('generateStoryBtn').addEventListener('click', () => {
+            this.generateStory();
+        });
+        
+        document.getElementById('useDemoStoryBtn').addEventListener('click', () => {
+            this.useDemoStory();
+        });
+        
+        document.getElementById('autoSelectBtn').addEventListener('click', () => {
+            this.autoSelectKeywords();
+        });
+        
+        document.getElementById('keywordInput').addEventListener('input', (e) => {
+            this.handleKeywordInput(e.target.value);
+        });
+        
+        // Tab切换
+        document.querySelectorAll('.keyword-mode-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                this.switchKeywordMode(tab.dataset.mode);
+            });
+        });
+
+        document.getElementById('regenerateStoryBtn').addEventListener('click', () => {
+            this.generateStory();
+        });
+
+        document.getElementById('showQuestionsBtn').addEventListener('click', () => {
+            this.showQuestions();
+        });
+
+        document.getElementById('backToStoryBtn').addEventListener('click', () => {
+            this.backToStory();
+        });
+
+        document.getElementById('submitAnswersBtn').addEventListener('click', () => {
+            this.submitAnswers();
+        });
+
+        document.getElementById('reviewQuestionsBtn').addEventListener('click', () => {
+            this.reviewQuestions();
+        });
+
+        document.getElementById('newStoryBtn').addEventListener('click', () => {
+            this.newStory();
+        });
+
+        document.getElementById('exitExamBtn').addEventListener('click', () => {
+            this.exitExam();
+        });
+
+        document.getElementById('exitExamBtn2').addEventListener('click', () => {
+            this.exitExam();
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            this.handleKeyboard(e);
+        });
+
+        // 修复拼写模式焦点丢失问题
+        // 1. 窗口获得焦点时，如果在拼写模式，自动聚焦输入框
+        window.addEventListener('focus', () => {
+            this.refocusSpellInput();
+        });
+
+        // 2. 点击拼写卡片区域时，自动聚焦输入框
+        document.addEventListener('click', (e) => {
+            // 检查是否点击了拼写模式的卡片区域
+            const spellMode = document.getElementById('modeSpellWord');
+            if (spellMode && !spellMode.classList.contains('hidden')) {
+                // 如果点击的不是按钮或输入框，则重新聚焦
+                if (!e.target.closest('button') && !e.target.closest('input')) {
+                    this.refocusSpellInput();
+                }
+            }
+        });
+
+        // 移动端底部导航栏
+        const mobileToggleSidebar = document.getElementById('mobileToggleSidebar');
+        const mobileToggleStats = document.getElementById('mobileToggleStats');
+        const mobileOpenWorkshop = document.getElementById('mobileOpenWorkshop');
+        
+        if (mobileToggleSidebar) {
+            mobileToggleSidebar.addEventListener('click', () => {
+                this.toggleMobileSidebar();
+            });
+        }
+        
+        if (mobileToggleStats) {
+            mobileToggleStats.addEventListener('click', () => {
+                this.toggleMobileStats();
+            });
+        }
+        
+        if (mobileOpenWorkshop) {
+            mobileOpenWorkshop.addEventListener('click', () => {
+                this.openAiWorkshop();
+            });
+        }
+    }
+
+    // 处理文件上传
+    async handleFileUpload(file) {
+        this.showLoading('正在解析文档...');
+
+        try {
+            // 模拟进度
+            this.updateLoadingProgress(30);
+
+            const result = await WordParser.parse(file);
+            let words = result.words;
+
+            this.updateLoadingProgress(60);
+
+            // 如果需要补充信息
+            if (result.needsEnrichment) {
+                this.updateLoadingText('正在补充单词信息...');
+                words = await DictionaryAPI.enrichWords(words);
+            }
+
+            this.updateLoadingProgress(100);
+
+            // 提示输入词书名称
+            const bookName = prompt('请输入词书名称：', file.name.replace(/\.\w+$/, ''));
+            if (!bookName) {
+                this.hideLoading();
+                return;
+            }
+
+            // 添加为新词书
+            const newBook = Storage.addBook({
+                name: bookName,
+                words: words
+            });
+
+            // 选中新词书
+            this.currentBook = newBook;
+            Storage.saveCurrentBook(newBook.id);
+
+            setTimeout(() => {
+                this.hideLoading();
+                this.loadBooks(); // 刷新词书列表
+                alert(`词书"${bookName}"已添加成功！\n共${words.length}个单词`);
+            }, 500);
+
+        } catch (error) {
+            console.error('文件处理失败:', error);
+            this.hideLoading();
+            alert('文件解析失败，请检查格式是否正确。支持格式：TXT、CSV、XLSX、DOCX');
+        }
+    }
+
+    // 加载示例单词
+    async loadDemoWords() {
+        this.showLoading('正在加载示例单词...');
+        
+        setTimeout(() => {
+            const demoWords = WordParser.getDemoWords();
+            
+            // 添加为示例词书
+            const newBook = Storage.addBook({
+                name: '示例单词',
+                words: demoWords
+            });
+
+            this.currentBook = newBook;
+            Storage.saveCurrentBook(newBook.id);
+
+            this.hideLoading();
+            this.loadBooks(); // 刷新词书列表
+            alert(`示例词书已加载！\n共${demoWords.length}个单词\n点击"开始学习"按钮开始练习`);
+        }, 1000);
+    }
+
+    // 显示编辑器
+    showEditor() {
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('wordEditorScreen').classList.remove('hidden');
+        this.renderEditorTable();
+    }
+
+    // 渲染编辑器表格
+    renderEditorTable() {
+        const tbody = document.getElementById('editorTableBody');
+        tbody.innerHTML = '';
+
+        this.words.forEach((word, index) => {
+            const tr = document.createElement('tr');
+            const def = word.definitions && word.definitions[0] ? word.definitions[0] : { pos: '', meaning: '' };
+            
+            tr.innerHTML = `
+                <td><strong>${word.word}</strong></td>
+                <td>${word.phonetic || ''}</td>
+                <td>${def.meaning || ''}</td>
+                <td>
+                    <button class="btn-delete" onclick="app.deleteWord(${index})">删除</button>
+                </td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 删除单词
+    deleteWord(index) {
+        if (confirm('确定要删除这个单词吗？')) {
+            this.words.splice(index, 1);
+            Storage.saveWords(this.words);
+            this.renderEditorTable();
+        }
+    }
+
+    // 开始学习
+    startLearning() {
+        if (this.words.length === 0) {
+            alert('请先上传单词列表');
+            return;
+        }
+
+        // 选择本次学习的单词
+        const wordsPerSession = parseInt(this.settings.wordsPerSession);
+        this.sessionWords = this.words.slice(0, Math.min(wordsPerSession, this.words.length));
+        this.currentWordIndex = 0;
+        this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
+        this.hintUsedForWords = []; // 重置提示使用记录
+        this.startTime = Date.now();
+
+        // 切换到学习界面
+        document.getElementById('wordEditorScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.remove('hidden');
+
+        // 显示侧边栏和统计面板
+        document.getElementById('sidebar').classList.remove('collapsed');
+
+        this.showWord();
+    }
+
+    // 显示当前单词
+    showWord() {
+        if (this.currentWordIndex >= this.sessionWords.length) {
+            this.showCompletion();
+            return;
+        }
+
+        const word = this.sessionWords[this.currentWordIndex];
+        
+        // 更新进度
+        this.updateProgress();
+
+        // 决定使用哪种模式
+        const mode = this.decideMode();
+        this.currentMode = mode;
+
+        if (mode === 'select') {
+            this.showSelectMode(word);
+        } else {
+            this.showSpellMode(word);
+        }
+
+        // 更新收藏状态显示
+        this.updateFavoriteDisplay(word.favorite || false);
+
+        // 自动播放发音
+        if (this.settings.autoSound) {
+            setTimeout(() => this.playSound(), 300);
+        }
+    }
+
+    // 决定学习模式
+    decideMode() {
+        const mode = this.settings.learningMode;
+        
+        if (mode === 'selectOnly') return 'select';
+        if (mode === 'spellOnly') return 'spell';
+        
+        // 混合模式：交替
+        return this.currentWordIndex % 2 === 0 ? 'select' : 'spell';
+    }
+
+    // 显示选择模式
+    showSelectMode(word) {
+        document.getElementById('modeSelectMeaning').classList.remove('hidden');
+        document.getElementById('modeSpellWord').classList.add('hidden');
+
+        const def = word.definitions[0];
+        document.getElementById('wordText').textContent = word.word;
+        document.getElementById('wordPhonetic').textContent = word.phonetic || '';
+        
+        // 显示CEFR等级而非词性
+        const cefrLevel = this.getWordCEFRLevel(word.word);
+        const posElement = document.getElementById('wordPos');
+        if (cefrLevel) {
+            posElement.textContent = cefrLevel;
+            posElement.className = `word-pos cefr-${cefrLevel.toLowerCase()}`;
+            posElement.style.display = 'inline-block';
+        } else {
+            posElement.textContent = '';
+            posElement.className = 'word-pos';
+            posElement.style.display = 'none'; // 没有CEFR等级则隐藏
+        }
+
+        // 生成选项
+        this.generateOptions(word);
+        
+        // 显示上次答题记录
+        this.showLastWordBadge('lastWordBadge1');
+    }
+
+    // 生成选项
+    generateOptions(word) {
+        const container = document.getElementById('optionsContainer');
+        container.innerHTML = '';
+
+        const correctAnswer = word.definitions[0].meaning;
+        
+        // 使用当前词书的所有单词作为干扰项来源
+        const allWords = this.currentBook ? this.currentBook.words : this.sessionWords;
+        
+        // 20%概率让"无正确答案"成为正确答案
+        const noCorrectAnswerIsCorrect = Math.random() < 0.2;
+        
+        let options, allOptions, actualCorrectAnswer;
+        
+        if (noCorrectAnswerIsCorrect) {
+            // "无正确答案"是正确答案：生成4个干扰项（不包括真实答案）
+            const distractors = DictionaryAPI.getDistractors(word, allWords, 4);
+            options = [
+                ...distractors,
+                '无正确答案',
+                '不知道'
+            ];
+            
+            // 打乱前4个选项（4个干扰项）
+            const firstFour = this.shuffleArray(options.slice(0, 4));
+            allOptions = [...firstFour, '无正确答案', '不知道'];
+            actualCorrectAnswer = '无正确答案';
+        } else {
+            // 正常情况：正确答案+3个干扰项
+            const distractors = DictionaryAPI.getDistractors(word, allWords, 3);
+            options = [
+                correctAnswer,
+                ...distractors,
+                '无正确答案',
+                '不知道'
+            ];
+            
+            // 打乱前4个选项
+            const firstFour = this.shuffleArray(options.slice(0, 4));
+            allOptions = [...firstFour, '无正确答案', '不知道'];
+            actualCorrectAnswer = correctAnswer;
+        }
+
+        // 按照指定顺序排列：4,5,6 / 1,2,3
+        const orderedOptions = [
+            allOptions[0], // 单词1 -> 快捷键4
+            allOptions[1], // 单词2 -> 快捷键5
+            allOptions[4], // "无正确答案" -> 快捷键6
+            allOptions[2], // 单词3 -> 快捷键1
+            allOptions[3], // 单词4 -> 快捷键2
+            allOptions[5]  // "不知道" -> 快捷键3
+        ];
+        
+        const hotkeys = this.settings.hotkeys || {
+            option1: '1', option2: '2', option3: '3',
+            option4: '4', option5: '5', option6: '6'
+        };
+        const hotkeyArray = [
+            hotkeys.option4, hotkeys.option5, hotkeys.option6,
+            hotkeys.option1, hotkeys.option2, hotkeys.option3
+        ];
+
+        orderedOptions.forEach((option, index) => {
+            const btn = document.createElement('button');
+            btn.className = 'option-btn';
+            btn.dataset.hotkey = hotkeyArray[index];
+            btn.dataset.optionIndex = index;
+            btn.dataset.option = option; // 存储原始选项文本，用于准确匹配
+            
+            // 原始索引（在allOptions中的位置）
+            const originalIndex = allOptions.indexOf(option);
+            
+            // 将换行符转换为<br>标签以支持多行显示
+            const optionText = option.replace(/\n/g, '<br>');
+            
+            // 为前4个选项（正确答案+干扰项）显示完整释义
+            if (originalIndex < 4) {
+                btn.innerHTML = `
+                    <div class="option-content">
+                        <span class="hotkey-hint">${hotkeyArray[index]}</span>
+                        <span class="option-text">${optionText}</span>
+                    </div>
+                `;
+            } else {
+                // "无正确答案"和"不知道"添加英文提示
+                const specialPos = option === '无正确答案' ? 'No answer' : 'No idea';
+                btn.innerHTML = `
+                    <div class="option-content">
+                        <span class="hotkey-hint">${hotkeyArray[index]}</span>
+                        <span class="option-text">${option}</span>
+                        <span class="option-pos">${specialPos}</span>
+                    </div>
+                `;
+            }
+            
+            btn.onclick = () => this.selectOption(option, actualCorrectAnswer);
+            container.appendChild(btn);
+        });
+        
+        // 调整选项文本大小以保持一致高度
+        this.adjustOptionTextSizes();
+    }
+
+    // 调整选项文本大小以保持一致高度
+    adjustOptionTextSizes() {
+        const buttons = document.querySelectorAll('.option-btn');
+        if (buttons.length === 0) return;
+        
+        // 等待DOM渲染完成，增加延迟确保布局稳定
+        setTimeout(() => {
+            const maxHeight = 120; // 固定最大高度（与CSS中的max-height保持一致）
+            const minFontSize = 0.7; // 最小字体缩放比例（70%，即-30%）
+            
+            buttons.forEach(btn => {
+                const optionText = btn.querySelector('.option-text');
+                if (!optionText) return;
+                
+                // 重置样式，确保从原始状态开始
+                optionText.style.fontSize = '1rem';
+                optionText.style.overflow = 'visible';
+                optionText.style.textOverflow = 'clip';
+                optionText.style.display = 'block';
+                optionText.style.webkitLineClamp = 'unset';
+                optionText.style.webkitBoxOrient = 'unset';
+                
+                // 强制重新计算布局
+                void btn.offsetHeight;
+                
+                let currentHeight = btn.offsetHeight;
+                let fontSize = 1.0; // 初始字体大小比例
+                
+                // 如果高度超过最大高度，逐步减小字体
+                while (currentHeight > maxHeight && fontSize > minFontSize) {
+                    fontSize -= 0.05; // 每次减少5%
+                    optionText.style.fontSize = `${fontSize}rem`;
+                    // 强制重新计算
+                    void btn.offsetHeight;
+                    currentHeight = btn.offsetHeight;
+                }
+                
+                // 如果减到最小字体后仍然太高，使用省略号
+                if (currentHeight > maxHeight) {
+                    optionText.style.overflow = 'hidden';
+                    optionText.style.textOverflow = 'ellipsis';
+                    optionText.style.display = '-webkit-box';
+                    optionText.style.webkitLineClamp = '3'; // 最多显示3行
+                    optionText.style.webkitBoxOrient = 'vertical';
+                    optionText.style.lineHeight = '1.4';
+                }
+            });
+        }, 50); // 增加到50ms延迟
+    }
+
+    // 选择选项
+    selectOption(selected, correct) {
+        const buttons = document.querySelectorAll('.option-btn');
+        
+        const isCorrect = selected === correct;
+        const isUnknown = selected === '不知道';
+
+        // 记录当前单词的答题结果
+        if (isCorrect) {
+            // 答对了，禁用所有按钮
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                // 使用dataset.option准确匹配，避免textContent的换行符问题
+                const btnOption = btn.dataset.option;
+                if (btnOption === correct) {
+                    btn.classList.add('correct');
+                }
+            });
+            
+            // 如果是首次答题，记录首次结果
+            if (!this.wordFirstResults[this.currentWordIndex]) {
+                this.wordFirstResults[this.currentWordIndex] = 'correct';
+            }
+            
+            this.sessionResults.correct++;
+            this.wordResults[this.currentWordIndex] = 'correct';
+            this.playAnimation(true);
+            
+            // 播放答对音效
+            this.playCorrectSound();
+            
+            // 答对才允许切换
+            if (this.settings.autoNext) {
+                document.getElementById('nextBtn').disabled = false;
+                const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+                if (autoNextTime > 0) {
+                    this.autoNextTimer = setTimeout(() => {
+                        this.nextWord();
+                    }, autoNextTime * 1000);
+                }
+            } else {
+                document.getElementById('nextBtn').disabled = false;
+            }
+        } else if (isUnknown) {
+            // 不知道，禁用所有按钮
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                // 使用dataset.option准确匹配，避免textContent的换行符问题
+                const btnOption = btn.dataset.option;
+                if (btnOption === correct) {
+                    btn.classList.add('correct');
+                }
+            });
+            
+            // 如果是首次答题，记录首次结果
+            if (!this.wordFirstResults[this.currentWordIndex]) {
+                this.wordFirstResults[this.currentWordIndex] = 'unknown';
+                // 实时更新错题到词书并更新待复习数量
+                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+            }
+            
+            this.sessionResults.unknown++;
+            this.wordResults[this.currentWordIndex] = 'unknown';
+            
+            // 播放答错音效（不知道也算错）
+            this.playWrongSound();
+            
+            // "不知道"也允许切换
+            if (this.settings.autoNext) {
+                document.getElementById('nextBtn').disabled = false;
+                const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+                if (autoNextTime > 0) {
+                    this.autoNextTimer = setTimeout(() => {
+                        this.nextWord();
+                    }, autoNextTime * 1000);
+                }
+            } else {
+                document.getElementById('nextBtn').disabled = false;
+            }
+        } else {
+            // 答错了，只标记错误选项，其他选项可以继续选择
+            buttons.forEach(btn => {
+                // 使用dataset.option准确匹配，避免textContent的换行符问题
+                const btnOption = btn.dataset.option;
+                if (btnOption === selected) {
+                    btn.classList.add('wrong');
+                    btn.disabled = true; // 只禁用错误的选项
+                }
+            });
+            
+            // 如果是首次答题，记录首次结果
+            if (!this.wordFirstResults[this.currentWordIndex]) {
+                this.wordFirstResults[this.currentWordIndex] = 'wrong';
+                // 实时更新错题到词书并更新待复习数量
+                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+            }
+            
+            this.sessionResults.wrong++;
+            this.wordResults[this.currentWordIndex] = 'wrong';
+            this.playAnimation(false);
+            
+            // 播放答错音效
+            this.playWrongSound();
+            
+            // ❌ 答错不允许切换，禁用"下一题"按钮
+            document.getElementById('nextBtn').disabled = true;
+            // 清除自动切换计时器
+            if (this.autoNextTimer) {
+                clearTimeout(this.autoNextTimer);
+                this.autoNextTimer = null;
+            }
+        }
+    }
+
+    // 计算两个字符串的相似度（0-1之间）
+    calculateSimilarity(str1, str2) {
+        const s1 = str1.toLowerCase();
+        const s2 = str2.toLowerCase();
+        
+        // 完全相同
+        if (s1 === s2) return 1;
+        
+        // 使用Levenshtein距离计算相似度
+        const len1 = s1.length;
+        const len2 = s2.length;
+        const matrix = Array(len1 + 1).fill(null).map(() => Array(len2 + 1).fill(0));
+        
+        for (let i = 0; i <= len1; i++) matrix[i][0] = i;
+        for (let j = 0; j <= len2; j++) matrix[0][j] = j;
+        
+        for (let i = 1; i <= len1; i++) {
+            for (let j = 1; j <= len2; j++) {
+                const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                );
+            }
+        }
+        
+        const distance = matrix[len1][len2];
+        const maxLen = Math.max(len1, len2);
+        return maxLen === 0 ? 1 : 1 - (distance / maxLen);
+    }
+
+    // 获取单词的词干（简单版词形还原）
+    getWordStem(word) {
+        const lower = word.toLowerCase();
+        
+        // 常见的后缀变化
+        const suffixes = [
+            'ing', 'ed', 'es', 's', 'ly', 'er', 'est', 'tion', 'ment', 'ness', 'ity', 'able', 'ible', 'al', 'ful', 'less', 'ous', 'ive', 'y'
+        ];
+        
+        // 尝试移除后缀
+        for (const suffix of suffixes) {
+            if (lower.endsWith(suffix) && lower.length > suffix.length + 2) {
+                return lower.slice(0, -suffix.length);
+            }
+        }
+        
+        return lower;
+    }
+
+    // 检查单词是否应该被隐藏（用于例句处理）
+    shouldHideWord(targetWord, exampleWord) {
+        const target = targetWord.toLowerCase();
+        const example = exampleWord.toLowerCase();
+        
+        // 1. 完全匹配
+        if (target === example) return true;
+        
+        // 2. 词干匹配（词形变化）
+        const targetStem = this.getWordStem(target);
+        const exampleStem = this.getWordStem(example);
+        if (targetStem === exampleStem && targetStem.length >= 3) return true;
+        
+        // 3. 相似度匹配（>80%）
+        const similarity = this.calculateSimilarity(target, example);
+        if (similarity > 0.8) return true;
+        
+        return false;
+    }
+
+    // 显示拼写模式
+    showSpellMode(word) {
+        document.getElementById('modeSelectMeaning').classList.add('hidden');
+        document.getElementById('modeSpellWord').classList.remove('hidden');
+
+        const def = word.definitions[0];
+        
+        // 隐藏词性元素（词性已整合到释义中）
+        const posTextElement = document.getElementById('meaningPartOfSpeech');
+        posTextElement.textContent = '';
+        posTextElement.style.display = 'none';
+        
+        // 显示CEFR等级标签
+        const cefrLevel = this.getWordCEFRLevel(word.word);
+        const posElement = document.getElementById('meaningPos');
+        if (cefrLevel) {
+            posElement.textContent = cefrLevel;
+            posElement.className = `meaning-pos cefr-${cefrLevel.toLowerCase()}`;
+            posElement.style.display = 'inline-block';
+        } else {
+            posElement.textContent = '';
+            posElement.className = 'meaning-pos';
+            posElement.style.display = 'none';
+        }
+        
+        // 显示完整释义，将换行符替换为空格（一行显示）
+        const meaningText = (def.meaning || '').replace(/\n/g, '  ');
+        document.getElementById('meaningText').textContent = meaningText;
+        
+        // 处理例句：将单词及其变形替换为下划线（避免泄露答案）
+        let exampleText = def.example || '';
+        if (exampleText) {
+            // 分词处理（保留标点）
+            exampleText = exampleText.replace(/\b[\w']+\b/g, (match) => {
+                // 检查是否需要隐藏这个单词
+                if (this.shouldHideWord(word.word, match)) {
+                    return '_'.repeat(match.length);
+                }
+                return match;
+            });
+        }
+        document.getElementById('exampleSentence').textContent = exampleText;
+
+        // 生成字母槽
+        this.generateLetterSlots(word.word);
+
+        // 清空输入
+        const input = document.getElementById('spellInput');
+        input.value = '';
+        input.focus();
+        
+        // 更新"不知道"按钮的快捷键显示
+        const unknownHotkey = this.settings.hotkeys?.option3 || '3';
+        const unknownHotkeyElement = document.getElementById('unknownSpellHotkey');
+        if (unknownHotkeyElement) {
+            unknownHotkeyElement.textContent = unknownHotkey.toUpperCase();
+        }
+        
+        // 显示上次答题记录
+        this.showLastWordBadge('lastWordBadge2');
+    }
+
+    // 生成字母槽
+    generateLetterSlots(word) {
+        const container = document.getElementById('letterSlots');
+        container.innerHTML = '';
+
+        for (let i = 0; i < word.length; i++) {
+            const slot = document.createElement('div');
+            slot.className = 'letter-slot';
+            slot.dataset.index = i;
+            slot.dataset.letter = word[i].toLowerCase();
+            container.appendChild(slot);
+        }
+
+        // 激活第一个槽
+        container.children[0].classList.add('active');
+    }
+
+    // 处理拼写输入
+    handleSpellInput(value) {
+        const word = this.sessionWords[this.currentWordIndex].word;
+        const slots = document.querySelectorAll('.letter-slot');
+        
+        // 根据Caps Lock状态处理输入
+        let letters;
+        if (this.capsLockOn) {
+            // Caps Lock开启，保持大写
+            letters = value.toUpperCase().split('');
+        } else {
+            // Caps Lock关闭，转为小写
+            letters = value.toLowerCase().split('');
+        }
+
+        // 清空所有槽
+        slots.forEach(slot => {
+            slot.textContent = '';
+            slot.classList.remove('filled', 'wrong', 'correct', 'active');
+        });
+
+        let hasWrongLetter = false; // 检测是否有错误字母
+
+        // 填充字母
+        letters.forEach((letter, index) => {
+            if (index < slots.length) {
+                const slot = slots[index];
+                // 显示用户输入的大小写
+                slot.textContent = letter;
+                slot.classList.add('filled');
+
+                const correctLetter = slot.dataset.letter;
+                // 不区分大小写比较
+                if (letter.toLowerCase() === correctLetter.toLowerCase()) {
+                    slot.classList.add('correct');
+                } else {
+                    slot.classList.add('wrong');
+                    hasWrongLetter = true; // 标记有错误
+                }
+            }
+        });
+
+        // 激活当前位置
+        if (letters.length < slots.length) {
+            slots[letters.length].classList.add('active');
+        }
+
+        // 如果有错误字母，标记为答错（但不播放动画、不更新进度条）
+        if (hasWrongLetter) {
+            // 如果是首次答题，记录首次结果并播放音效
+            if (!this.wordFirstResults[this.currentWordIndex]) {
+                this.wordFirstResults[this.currentWordIndex] = 'wrong';
+                this.sessionResults.wrong++;
+                this.playWrongSound(); // 首次答错时播放音效
+                // 实时更新错题到词书并更新待复习数量
+                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+            }
+            
+            // 禁用"下一题"按钮
+            document.getElementById('nextBtn').disabled = true;
+            // 清除自动切换计时器
+            if (this.autoNextTimer) {
+                clearTimeout(this.autoNextTimer);
+                this.autoNextTimer = null;
+            }
+            
+            // 不清空输入，允许用户继续编辑（退格修改）
+            return; // 不继续处理
+        }
+
+        // 自动提交（如果全部填完且没有错误）
+        if (letters.length === word.length && !hasWrongLetter) {
+            setTimeout(() => {
+                this.submitSpell();
+            }, 300);
+        }
+    }
+
+    // 提交拼写
+    submitSpell() {
+        const word = this.sessionWords[this.currentWordIndex];
+        const input = document.getElementById('spellInput');
+        const userAnswer = input.value.toLowerCase().trim();
+        const correctAnswer = word.word.toLowerCase();
+        
+        // 提交后重新聚焦（避免焦点丢失）
+        setTimeout(() => this.refocusSpellInput(), 100);
+
+        const isCorrect = userAnswer === correctAnswer;
+        
+        // 检查是否使用过提示
+        const usedHint = this.hintUsedForWords[this.currentWordIndex];
+
+        // 只有答对时才更新结果和播放动画
+        if (isCorrect) {
+            // 如果使用过提示，即使答对也记录为unknown
+            if (usedHint) {
+                console.log(`⚠️ 使用过提示，记录为unknown`);
+                // 如果是首次答题，记录首次结果
+                if (!this.wordFirstResults[this.currentWordIndex]) {
+                    this.wordFirstResults[this.currentWordIndex] = 'unknown';
+                    this.sessionResults.unknown++;
+                    // 实时更新错题到词书并更新待复习数量
+                    this.updateWrongWordToBook(word);
+                }
+                this.wordResults[this.currentWordIndex] = 'unknown';
+            } else {
+                // 没有使用提示，正常记录为correct
+                // 如果是首次答题，记录首次结果
+                if (!this.wordFirstResults[this.currentWordIndex]) {
+                    this.wordFirstResults[this.currentWordIndex] = 'correct';
+                    this.sessionResults.correct++;
+                }
+                // 更新进度条（只在答对时）
+                this.wordResults[this.currentWordIndex] = this.wordFirstResults[this.currentWordIndex];
+            }
+            
+            // 播放答对动画和音效
+            this.playAnimation(true);
+            this.playCorrectSound();
+            
+            // 允许切换到下一题
+            if (this.settings.autoNext) {
+                document.getElementById('nextBtn').disabled = false;
+                const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+                if (autoNextTime > 0) {
+                    this.autoNextTimer = setTimeout(() => {
+                        this.nextWord();
+                    }, autoNextTime * 1000);
+                }
+            } else {
+                document.getElementById('nextBtn').disabled = false;
+            }
+        }
+        // 注意：答错的情况已在handleSpellInput中处理，这里不需要else分支
+    }
+
+    // 显示提示（无次数限制，但使用提示后将记录为unknown）
+    showHint() {
+        const word = this.sessionWords[this.currentWordIndex].word;
+        const input = document.getElementById('spellInput');
+        const currentInput = input.value.toLowerCase();
+
+        // 提示下一个字母
+        if (currentInput.length < word.length) {
+            const nextLetter = word[currentInput.length];
+            input.value = currentInput + nextLetter;
+            this.handleSpellInput(input.value);
+            
+            // 标记当前单词使用了提示
+            this.hintUsedForWords[this.currentWordIndex] = true;
+            console.log(`💡 使用了提示，当前单词将被记录为unknown`);
+            
+            // 重新聚焦输入框，并将光标移到末尾
+            setTimeout(() => {
+                input.focus();
+                // 设置光标位置到输入框末尾，确保后续输入追加而非插入
+                input.setSelectionRange(input.value.length, input.value.length);
+            }, 10);
+        }
+    }
+
+    // 拼写模式：不知道
+    skipSpellWord() {
+        // 如果是首次答题，记录首次结果
+        if (!this.wordFirstResults[this.currentWordIndex]) {
+            this.wordFirstResults[this.currentWordIndex] = 'unknown';
+            // 实时更新错题到词书并更新待复习数量
+            this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+        }
+        
+        this.sessionResults.unknown++;
+        this.wordResults[this.currentWordIndex] = 'unknown';
+        
+        // 播放答错音效（不知道也算错）
+        this.playWrongSound();
+        
+        // "不知道"允许切换到下一题
+        if (this.settings.autoNext) {
+            document.getElementById('nextBtn').disabled = false;
+            const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+            if (autoNextTime > 0) {
+                this.autoNextTimer = setTimeout(() => {
+                    this.nextWord();
+                }, autoNextTime * 1000);
+            }
+        } else {
+            document.getElementById('nextBtn').disabled = false;
+        }
+        
+        // 重新聚焦输入框（避免焦点丢失）
+        setTimeout(() => this.refocusSpellInput(), 100);
+    }
+
+    // 处理快捷键按下
+    handleHotkeyPress(e) {
+        const key = e.key;
+        const hotkeys = this.settings.hotkeys || {
+            option1: '1', option2: '2', option3: '3',
+            option4: '4', option5: '5', option6: '6'
+        };
+
+        // 查找对应的选项按钮
+        const buttons = document.querySelectorAll('.option-btn');
+        buttons.forEach(btn => {
+            if (btn.dataset.hotkey === key && !btn.disabled) {
+                e.preventDefault();
+                btn.click();
+            }
+        });
+    }
+
+    // 显示反馈
+    showFeedback(isCorrect, message, detail = '') {
+        const overlay = document.getElementById('feedbackOverlay');
+        const icon = document.getElementById('feedbackIcon');
+        const text = document.getElementById('feedbackText');
+        const answer = document.getElementById('correctAnswer');
+
+        icon.textContent = isCorrect ? '✓' : '✗';
+        text.textContent = message;
+        answer.textContent = detail;
+
+        overlay.classList.remove('hidden');
+
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+        }, 2500);
+    }
+
+    // 下一个单词
+    nextWord() {
+        // 清除自动下一题计时器
+        if (this.autoNextTimer) {
+            clearTimeout(this.autoNextTimer);
+            this.autoNextTimer = null;
+        }
+
+        // 保存当前单词信息作为上一题记录（使用首次答题结果）
+        if (this.sessionWords[this.currentWordIndex]) {
+            const currentWord = this.sessionWords[this.currentWordIndex];
+            const currentFirstResult = this.wordFirstResults[this.currentWordIndex];
+            this.lastWordInfo = {
+                word: currentWord.word,
+                pos: currentWord.definitions[0].pos,
+                meaning: currentWord.definitions[0].meaning,
+                result: currentFirstResult // 'correct', 'wrong', 'unknown' - 使用首次结果
+            };
+        }
+
+        document.getElementById('nextBtn').disabled = true;
+        this.currentWordIndex++;
+        this.showWord();
+    }
+
+    // 跳过单词
+    skipWord() {
+        this.sessionResults.unknown++;
+        this.nextWord();
+    }
+
+    // 更新进度
+    updateProgress() {
+        const current = this.currentWordIndex + 1;
+        const total = this.sessionWords.length;
+
+        document.getElementById('currentIndex').textContent = current;
+        document.getElementById('totalWords').textContent = total;
+
+        // 计算正确率
+        const attempted = this.sessionResults.correct + this.sessionResults.wrong;
+        const accuracy = attempted > 0 ? Math.round((this.sessionResults.correct / attempted) * 100) : 0;
+        document.getElementById('accuracy').textContent = `${accuracy}%`;
+
+        // 更新异色进度条
+        this.updateColoredProgress();
+
+        // 实时更新词书列表中的进度
+        this.updateBookProgress();
+    }
+
+    // 更新异色进度条
+    updateColoredProgress() {
+        const track = document.getElementById('progressTrack');
+        const total = this.sessionWords.length;
+        const segmentWidth = 100 / total; // 每个单词占的百分比
+
+        // 清空进度条
+        track.innerHTML = '';
+
+        // 创建已答题的进度段
+        for (let i = 0; i < this.currentWordIndex; i++) {
+            const segment = document.createElement('div');
+            segment.className = 'progress-segment';
+            segment.style.width = `${segmentWidth}%`;
+            
+            // 根据首次答题结果设置颜色（使用首次结果，反映真实的答题情况）
+            if (this.wordFirstResults && this.wordFirstResults[i]) {
+                segment.classList.add(this.wordFirstResults[i]); // 'correct', 'wrong', 或 'unknown'
+            }
+            
+            track.appendChild(segment);
+        }
+
+        // 添加当前正在答的单词（高亮）
+        if (this.currentWordIndex < total) {
+            const currentSegment = document.createElement('div');
+            currentSegment.className = 'progress-segment current';
+            currentSegment.style.width = `${segmentWidth}%`;
+            track.appendChild(currentSegment);
+        }
+
+        // 添加未答的单词（灰色）
+        for (let i = this.currentWordIndex + 1; i < total; i++) {
+            const segment = document.createElement('div');
+            segment.className = 'progress-segment pending';
+            segment.style.width = `${segmentWidth}%`;
+            track.appendChild(segment);
+        }
+    }
+
+    // 实时更新词书进度（每答完一题后调用）
+    updateBookProgress() {
+        if (this.currentBook) {
+            // 实时进度 = 本次开始索引 + 当前已答题数（包含答对和答错）
+            // 这样用户可以实时看到学习进度
+            const newIndex = this.sessionStartIndex + this.currentWordIndex + 1;
+            
+            Storage.updateBookProgress(this.currentBook.id, { 
+                currentIndex: newIndex 
+            });
+            // 重新渲染词书列表以显示更新
+            this.loadBooks();
+        }
+    }
+
+    // 实时更新错题到词书（答错时立即调用）
+    updateWrongWordToBook(word) {
+        if (!this.currentBook || !word) return;
+
+        const book = Storage.getBook(this.currentBook.id);
+        if (!book) return;
+
+        const existingWrong = book.progress.wrong || [];
+        
+        // 检查是否已存在
+        const existingIndex = existingWrong.findIndex(w => w.word === word.word);
+        
+        if (existingIndex >= 0) {
+            // 更新已存在的错题
+            existingWrong[existingIndex] = {
+                ...existingWrong[existingIndex],
+                wrongAt: new Date().toISOString(),
+                reviewCount: (existingWrong[existingIndex].reviewCount || 0)
+            };
+            console.log(`❌ 答错单词 "${word.word}" (已存在，更新时间)`);
+        } else {
+            // 添加新错题
+            existingWrong.push({
+                ...word,
+                wrongAt: new Date().toISOString(),
+                reviewCount: 0
+            });
+            console.log(`❌ 答错单词 "${word.word}" (新增)，当前错题总数: ${existingWrong.length}`);
+        }
+
+        // 保存更新后的错题列表
+        Storage.updateBookProgress(this.currentBook.id, { wrong: existingWrong });
+        
+        // 重新加载词书数据（确保checkReview能获取最新数据）
+        this.books = Storage.loadBooks();
+        
+        // 实时更新右侧待复习单词数量
+        this.checkReview();
+        
+        // 实时更新完成页面的复习按钮
+        const reviewBtn = document.getElementById('reviewWrongBtn');
+        if (reviewBtn && existingWrong.length > 0) {
+            reviewBtn.textContent = `复习错题 (${existingWrong.length})`;
+        }
+    }
+
+    // 显示完成页面
+    showCompletion() {
+        document.getElementById('learningScreen').classList.add('hidden');
+        document.getElementById('completionScreen').classList.remove('hidden');
+
+        // 更新统计
+        const total = this.sessionResults.correct + this.sessionResults.wrong + this.sessionResults.unknown;
+        const accuracy = total > 0 ? Math.round((this.sessionResults.correct / total) * 100) : 0;
+
+        document.getElementById('statsTotal').textContent = total;
+        document.getElementById('statsCorrect').textContent = this.sessionResults.correct;
+        document.getElementById('statsWrong').textContent = this.sessionResults.wrong;
+        document.getElementById('statsAccuracy').textContent = `${accuracy}%`;
+
+        // 保存统计数据
+        const elapsed = Math.round((Date.now() - this.startTime) / 60000); // 分钟
+        Storage.updateStats({
+            time: Storage.loadStats().time + elapsed,
+            words: Storage.loadStats().words + total,
+            correct: Storage.loadStats().correct + this.sessionResults.correct,
+            wrong: Storage.loadStats().wrong + this.sessionResults.wrong
+        });
+
+        // 检测是否完成整本词书
+        let bookCompleted = false;
+        if (this.currentBook) {
+            const book = Storage.getBook(this.currentBook.id);
+            if (book) {
+                const totalWords = book.words.length;
+                const currentIndex = book.progress.currentIndex;
+                bookCompleted = currentIndex >= totalWords;
+                
+                console.log(`📊 完成检测 - 当前进度: ${currentIndex}/${totalWords}, 完成: ${bookCompleted}`);
+            }
+        }
+
+        // 根据是否完成整本词书显示不同的内容
+        const completionTitle = document.querySelector('.completion-title');
+        const completionIcon = document.querySelector('.completion-icon');
+        const continueBtn = document.getElementById('continueBtn');
+        
+        if (bookCompleted) {
+            completionIcon.textContent = '🎊';
+            completionTitle.textContent = '词书已学完！';
+            continueBtn.textContent = '开启新一轮';
+            continueBtn.onclick = () => this.startNewRound();
+        } else {
+            completionIcon.textContent = '🎉';
+            completionTitle.textContent = '恭喜完成学习！';
+            continueBtn.textContent = '继续学习';
+            continueBtn.onclick = () => this.continueLearning();
+        }
+
+        // 更新错题按钮显示（错题已经在答题时实时添加了）
+        if (this.currentBook) {
+            // 重新获取最新的词书数据
+            const book = Storage.getBook(this.currentBook.id);
+            if (book) {
+                const existingWrong = book.progress.wrong || [];
+                
+                console.log(`📊 完成页面 - 词书 "${book.name}" 错题数: ${existingWrong.length}`);
+                
+                // 根据错题数量显示/隐藏复习按钮
+                const reviewBtn = document.getElementById('reviewWrongBtn');
+                if (existingWrong.length > 0) {
+                    reviewBtn.style.display = 'inline-block';
+                    reviewBtn.textContent = `复习错题 (${existingWrong.length})`;
+                } else {
+                    reviewBtn.style.display = 'none';
+                }
+            }
+        } else {
+            // 如果没有词书，隐藏复习按钮
+            document.getElementById('reviewWrongBtn').style.display = 'none';
+        }
+
+        this.updateStats();
+        
+        // 重新加载词书数据（确保checkReview能获取最新数据）
+        this.books = Storage.loadBooks();
+        
+        // 实时更新右侧待复习单词数量
+        this.checkReview();
+    }
+
+    // 复习错题
+    reviewWrongWords() {
+        if (!this.currentBook) {
+            alert('请先选择词书');
+            return;
+        }
+
+        const book = Storage.getBook(this.currentBook.id);
+        if (!book) {
+            alert('词书不存在');
+            return;
+        }
+
+        const wrongWords = book.progress.wrong || [];
+        if (wrongWords.length === 0) {
+            alert('本次学习没有错题！👏');
+            return;
+        }
+
+        // 保存当前进度（保持不变，因为已经在学习中实时更新了）
+        // 从进度中减去错题数量（因为错题还没真正掌握）
+        const currentProgress = book.progress.currentIndex || 0;
+        const newProgress = Math.max(0, currentProgress - wrongWords.length);
+        Storage.updateBookProgress(this.currentBook.id, { 
+            currentIndex: newProgress
+        });
+        this.loadBooks(); // 刷新显示
+
+        // 使用错题列表开始新一轮学习（错题已经包含 originalIndex）
+        this.sessionWords = wrongWords;
+        this.currentWordIndex = 0;
+        this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
+        this.wordResults = [];
+        this.wordFirstResults = [];
+        this.hintUsedForWords = []; // 重置提示使用记录
+        this.lastWordInfo = null;
+        this.isReviewMode = true; // 标记为复习模式
+        this.sessionStartIndex = newProgress; // 从减去错题后的位置开始
+        this.startTime = Date.now();
+
+        // 记录复习前的错题数量（用于后续对比）
+        this.reviewingWrongCount = wrongWords.length;
+        
+        console.log(`🔄 开始复习 - 词书 "${book.name}" 有 ${wrongWords.length} 个错题`);
+        
+        // 清空当前错题（复习完会重新统计）
+        Storage.updateBookProgress(this.currentBook.id, { wrong: [] });
+        
+        console.log(`🗑️ 已清空错题列表，准备重新统计`);
+        
+        // 重新加载词书数据并更新待复习数量
+        this.books = Storage.loadBooks();
+        this.checkReview();
+
+        // 切换到学习界面
+        document.getElementById('completionScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.remove('hidden');
+
+        this.showWord();
+    }
+
+    // 继续学习
+    continueLearning() {
+        // 更新词书进度
+        this.updateBookLearningProgress();
+        
+        // 重新加载词书并继续
+        if (this.currentBook) {
+            this.startBookLearning(this.currentBook.id);
+        } else {
+            this.backToHome();
+        }
+    }
+
+    // 开启新一轮
+    startNewRound() {
+        if (!this.currentBook) {
+            alert('没有选中的词书');
+            return;
+        }
+        
+        const book = Storage.getBook(this.currentBook.id);
+        if (!book) {
+            alert('词书不存在');
+            return;
+        }
+        
+        // 更新轮数
+        const newRound = (book.round || 1) + 1;
+        
+        // 重置进度，保留错题
+        Storage.updateBookProgress(book.id, {
+            currentIndex: 0,
+            learned: [],
+            correct: []
+            // wrong 不重置，保留错题
+        });
+        
+        // 更新轮数
+        const books = Storage.loadBooks();
+        const bookIndex = books.findIndex(b => b.id === book.id);
+        if (bookIndex !== -1) {
+            books[bookIndex].round = newRound;
+            Storage.saveBooks(books);
+        }
+        
+        console.log(`🔄 开启新一轮 - 词书 "${book.name}" Round ${newRound}`);
+        
+        // 重新加载词书列表
+        this.loadBooks();
+        
+        // 开始新一轮学习
+        this.startBookLearning(book.id);
+    }
+
+    // 返回首页
+    backToHome() {
+        document.getElementById('completionScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.add('hidden');
+        document.getElementById('wordEditorScreen').classList.add('hidden');
+        document.getElementById('welcomeScreen').classList.remove('hidden');
+    }
+
+    // 退出学习
+    exitLearning() {
+        if (confirm('确定要退出学习吗？进度将不会保存。')) {
+            this.backToHome();
+        }
+    }
+
+    // 加载可用的声优
+    loadAvailableVoices() {
+        // Web Speech API需要异步加载声优列表
+        const loadVoices = () => {
+            this.availableVoices = speechSynthesis.getVoices();
+            //console.log('🔊 可用声优数量:', this.availableVoices.length);
+            
+            // 打印所有英语声音供调试
+            const enVoices = this.availableVoices.filter(v => v.lang.startsWith('en'));
+            if (enVoices.length > 0) {
+                //console.log('📢 可用英语语音:', enVoices.map(v => `${v.name} (${v.lang})`).join(', '));
+            } else {
+                console.warn('⚠️ 未找到英语语音，可能需要等待系统加载');
+            }
+            
+            // 【Win11修复】尝试"唤醒"speechSynthesis（避免首次播放失败）
+            if (this.availableVoices.length > 0 && !this.speechSynthesisActivated) {
+                const utterance = new SpeechSynthesisUtterance('');
+                utterance.volume = 0; // 静音
+                speechSynthesis.speak(utterance);
+                this.speechSynthesisActivated = true;
+                console.log('✅ speechSynthesis已激活');
+            }
+        };
+
+        // 首次加载
+        loadVoices();
+
+        // 监听声优加载完成（Chrome/Edge需要）
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+        
+        // 延迟再检查一次（Win11有时需要）
+        setTimeout(() => {
+            if (this.availableVoices.length === 0) {
+                console.warn('⚠️ 首次加载声音列表为空，1秒后重试...');
+                loadVoices();
+            }
+        }, 1000);
+    }
+
+    // 播放发音（用于学习模式）
+    playSound() {
+        const word = this.sessionWords[this.currentWordIndex];
+        if (!word) return;
+        this.speak(word.word);
+        
+        // 如果是拼写模式，重新聚焦输入框（修复焦点丢失问题）
+        setTimeout(() => {
+            this.refocusSpellInput();
+        }, 200);
+    }
+    
+    // 通用发音方法（可用于任何单词）
+    speak(wordText) {
+        if (!wordText) return;
+
+        try {
+            // 【修复Win11发音问题】先取消所有正在播放的语音，避免卡住
+            if (speechSynthesis.speaking || speechSynthesis.pending) {
+                console.log('🔊 取消之前的语音播放');
+                speechSynthesis.cancel();
+            }
+
+            // 添加小延迟确保cancel完成（Win11 Chrome必需）
+            setTimeout(() => {
+                try {
+                    const utterance = new SpeechSynthesisUtterance(wordText);
+                    utterance.lang = this.settings.voiceAccent || 'en-US';
+                    utterance.rate = this.settings.voiceRate || 1.0; // 使用用户设置的语速
+                    utterance.pitch = 1.0; // 音调
+                    utterance.volume = 1.0; // 音量
+
+                    // 如果用户选择了特定声优
+                    if (this.settings.voiceModel && this.availableVoices.length > 0) {
+                        const selectedVoice = this.availableVoices.find(
+                            voice => voice.name === this.settings.voiceModel
+                        );
+                        if (selectedVoice) {
+                            utterance.voice = selectedVoice;
+                        }
+                    } else {
+                        // 自动选择对应语言的声优
+                        const voices = this.availableVoices.filter(
+                            voice => voice.lang.startsWith(this.settings.voiceAccent.split('-')[0])
+                        );
+                        if (voices.length > 0) {
+                            utterance.voice = voices[0];
+                            console.log('🔊 使用声音:', voices[0].name);
+                        } else {
+                            console.warn('⚠️ 未找到匹配的语音，使用默认');
+                        }
+                    }
+
+                    // 添加错误和结束回调
+                    utterance.onerror = (event) => {
+                        console.error('❌ 发音错误:', event.error, event);
+                        // 如果是"interrupted"错误，可能是正常的取消操作
+                        if (event.error === 'interrupted') {
+                            console.log('ℹ️ 发音被中断（正常）');
+                        } else if (event.error === 'not-allowed') {
+                            console.warn('⚠️ 浏览器阻止了自动播放，请点击发音按钮手动播放');
+                        }
+                    };
+
+                    utterance.onend = () => {
+                        console.log('✅ 发音完成');
+                    };
+
+                    console.log('🔊 开始播放:', wordText);
+                    speechSynthesis.speak(utterance);
+                } catch (innerError) {
+                    console.error('❌ 播放语音时出错:', innerError);
+                }
+            }, 100); // Win11 Chrome需要这个延迟
+
+        } catch (error) {
+            console.error('❌ 发音失败:', error);
+        }
+    }
+
+    // 初始化音效（延迟创建以避免浏览器警告）
+    initSoundEffects() {
+        this.audioContext = null;
+        this.audioContextInitialized = false;
+    }
+    
+    // 确保 AudioContext 已创建
+    ensureAudioContext() {
+        if (!this.audioContext && !this.audioContextInitialized) {
+            try {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.audioContextInitialized = true;
+                console.log('🔊 音效系统初始化成功，状态:', this.audioContext.state);
+            } catch (error) {
+                console.warn('Web Audio API不可用，音效将被禁用:', error);
+                this.audioContextInitialized = true; // 标记已尝试
+            }
+        }
+        return this.audioContext;
+    }
+
+    // 播放答对音效
+    async playCorrectSound() {
+        if (!this.settings.enableSoundEffects) return;
+        
+        // 延迟创建 AudioContext（在用户交互时）
+        const audioContext = this.ensureAudioContext();
+        if (!audioContext) return;
+        
+        console.log('🎵 尝试播放答对音效 - 音效开关:', this.settings.enableSoundEffects, 'AudioContext状态:', audioContext.state);
+        
+        try {
+            // 恢复 AudioContext（浏览器自动播放策略要求）
+            if (audioContext.state === 'suspended') {
+                console.log('🔓 恢复 AudioContext...');
+                await audioContext.resume();
+                console.log('✅ AudioContext 已恢复，状态:', audioContext.state);
+            }
+            
+            // 创建一个愉悦的上升音
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime); // C5
+            oscillator.frequency.setValueAtTime(659.25, audioContext.currentTime + 0.1); // E5
+            oscillator.frequency.setValueAtTime(783.99, audioContext.currentTime + 0.2); // G5
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+            //console.log('✅ 答对音效播放中...');
+        } catch (error) {
+            //console.error('播放答对音效失败:', error);
+        }
+    }
+
+    // 播放答错音效
+    async playWrongSound() {
+        if (!this.settings.enableSoundEffects) return;
+        
+        // 延迟创建 AudioContext（在用户交互时）
+        const audioContext = this.ensureAudioContext();
+        if (!audioContext) return;
+        
+        console.log('🔊 尝试播放答错音效 - 音效开关:', this.settings.enableSoundEffects, 'AudioContext状态:', audioContext.state);
+        
+        try {
+            // 恢复 AudioContext（浏览器自动播放策略要求）
+            if (audioContext.state === 'suspended') {
+                console.log('🔓 恢复 AudioContext...');
+                await audioContext.resume();
+                console.log('✅ AudioContext 已恢复，状态:', audioContext.state);
+            }
+            
+            // 创建一个低沉的下降音
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = 'triangle';
+            oscillator.frequency.setValueAtTime(392.00, audioContext.currentTime); // G4
+            oscillator.frequency.setValueAtTime(329.63, audioContext.currentTime + 0.15); // E4
+            
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+            console.log('✅ 答错音效播放中...');
+        } catch (error) {
+            console.error('播放答错音效失败:', error);
+        }
+    }
+
+    // 显示上次答题记录
+    showLastWordBadge(badgeId) {
+        const badge = document.getElementById(badgeId);
+        if (!badge) return;
+
+        if (!this.lastWordInfo) {
+            badge.style.display = 'none';
+            return;
+        }
+
+        const { word, pos, meaning, result } = this.lastWordInfo;
+        const icon = result === 'correct' ? '√' : result === 'wrong' ? '✗' : '?';
+        const className = result === 'correct' ? 'correct' : result === 'wrong' ? 'wrong' : 'unknown';
+        
+        badge.style.display = 'flex';
+        badge.className = `last-word-badge ${className}`;
+        badge.innerHTML = `
+            <span class="badge-icon">${icon}</span>
+            <span class="badge-content">
+                <span class="badge-word">${word}</span>
+                <span class="badge-meaning">${pos} ${meaning}</span>
+            </span>
+        `;
+    }
+
+    // 播放动画（根据设置选择类型）
+    playAnimation(isSuccess) {
+        const animationType = this.settings.animationType || 'particles';
+        
+        switch (animationType) {
+            case 'particles':
+                this.playParticles(isSuccess);
+                break;
+            case 'ripple':
+                this.playRipple(isSuccess);
+                break;
+            case 'fireworks':
+                this.playFireworks(isSuccess);
+                break;
+            case 'glow':
+                this.playGlow(isSuccess);
+                break;
+            case 'confetti':
+                this.playConfetti(isSuccess);
+                break;
+            default:
+                this.playParticles(isSuccess);
+        }
+    }
+
+    // 播放粒子动画
+    playParticles(isSuccess) {
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const particles = [];
+        
+        // 根据动画强度设置参数
+        let particleCount, speedMultiplier, particleSize, lifeDrain, gravity;
+        if (this.settings.animationLevel === 'low') {
+            particleCount = 20;
+            speedMultiplier = 6;
+            particleSize = 3;
+            lifeDrain = 0.03;
+            gravity = 0.15;
+        } else if (this.settings.animationLevel === 'high') {
+            particleCount = 80;
+            speedMultiplier = 15;
+            particleSize = 6;
+            lifeDrain = 0.015;
+            gravity = 0.25;
+        } else { // medium
+            particleCount = 40;
+            speedMultiplier = 10;
+            particleSize = 4;
+            lifeDrain = 0.02;
+            gravity = 0.2;
+        }
+
+        const color = isSuccess ? '#10B981' : '#EF4444';
+
+        // 创建粒子
+        for (let i = 0; i < particleCount; i++) {
+            particles.push({
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                vx: (Math.random() - 0.5) * speedMultiplier,
+                vy: (Math.random() - 0.5) * speedMultiplier,
+                life: 1,
+                size: particleSize
+            });
+        }
+
+        // 动画循环
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach((p, index) => {
+                if (p.life <= 0) {
+                    particles.splice(index, 1);
+                    return;
+                }
+
+                ctx.fillStyle = color;
+                ctx.globalAlpha = p.life;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += gravity; // 重力
+                p.life -= lifeDrain;
+            });
+
+            if (particles.length > 0) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        animate();
+    }
+
+    // 播放涟漪动画
+    playRipple(isSuccess) {
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const color = isSuccess ? '#10B981' : '#EF4444';
+        const maxRadius = Math.max(canvas.width, canvas.height);
+        
+        const ripples = [];
+        
+        // 根据动画强度设置参数
+        let rippleCount, rippleSpeed, opacityDrain, lineWidth, rippleDelay;
+        if (this.settings.animationLevel === 'low') {
+            rippleCount = 2;
+            rippleSpeed = 5;
+            opacityDrain = 0.015;
+            lineWidth = 2;
+            rippleDelay = 300;
+        } else if (this.settings.animationLevel === 'high') {
+            rippleCount = 6;
+            rippleSpeed = 12;
+            opacityDrain = 0.008;
+            lineWidth = 5;
+            rippleDelay = 150;
+        } else { // medium
+            rippleCount = 3;
+            rippleSpeed = 8;
+            opacityDrain = 0.01;
+            lineWidth = 3;
+            rippleDelay = 200;
+        }
+
+        // 创建涟漪
+        for (let i = 0; i < rippleCount; i++) {
+            setTimeout(() => {
+                ripples.push({ radius: 0, opacity: 1 });
+            }, i * rippleDelay);
+        }
+
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ripples.forEach((ripple, index) => {
+                if (ripple.opacity <= 0) {
+                    ripples.splice(index, 1);
+                    return;
+                }
+
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = ripple.opacity;
+                ctx.lineWidth = lineWidth;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, ripple.radius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ripple.radius += rippleSpeed;
+                ripple.opacity -= opacityDrain;
+            });
+
+            if (ripples.length > 0) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        animate();
+    }
+
+    // 播放烟花动画
+    playFireworks(isSuccess) {
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const particles = [];
+        
+        // 根据动画强度设置参数
+        let particleCount, speedMin, speedMax, sizeMin, sizeMax, lifeDrain, gravity, airResistance;
+        if (this.settings.animationLevel === 'low') {
+            particleCount = 30;
+            speedMin = 3;
+            speedMax = 6;
+            sizeMin = 1.5;
+            sizeMax = 3;
+            lifeDrain = 0.02;
+            gravity = 0.08;
+            airResistance = 0.98;
+        } else if (this.settings.animationLevel === 'high') {
+            particleCount = 120;
+            speedMin = 7;
+            speedMax = 14;
+            sizeMin = 3;
+            sizeMax = 7;
+            lifeDrain = 0.012;
+            gravity = 0.15;
+            airResistance = 0.995;
+        } else { // medium
+            particleCount = 60;
+            speedMin = 5;
+            speedMax = 10;
+            sizeMin = 2;
+            sizeMax = 5;
+            lifeDrain = 0.015;
+            gravity = 0.1;
+            airResistance = 0.99;
+        }
+
+        const color = isSuccess ? '#10B981' : '#EF4444';
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        // 创建烟花粒子（从中心爆炸）
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (Math.PI * 2 * i) / particleCount;
+            const speed = speedMin + Math.random() * (speedMax - speedMin);
+            particles.push({
+                x: centerX,
+                y: centerY,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1,
+                size: sizeMin + Math.random() * (sizeMax - sizeMin)
+            });
+        }
+
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach((p, index) => {
+                if (p.life <= 0) {
+                    particles.splice(index, 1);
+                    return;
+                }
+
+                ctx.fillStyle = color;
+                ctx.globalAlpha = p.life;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += gravity; // 重力
+                p.vx *= airResistance; // 空气阻力
+                p.life -= lifeDrain;
+            });
+
+            if (particles.length > 0) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        animate();
+    }
+
+    // 播放光晕动画
+    playGlow(isSuccess) {
+        const wordCard = document.getElementById('wordCard');
+        const color = isSuccess ? '#10B981' : '#EF4444';
+        
+        // 根据动画强度设置参数
+        let glowSize1, glowSize2, duration, transitionTime;
+        if (this.settings.animationLevel === 'low') {
+            glowSize1 = 15;
+            glowSize2 = 30;
+            duration = 400;
+            transitionTime = 0.2;
+        } else if (this.settings.animationLevel === 'high') {
+            glowSize1 = 50;
+            glowSize2 = 100;
+            duration = 1000;
+            transitionTime = 0.5;
+        } else { // medium
+            glowSize1 = 30;
+            glowSize2 = 60;
+            duration = 600;
+            transitionTime = 0.3;
+        }
+        
+        wordCard.style.transition = `box-shadow ${transitionTime}s ease`;
+        wordCard.style.boxShadow = `0 0 ${glowSize1}px ${color}, 0 0 ${glowSize2}px ${color}`;
+        
+        setTimeout(() => {
+            wordCard.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+        }, duration);
+    }
+
+    // 播放彩纸飘落动画
+    playConfetti(isSuccess) {
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const confetti = [];
+        
+        // 根据动画强度设置参数
+        let confettiCount, vxRange, vyMin, vyMax, rotationSpeedRange, widthMin, widthMax, heightMin, heightMax, gravity;
+        if (this.settings.animationLevel === 'low') {
+            confettiCount = 30;
+            vxRange = 1.5;
+            vyMin = 1.5;
+            vyMax = 3;
+            rotationSpeedRange = 6;
+            widthMin = 6;
+            widthMax = 10;
+            heightMin = 9;
+            heightMax = 15;
+            gravity = 0.08;
+        } else if (this.settings.animationLevel === 'high') {
+            confettiCount = 120;
+            vxRange = 3;
+            vyMin = 3;
+            vyMax = 6;
+            rotationSpeedRange = 15;
+            widthMin = 10;
+            widthMax = 18;
+            heightMin = 15;
+            heightMax = 25;
+            gravity = 0.12;
+        } else { // medium
+            confettiCount = 60;
+            vxRange = 2;
+            vyMin = 2;
+            vyMax = 5;
+            rotationSpeedRange = 10;
+            widthMin = 8;
+            widthMax = 14;
+            heightMin = 12;
+            heightMax = 20;
+            gravity = 0.1;
+        }
+
+        const colors = isSuccess 
+            ? ['#10B981', '#34D399', '#6EE7B7', '#A7F3D0']
+            : ['#EF4444', '#F87171', '#FCA5A5', '#FEE2E2'];
+
+        // 创建彩纸
+        for (let i = 0; i < confettiCount; i++) {
+            confetti.push({
+                x: Math.random() * canvas.width,
+                y: -20,
+                vx: (Math.random() - 0.5) * vxRange,
+                vy: vyMin + Math.random() * (vyMax - vyMin),
+                rotation: Math.random() * 360,
+                rotationSpeed: (Math.random() - 0.5) * rotationSpeedRange,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                width: widthMin + Math.random() * (widthMax - widthMin),
+                height: heightMin + Math.random() * (heightMax - heightMin)
+            });
+        }
+
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            confetti.forEach((c, index) => {
+                if (c.y > canvas.height) {
+                    confetti.splice(index, 1);
+                    return;
+                }
+
+                ctx.save();
+                ctx.translate(c.x, c.y);
+                ctx.rotate((c.rotation * Math.PI) / 180);
+                ctx.fillStyle = c.color;
+                ctx.fillRect(-c.width / 2, -c.height / 2, c.width, c.height);
+                ctx.restore();
+
+                c.x += c.vx;
+                c.y += c.vy;
+                c.rotation += c.rotationSpeed;
+                c.vy += gravity; // 重力
+            });
+
+            if (confetti.length > 0) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        animate();
+    }
+
+    // 切换主题
+    toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', newTheme);
+        Storage.saveTheme(newTheme);
+    }
+
+    // 打开设置
+    openSettings() {
+        document.getElementById('settingsModal').classList.remove('hidden');
+        
+        // 加载当前设置
+        document.getElementById('learningMode').value = this.settings.learningMode;
+        document.getElementById('wordOrder').value = this.settings.wordOrder || 'sequential';
+        document.getElementById('wordsPerSession').value = this.settings.wordsPerSession || 20;
+        document.getElementById('voiceAccent').value = this.settings.voiceAccent;
+        document.getElementById('autoSound').checked = this.settings.autoSound;
+        document.getElementById('enableSoundEffects').checked = this.settings.enableSoundEffects !== false; // 默认开启
+        document.getElementById('animationType').value = this.settings.animationType || 'particles';
+        document.getElementById('animationLevel').value = this.settings.animationLevel;
+        document.getElementById('autoNext').checked = this.settings.autoNext;
+        document.getElementById('autoNextTime').value = this.settings.autoNextTime || 3;
+        document.getElementById('autoNextTimeValue').textContent = (this.settings.autoNextTime || 3).toFixed(1);
+
+        // 加载语速设置
+        const voiceRate = this.settings.voiceRate || 1.0;
+        document.getElementById('voiceRate').value = voiceRate;
+        document.getElementById('voiceRateValue').textContent = voiceRate.toFixed(1);
+
+        // 填充声优列表
+        this.populateVoiceList();
+
+        // 加载快捷键设置
+        const hotkeys = this.settings.hotkeys || {
+            option1: '1', option2: '2', option3: '3',
+            option4: '4', option5: '5', option6: '6'
+        };
+        document.getElementById('hotkey1').value = hotkeys.option1;
+        document.getElementById('hotkey2').value = hotkeys.option2;
+        document.getElementById('hotkey3').value = hotkeys.option3;
+        document.getElementById('hotkey4').value = hotkeys.option4;
+        document.getElementById('hotkey5').value = hotkeys.option5;
+        document.getElementById('hotkey6').value = hotkeys.option6;
+
+        // 根据autoNext状态启用/禁用时间设置
+        this.toggleAutoNextTimeGroup();
+
+        // 监听autoNext变化
+        document.getElementById('autoNext').onchange = () => {
+            this.toggleAutoNextTimeGroup();
+        };
+
+        // 监听自动切换时间滑块变化
+        const timeSlider = document.getElementById('autoNextTime');
+        timeSlider.addEventListener('input', (e) => {
+            document.getElementById('autoNextTimeValue').textContent = parseFloat(e.target.value).toFixed(1);
+        });
+
+        // 监听语速滑块变化
+        const rateSlider = document.getElementById('voiceRate');
+        rateSlider.addEventListener('input', (e) => {
+            document.getElementById('voiceRateValue').textContent = parseFloat(e.target.value).toFixed(1);
+        });
+
+        // 监听口音变化，重新填充声优列表
+        document.getElementById('voiceAccent').addEventListener('change', () => {
+            this.populateVoiceList();
+        });
+    }
+
+    // 填充声优列表
+    populateVoiceList() {
+        const voiceSelect = document.getElementById('voiceModel');
+        const selectedAccent = document.getElementById('voiceAccent').value;
+        
+        // 清空现有选项（保留"自动选择"）
+        voiceSelect.innerHTML = '<option value="">自动选择（推荐）</option>';
+        
+        // 获取所有可用的声音
+        const voices = this.availableVoices;
+        
+        if (voices.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '加载中...';
+            option.disabled = true;
+            voiceSelect.appendChild(option);
+            console.warn('⚠️ 声音列表为空，可能还在加载中');
+            return;
+        }
+        
+        // 筛选匹配的声音
+        const matchedVoices = voices.filter(voice => {
+            // 根据选择的口音筛选
+            if (selectedAccent === 'en-US') {
+                return voice.lang.includes('en-US') || voice.lang === 'en';
+            } else if (selectedAccent === 'en-GB') {
+                return voice.lang.includes('en-GB');
+            }
+            return voice.lang.startsWith('en');
+        });
+        
+        // 如果没有完全匹配的，显示所有英语声音
+        const displayVoices = matchedVoices.length > 0 ? matchedVoices : 
+                              voices.filter(v => v.lang.startsWith('en'));
+        
+        // 添加到下拉框
+        displayVoices.forEach(voice => {
+            const option = document.createElement('option');
+            option.value = voice.name;
+            option.textContent = `${voice.name} (${voice.lang})`;
+            voiceSelect.appendChild(option);
+        });
+        
+        // 设置当前选中的声优
+        if (this.settings.voiceModel) {
+            voiceSelect.value = this.settings.voiceModel;
+        }
+        
+        console.log(`📢 已加载 ${displayVoices.length} 个声优选项`);
+    }
+
+    // 切换自动切换时间设置的启用状态
+    toggleAutoNextTimeGroup() {
+        const autoNext = document.getElementById('autoNext').checked;
+        const timeGroup = document.getElementById('autoNextTimeGroup');
+        
+        if (autoNext) {
+            timeGroup.classList.remove('disabled');
+        } else {
+            timeGroup.classList.add('disabled');
+        }
+    }
+
+    // 关闭设置
+    closeSettings() {
+        document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    // 保存设置
+    saveSettings() {
+        const wordsPerSession = parseInt(document.getElementById('wordsPerSession').value);
+        
+        // 验证单词数量
+        if (isNaN(wordsPerSession) || (wordsPerSession < -1 || wordsPerSession === 0)) {
+            alert('请输入有效的单词数量（-1表示无限，或大于0的数字）');
+            return;
+        }
+
+        this.settings = {
+            learningMode: document.getElementById('learningMode').value,
+            wordOrder: document.getElementById('wordOrder').value,
+            wordsPerSession: wordsPerSession,
+            voiceAccent: document.getElementById('voiceAccent').value,
+            voiceModel: document.getElementById('voiceModel').value || '', // 保存选择的声优
+            voiceRate: parseFloat(document.getElementById('voiceRate').value) || 1.0, // 保存语速
+            autoSound: document.getElementById('autoSound').checked,
+            enableSoundEffects: document.getElementById('enableSoundEffects').checked,
+            animationType: document.getElementById('animationType').value,
+            animationLevel: document.getElementById('animationLevel').value,
+            autoNext: document.getElementById('autoNext').checked,
+            autoNextTime: parseFloat(document.getElementById('autoNextTime').value),
+            hotkeys: {
+                option1: document.getElementById('hotkey1').value,
+                option2: document.getElementById('hotkey2').value,
+                option3: document.getElementById('hotkey3').value,
+                option4: document.getElementById('hotkey4').value,
+                option5: document.getElementById('hotkey5').value,
+                option6: document.getElementById('hotkey6').value
+            }
+        };
+
+        Storage.saveSettings(this.settings);
+        this.closeSettings();
+        alert('设置已保存');
+    }
+
+    // 重置设置
+    resetSettings() {
+        if (confirm('确定要恢复默认设置吗？')) {
+            this.settings = {
+                learningMode: 'mixed',
+                wordOrder: 'sequential',
+                wordsPerSession: 20,
+                voiceAccent: 'en-US',
+                voiceModel: '',
+                voiceRate: 1.0,
+                autoSound: true,
+                enableSoundEffects: true,
+                animationType: 'particles',
+                animationLevel: 'medium',
+                autoNext: true,
+                autoNextTime: 3,
+                hotkeys: {
+                    option1: '1',
+                    option2: '2',
+                    option3: '3',
+                    option4: '4',
+                    option5: '5',
+                    option6: '6'
+                }
+            };
+            Storage.saveSettings(this.settings);
+            this.closeSettings();
+            this.openSettings(); // 重新打开以显示更新后的值
+        }
+    }
+
+    // 更新统计面板
+    updateStats() {
+        const stats = Storage.loadStats();
+        document.getElementById('todayTime').textContent = stats.time || 0;
+        document.getElementById('todayWords').textContent = stats.words || 0;
+        document.getElementById('todayMastery').textContent = `${stats.mastery || 0}%`;
+        document.getElementById('todayWrong').textContent = stats.wrong || 0;
+    }
+
+    // 检查复习
+    checkReview() {
+        // 统计所有词书中的错题总数
+        const booksWithWrong = [];
+        let totalWrongWords = 0;
+        
+        this.books.forEach(book => {
+            const wrongWords = book.progress?.wrong || [];
+            if (wrongWords.length > 0) {
+                booksWithWrong.push({
+                    id: book.id,
+                    name: book.name,
+                    icon: book.icon,  // 🔥 传递图标
+                    wrongCount: wrongWords.length
+                });
+                totalWrongWords += wrongWords.length;
+                console.log(`📚 词书 "${book.name}" (${book.icon || '无图标'}) 有 ${wrongWords.length} 个错题`);
+            }
+        });
+        
+        console.log(`✅ 待复习单词总数: ${totalWrongWords}`);
+        
+        // 渲染复习词书列表
+        this.renderReviewBooksList(booksWithWrong, totalWrongWords);
+    }
+    
+    // 渲染复习词书列表
+    renderReviewBooksList(booksWithWrong, totalWrongWords) {
+        const container = document.getElementById('reviewBooksList');
+        if (!container) {
+            console.error('❌ 找不到reviewBooksList容器');
+            return;
+        }
+        
+        console.log('📋 渲染复习列表，词书数量:', booksWithWrong.length);
+        console.log('📋 词书详情:', booksWithWrong);
+        
+        if (booksWithWrong.length === 0) {
+            // 没有错题
+            container.innerHTML = `
+                <div class="review-empty">
+                    <div style="font-size: 2rem; margin-bottom: 8px;">🎉</div>
+                    <div>暂无需要复习的单词</div>
+                </div>
+            `;
+            return;
+        }
+        
+        // 显示总数
+        let html = `<p class="review-count">还有 <strong>${totalWrongWords}</strong> 个单词需要复习</p>`;
+        
+        // 最多显示10个词书
+        const displayBooks = booksWithWrong.slice(0, 10);
+        
+        displayBooks.forEach((book, index) => {
+            // 使用词书自己的icon，如果没有则使用默认emoji
+            const defaultEmojis = ['📕', '📗', '📘', '📙', '📔', '📓', '📒', '📖', '📚', '📑'];
+            const emoji = book.icon || defaultEmojis[index % 10];
+            
+            // 安全转义HTML特殊字符
+            const safeName = String(book.name || '未命名词书').replace(/&/g, '&amp;')
+                                                              .replace(/</g, '&lt;')
+                                                              .replace(/>/g, '&gt;')
+                                                              .replace(/"/g, '&quot;')
+                                                              .replace(/'/g, '&#039;');
+            
+            console.log(`📖 词书 ${index + 1}: ${emoji} ${safeName} (${book.wrongCount}个错词)`);
+            
+            html += `
+                <div class="review-book-item">
+                    <div class="review-book-icon">${emoji}</div>
+                    <div class="review-book-info">
+                        <div class="review-book-name">${safeName}</div>
+                        <div class="review-book-count">${book.wrongCount} 词</div>
+                    </div>
+                    <button class="review-book-btn" onclick="app.startBookReview('${book.id}')" title="开始复习">✏️</button>
+                </div>
+            `;
+        });
+        
+        // 如果超过10个，显示提示
+        if (booksWithWrong.length > 10) {
+            html += `
+                <div class="review-count" style="text-align: center; margin-top: 8px;">
+                    还有 ${booksWithWrong.length - 10} 个词书未显示
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        console.log('✅ 复习列表渲染完成');
+    }
+    
+    // 开始指定词书的复习
+    startBookReview(bookId) {
+        // 检查是否正在学习
+        const learningScreen = document.getElementById('learningScreen');
+        const isLearning = !learningScreen.classList.contains('hidden');
+        
+        if (isLearning) {
+            if (!confirm('当前正在学习中，是否中断并开始复习错题？')) {
+                return;
+            }
+        }
+        
+        const book = Storage.getBook(bookId);
+        if (!book) {
+            alert('词书不存在');
+            return;
+        }
+        
+        const wrongWords = book.progress?.wrong || [];
+        if (wrongWords.length === 0) {
+            alert('该词书暂无需要复习的单词！👏');
+            this.checkReview(); // 刷新列表
+            return;
+        }
+        
+        // 选中该词书并开始复习
+        this.currentBook = book;
+        Storage.saveCurrentBook(book.id);
+        
+        // 使用该词书的错题开始学习（错题已经包含 originalIndex）
+        this.sessionWords = wrongWords;
+        this.currentWordIndex = 0;
+        this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
+        this.wordResults = [];
+        this.wordFirstResults = [];
+        this.hintUsedForWords = []; // 重置提示使用记录
+        this.lastWordInfo = null;
+        this.isReviewMode = true;
+        this.sessionStartIndex = book.progress.currentIndex || 0;
+        this.startTime = Date.now();
+        
+        // 记录复习前的错题数量
+        this.reviewingWrongCount = wrongWords.length;
+        
+        console.log(`🔄 开始复习 - 词书 "${book.name}" 有 ${wrongWords.length} 个错题`);
+        
+        // 清空错题（复习完会重新统计）
+        Storage.updateBookProgress(book.id, { wrong: [] });
+        
+        console.log(`🗑️ 已清空错题列表，准备重新统计`);
+        
+        // 重新加载词书数据并更新待复习数量
+        this.books = Storage.loadBooks();
+        this.checkReview();
+        
+        // 切换到学习界面
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('completionScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.remove('hidden');
+        
+        this.showWord();
+    }
+
+
+    // 加载进度
+    loadProgress() {
+        const savedWords = Storage.loadWords();
+        if (savedWords.length > 0) {
+            this.words = savedWords;
+        }
+    }
+
+    // 下载模板
+    downloadTemplate() {
+        const content = WordParser.generateTemplate();
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '单词模板.csv';
+        link.click();
+    }
+
+    // 显示加载
+    showLoading(text = '加载中...') {
+        document.getElementById('loadingOverlay').classList.remove('hidden');
+        document.getElementById('loadingText').textContent = text;
+        document.getElementById('loadingProgressBar').style.width = '0%';
+    }
+
+    // 隐藏加载
+    hideLoading() {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+    }
+
+    // 更新加载进度
+    updateLoadingProgress(percent) {
+        document.getElementById('loadingProgressBar').style.width = `${percent}%`;
+    }
+
+    // 更新加载文本
+    updateLoadingText(text) {
+        document.getElementById('loadingText').textContent = text;
+    }
+
+    // 键盘快捷键
+    handleKeyboard(e) {
+        // 在学习页面
+        const learningScreen = document.getElementById('learningScreen');
+        if (!learningScreen.classList.contains('hidden')) {
+            // Enter键切换下一题
+            if (e.key === 'Enter' && !document.getElementById('nextBtn').disabled) {
+                this.nextWord();
+                return;
+            }
+            
+            // 拼写模式快捷键（需要 Shift 组合键，避免和拼写输入冲突）
+            const spellMode = document.getElementById('modeSpellWord');
+            if (spellMode && !spellMode.classList.contains('hidden')) {
+                // 必须同时按下 Shift 键
+                if (!e.shiftKey) {
+                    return;
+                }
+                
+                const key = e.key.toUpperCase();
+                
+                // Shift+Q - 播放发音
+                if (key === 'Q') {
+                    e.preventDefault();
+                    this.playSound();
+                    return;
+                }
+                
+                // Shift+H - 提示
+                if (key === 'H') {
+                    e.preventDefault();
+                    this.showHint();
+                    return;
+                }
+                
+                // Shift+不知道按钮（使用设置中的快捷键）
+                const unknownHotkey = this.settings.hotkeys?.option3 || '3';
+                if (key === unknownHotkey.toUpperCase()) {
+                    e.preventDefault();
+                    this.skipSpellWord();
+                    return;
+                }
+            }
+        }
+    }
+
+    // 工具函数：打乱数组
+    shuffleArray(array) {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    }
+
+    // ============================================
+    // 词书管理功能
+    // ============================================
+
+    // 迁移旧数据
+    migrateOldData() {
+        Storage.migrateOldWords();
+        
+        // 为旧的词书添加默认icon和round（如果没有的话）
+        const books = Storage.loadBooks();
+        let updated = false;
+        const defaultEmojis = ['📕', '📗', '📘', '📙', '📚', '📖', '📝', '✏️', '📓', '📔'];
+        
+        books.forEach((book, index) => {
+            if (!book.icon) {
+                book.icon = defaultEmojis[index % defaultEmojis.length];
+                updated = true;
+            }
+            if (!book.round) {
+                book.round = 1;
+                updated = true;
+            }
+        });
+        
+        if (updated) {
+            Storage.saveBooks(books);
+            console.log('✨ 已为旧词书添加默认图标和轮数');
+        }
+    }
+
+    // 重新聚焦拼写输入框（修复焦点丢失问题）
+    refocusSpellInput() {
+        // 检查是否在拼写模式
+        const spellMode = document.getElementById('modeSpellWord');
+        if (!spellMode || spellMode.classList.contains('hidden')) {
+            return; // 不在拼写模式，不需要聚焦
+        }
+
+        const input = document.getElementById('spellInput');
+        if (input) {
+            input.focus();
+            // 将光标移到末尾
+            input.setSelectionRange(input.value.length, input.value.length);
+        }
+    }
+
+    // 加载词书列表
+    loadBooks() {
+        this.books = Storage.loadBooks();
+        this.renderBookList();
+        
+        // 尝试加载上次选中的词书
+        const currentBookId = Storage.loadCurrentBook();
+        if (currentBookId) {
+            this.selectBook(currentBookId);
+        }
+    }
+
+    // 渲染词书列表
+    renderBookList() {
+        const container = document.getElementById('bookList');
+        container.innerHTML = '';
+
+        if (this.books.length === 0) {
+            container.innerHTML = '<p style="padding: 1rem; text-align: center; color: var(--text-tertiary); font-size: 0.875rem;">暂无词书，点击下方添加</p>';
+            return;
+        }
+
+        // 排序：优先最近练习时间，其次导入时间（新到旧）
+        const sortedBooks = [...this.books].sort((a, b) => {
+            // 如果都有练习时间，按练习时间排序
+            if (a.lastPracticeAt && b.lastPracticeAt) {
+                return new Date(b.lastPracticeAt) - new Date(a.lastPracticeAt);
+            }
+            // 如果只有一个有练习时间，有的排前面
+            if (a.lastPracticeAt) return -1;
+            if (b.lastPracticeAt) return 1;
+            // 都没有练习时间，按导入时间排序（新到旧）
+            return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+
+        sortedBooks.forEach(book => {
+            const item = document.createElement('div');
+            item.className = 'book-item';
+            if (this.currentBook && this.currentBook.id === book.id) {
+                item.classList.add('active');
+            }
+
+            const progress = book.progress || { currentIndex: 0 };
+            const totalWords = book.words.length;
+            const learnedCount = progress.currentIndex;
+            
+            // 格式化时间显示
+            const timeDisplay = book.lastPracticeAt 
+                ? `练习: ${Storage.formatTimeAgo(book.lastPracticeAt)}`
+                : `导入: ${Storage.formatTimeAgo(book.createdAt)}`;
+
+            // 使用词书自己的icon，如果没有则使用默认emoji📕
+            const bookIcon = book.icon || '📕';
+            
+            // 获取轮数信息
+            const round = book.round || 1;
+            const roundDisplay = `, round ${round}`;
+            
+            item.innerHTML = `
+                <div class="book-item-header">
+                    <span class="book-item-icon">${bookIcon}</span>
+                    <div class="book-item-name">${book.name}</div>
+                    <div class="book-item-count">${totalWords}词</div>
+                </div>
+                <div class="book-item-progress">
+                    已练习到：${learnedCount}/${totalWords}${roundDisplay}
+                </div>
+                <div class="book-item-time">${timeDisplay}</div>
+                <div class="book-item-actions">
+                    <button class="btn-book-settings" onclick="app.openBookSettings('${book.id}')" title="词书设置">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+                        </svg>
+                    </button>
+                    <button class="btn-book-action" onclick="app.startBookLearning('${book.id}')">
+                        开始学习
+                    </button>
+                    <button class="btn-book-action" onclick="app.deleteBookConfirm('${book.id}')">
+                        删除
+                    </button>
+                </div>
+            `;
+
+            item.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('btn-book-action') && 
+                    !e.target.classList.contains('btn-book-settings') &&
+                    !e.target.closest('.btn-book-settings')) {
+                    this.selectBook(book.id);
+                }
+            });
+
+            container.appendChild(item);
+        });
+    }
+
+    // 选择词书
+    selectBook(bookId) {
+        this.currentBook = Storage.getBook(bookId);
+        Storage.saveCurrentBook(bookId);
+        this.renderBookList();
+    }
+
+    // 开始词书学习
+    startBookLearning(bookId) {
+        const book = Storage.getBook(bookId);
+        if (!book || !book.words || book.words.length === 0) {
+            alert('该词书没有单词');
+            return;
+        }
+
+        this.currentBook = book;
+        Storage.saveCurrentBook(bookId);
+
+        // 生成或加载学习顺序
+        let sequence = book.progress.sequence;
+        if (!sequence || sequence.length === 0) {
+            sequence = Storage.generateSequence(bookId, this.settings.wordOrder);
+            this.currentBook = Storage.getBook(bookId); // 重新加载以获取更新后的进度
+        }
+
+        // 根据进度获取当前学习位置
+        const startIndex = book.progress.currentIndex || 0;
+        const wordsPerSession = parseInt(this.settings.wordsPerSession);
+        
+        // 根据顺序表获取单词
+        this.sessionWords = [];
+        const endIndex = wordsPerSession === -1 
+            ? sequence.length  // 无限模式：学习所有剩余单词
+            : Math.min(startIndex + wordsPerSession, sequence.length);
+            
+        for (let i = startIndex; i < endIndex; i++) {
+            const wordIndex = sequence[i];
+            const word = { ...book.words[wordIndex] };  // 创建副本
+            word.originalIndex = wordIndex;  // 保存原始索引
+            this.sessionWords.push(word);
+        }
+
+        if (this.sessionWords.length === 0) {
+            alert('词书已学完！');
+            // 重置进度
+            Storage.updateBookProgress(bookId, { currentIndex: 0 });
+            this.renderBookList();
+            return;
+        }
+
+        // 初始化学习状态
+        this.currentWordIndex = 0;
+        this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
+        this.wordResults = []; // 重置每个单词的结果记录
+        this.wordFirstResults = []; // 重置每个单词的首次答题结果记录
+        this.sessionStartIndex = startIndex; // 记录本次学习开始的索引
+        this.isReviewMode = false; // 标记是否为复习模式
+        this.startTime = Date.now();
+
+        // 更新最后练习时间
+        Storage.updateBook(bookId, { lastPracticeAt: new Date().toISOString() });
+
+        // 切换到学习界面
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('wordEditorScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.remove('hidden');
+        document.getElementById('sidebar').classList.remove('collapsed');
+
+        this.showWord();
+    }
+
+    // 删除词书（确认）
+    deleteBookConfirm(bookId) {
+        const book = Storage.getBook(bookId);
+        if (confirm(`确定要删除词书"${book.name}"吗？此操作不可恢复！`)) {
+            Storage.deleteBook(bookId);
+            if (this.currentBook && this.currentBook.id === bookId) {
+                this.currentBook = null;
+                Storage.saveCurrentBook(null);
+            }
+            this.loadBooks();
+        }
+    }
+
+    // ============================================
+    // 词书设置相关功能
+    // ============================================
+
+    // 打开词书设置弹窗
+    openBookSettings(bookId) {
+        this.currentSettingsBookId = bookId;
+        const book = Storage.getBook(bookId);
+        
+        if (!book) return;
+
+        // 更新弹窗标题
+        document.getElementById('bookSettingsTitle').textContent = `${book.name} - 设置`;
+
+        // 更新正序/乱序按钮文本
+        const isRandom = book.isRandomOrder || false;
+        const toggleOrderText = document.getElementById('toggleOrderText');
+        toggleOrderText.textContent = isRandom ? '设置为正序' : '设置为乱序';
+
+        // 显示弹窗
+        document.getElementById('bookSettingsModal').classList.remove('hidden');
+    }
+
+    // 关闭词书设置弹窗
+    closeBookSettings() {
+        document.getElementById('bookSettingsModal').classList.add('hidden');
+        this.currentSettingsBookId = null;
+    }
+
+    // 重命名词书
+    renameBook() {
+        const book = Storage.getBook(this.currentSettingsBookId);
+        if (!book) return;
+
+        const newName = prompt('请输入新的词书名称：', book.name);
+        
+        if (newName && newName.trim() && newName !== book.name) {
+            book.name = newName.trim();
+            Storage.updateBook(this.currentSettingsBookId, book);
+            this.loadBooks();
+            
+            // 更新弹窗标题
+            document.getElementById('bookSettingsTitle').textContent = `${book.name} - 设置`;
+        }
+    }
+
+    // 切换词书顺序（正序/乱序）
+    toggleBookOrder() {
+        const book = Storage.getBook(this.currentSettingsBookId);
+        if (!book) return;
+
+        const wasRandom = book.isRandomOrder || false;
+        const newIsRandom = !wasRandom;
+
+        if (newIsRandom) {
+            // 切换到乱序：生成随机顺序
+            if (confirm('切换到乱序将从新的随机顺序开始学习，已练习的单词进度将保留。确认切换？')) {
+                // 生成随机索引映射
+                const indices = Array.from({ length: book.words.length }, (_, i) => i);
+                for (let i = indices.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [indices[i], indices[j]] = [indices[j], indices[i]];
+                }
+                
+                book.isRandomOrder = true;
+                book.randomIndices = indices;
+                
+                // 找到第一个未练习的单词位置
+                const progress = book.progress || { results: [] };
+                let firstUnpracticed = 0;
+                for (let i = 0; i < indices.length; i++) {
+                    const originalIndex = indices[i];
+                    if (!progress.results || !progress.results[originalIndex] || 
+                        progress.results[originalIndex].status === 'pending') {
+                        firstUnpracticed = i;
+                        break;
+                    }
+                }
+                
+                book.progress = book.progress || {};
+                book.progress.currentIndex = firstUnpracticed;
+                
+                Storage.updateBook(this.currentSettingsBookId, book);
+                this.loadBooks();
+                
+                // 更新按钮文本
+                document.getElementById('toggleOrderText').textContent = '设置为正序';
+            }
+        } else {
+            // 切换到正序：从第一个未练习的单词开始
+            if (confirm('切换到正序将从第一个未练习的单词开始，已练习的单词进度将保留。确认切换？')) {
+                book.isRandomOrder = false;
+                delete book.randomIndices;
+                
+                // 找到第一个未练习的单词
+                const progress = book.progress || { results: [] };
+                let firstUnpracticed = 0;
+                if (progress.results) {
+                    for (let i = 0; i < book.words.length; i++) {
+                        if (!progress.results[i] || progress.results[i].status === 'pending') {
+                            firstUnpracticed = i;
+                            break;
+                        }
+                    }
+                }
+                
+                book.progress = book.progress || {};
+                book.progress.currentIndex = firstUnpracticed;
+                
+                Storage.updateBook(this.currentSettingsBookId, book);
+                this.loadBooks();
+                
+                // 更新按钮文本
+                document.getElementById('toggleOrderText').textContent = '设置为乱序';
+            }
+        }
+    }
+
+    // 导出词书为CSV
+    exportBook() {
+        const book = Storage.getBook(this.currentSettingsBookId);
+        if (!book) return;
+
+        try {
+            // 构建CSV内容
+            let csvContent = '单词,音标,释义,例句\n';
+            
+            book.words.forEach(word => {
+                const def = word.definitions && word.definitions[0] ? word.definitions[0] : {};
+                
+                // 转义CSV字段（处理逗号和引号）
+                const escapeCSV = (str) => {
+                    if (!str) return '';
+                    str = String(str);
+                    // 如果包含逗号、换行或引号，需要用引号包裹
+                    if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+                        // 将引号转义为两个引号
+                        str = str.replace(/"/g, '""');
+                        return `"${str}"`;
+                    }
+                    return str;
+                };
+                
+                const wordText = escapeCSV(word.word);
+                const phonetic = escapeCSV(word.phonetic || '');
+                const meaning = escapeCSV(def.meaning || '');
+                const example = escapeCSV(def.example || '');
+                
+                csvContent += `${wordText},${phonetic},${meaning},${example}\n`;
+            });
+
+            // 创建Blob并下载
+            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            // 生成文件名（词书名称 + 日期）
+            const date = new Date().toISOString().split('T')[0];
+            const fileName = `${book.name}_${date}.csv`;
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // 关闭设置弹窗
+            this.closeBookSettings();
+            
+            alert(`词书已成功导出为 ${fileName}`);
+        } catch (error) {
+            console.error('导出失败:', error);
+            alert('导出失败，请重试');
+        }
+    }
+
+    // 显示单词表浏览页面
+    showWordList() {
+        const book = Storage.getBook(this.currentSettingsBookId);
+        if (!book) return;
+
+        // 保存当前浏览的词书ID
+        this.currentWordListBookId = this.currentSettingsBookId;
+
+        // 重置编辑模式
+        this.isWordListEditMode = false;
+        document.getElementById('editModeText').textContent = '编辑';
+
+        // 关闭设置弹窗
+        this.closeBookSettings();
+
+        // 隐藏其他页面
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('wordEditorScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.add('hidden');
+        document.getElementById('completionScreen').classList.add('hidden');
+
+        // 显示单词表页面
+        document.getElementById('wordListScreen').classList.remove('hidden');
+
+        // 设置标题和图标
+        document.getElementById('wordListIcon').textContent = book.icon || '📖';
+        document.getElementById('wordListBookName').textContent = book.name;
+        document.getElementById('wordListTotalCount').textContent = book.words.length;
+
+        // 渲染单词表格
+        this.renderWordListTable(book);
+    }
+
+    // 渲染单词表格
+    renderWordListTable(book) {
+        const tbody = document.getElementById('wordListTableBody');
+        tbody.innerHTML = '';
+
+        book.words.forEach((word, index) => {
+            const def = word.definitions && word.definitions[0] ? word.definitions[0] : {};
+            const row = document.createElement('tr');
+            row.dataset.wordIndex = index;
+            
+            // 添加斑马纹
+            if (index % 2 === 0) {
+                row.classList.add('word-list-row-even');
+            }
+
+            // 编辑列（默认隐藏）
+            const editCell = document.createElement('td');
+            editCell.className = 'word-list-cell word-list-cell-edit hidden';
+            
+            // 收藏按钮
+            const favoriteBtn = document.createElement('button');
+            favoriteBtn.className = 'word-list-action-btn favorite-btn';
+            favoriteBtn.innerHTML = word.favorite ? '⭐' : '<span class="favorite-gray">⭐</span>';
+            favoriteBtn.title = word.favorite ? '取消收藏' : '收藏';
+            favoriteBtn.dataset.wordIndex = index;
+            favoriteBtn.addEventListener('click', () => {
+                this.toggleWordFavorite(index);
+            });
+            
+            // 删除按钮
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'word-list-action-btn delete-btn';
+            deleteBtn.innerHTML = '✖️';
+            deleteBtn.title = '删除单词';
+            deleteBtn.dataset.wordIndex = index;
+            deleteBtn.addEventListener('click', () => {
+                this.deleteWordFromList(index, word.word);
+            });
+            
+            editCell.appendChild(favoriteBtn);
+            editCell.appendChild(deleteBtn);
+            row.appendChild(editCell);
+
+            // 序号
+            const indexCell = document.createElement('td');
+            indexCell.className = 'word-list-cell word-list-cell-index';
+            indexCell.textContent = index + 1;
+            row.appendChild(indexCell);
+
+            // 单词（可编辑）
+            const wordCell = document.createElement('td');
+            wordCell.className = 'word-list-cell word-list-cell-word editable-cell';
+            wordCell.dataset.field = 'word';
+            wordCell.dataset.wordIndex = index;
+            wordCell.innerHTML = `<strong>${this.escapeHtml(word.word)}</strong>`;
+            row.appendChild(wordCell);
+
+            // 音标（可编辑）
+            const phoneticCell = document.createElement('td');
+            phoneticCell.className = 'word-list-cell word-list-cell-phonetic editable-cell';
+            phoneticCell.dataset.field = 'phonetic';
+            phoneticCell.dataset.wordIndex = index;
+            phoneticCell.textContent = word.phonetic || '-';
+            row.appendChild(phoneticCell);
+
+            // 释义（可编辑）
+            const meaningCell = document.createElement('td');
+            meaningCell.className = 'word-list-cell word-list-cell-meaning editable-cell';
+            meaningCell.dataset.field = 'meaning';
+            meaningCell.dataset.wordIndex = index;
+            meaningCell.dataset.partOfSpeech = def.partOfSpeech || '';
+            
+            // 合并词性和释义
+            let meaningText = '';
+            if (def.partOfSpeech) {
+                meaningText = `<span class="word-list-pos">${this.escapeHtml(def.partOfSpeech)}</span> `;
+            }
+            meaningText += this.escapeHtml(def.meaning || '-');
+            
+            meaningCell.innerHTML = meaningText;
+            row.appendChild(meaningCell);
+
+            // 例句（可编辑）
+            const exampleCell = document.createElement('td');
+            exampleCell.className = 'word-list-cell word-list-cell-example editable-cell';
+            exampleCell.dataset.field = 'example';
+            exampleCell.dataset.wordIndex = index;
+            
+            if (def.example) {
+                // 高亮例句中的单词
+                const exampleWithHighlight = this.highlightWordInExample(def.example, word.word);
+                exampleCell.innerHTML = exampleWithHighlight;
+            } else {
+                exampleCell.textContent = '-';
+            }
+            
+            row.appendChild(exampleCell);
+
+            tbody.appendChild(row);
+        });
+        
+        // 如果当前在编辑模式，应用编辑状态
+        if (this.isWordListEditMode) {
+            this.applyEditableState(true);
+        }
+    }
+
+    // 高亮例句中的单词
+    highlightWordInExample(example, word) {
+        if (!example || !word) return this.escapeHtml(example || '');
+        
+        // 转义HTML
+        const escapedExample = this.escapeHtml(example);
+        
+        // 创建正则表达式，匹配单词（不区分大小写，考虑单词边界）
+        const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+        
+        // 替换为加粗样式
+        return escapedExample.replace(regex, '<strong class="word-list-highlight">$1</strong>');
+    }
+
+    // HTML转义函数
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 关闭单词表页面
+    closeWordList() {
+        document.getElementById('wordListScreen').classList.add('hidden');
+        document.getElementById('welcomeScreen').classList.remove('hidden');
+        
+        // 重置编辑模式
+        this.isWordListEditMode = false;
+        this.currentWordListBookId = null;
+    }
+
+    // 切换单词表编辑模式
+    toggleWordListEditMode() {
+        if (this.isWordListEditMode) {
+            // 退出编辑模式 - 保存所有编辑
+            this.saveAllWordListEdits();
+        }
+        
+        this.isWordListEditMode = !this.isWordListEditMode;
+        
+        const editColumnHeader = document.getElementById('editColumnHeader');
+        const editCells = document.querySelectorAll('.word-list-cell-edit');
+        const editModeText = document.getElementById('editModeText');
+        
+        if (this.isWordListEditMode) {
+            // 进入编辑模式
+            editColumnHeader.classList.remove('hidden');
+            editCells.forEach(cell => cell.classList.remove('hidden'));
+            editModeText.textContent = '完成';
+            this.applyEditableState(true);
+        } else {
+            // 退出编辑模式
+            editColumnHeader.classList.add('hidden');
+            editCells.forEach(cell => cell.classList.add('hidden'));
+            editModeText.textContent = '编辑';
+            this.applyEditableState(false);
+        }
+    }
+    
+    // 应用可编辑状态
+    applyEditableState(isEditable) {
+        const editableCells = document.querySelectorAll('.editable-cell');
+        
+        editableCells.forEach(cell => {
+            if (isEditable) {
+                cell.contentEditable = 'true';
+                cell.classList.add('editing');
+                cell.title = '点击编辑';
+            } else {
+                cell.contentEditable = 'false';
+                cell.classList.remove('editing');
+                cell.title = '';
+            }
+        });
+    }
+    
+    // 保存所有单词表编辑
+    saveAllWordListEdits() {
+        const book = Storage.getBook(this.currentWordListBookId);
+        if (!book) return;
+        
+        let hasChanges = false;
+        const editableCells = document.querySelectorAll('.editable-cell');
+        
+        editableCells.forEach(cell => {
+            const wordIndex = parseInt(cell.dataset.wordIndex);
+            const field = cell.dataset.field;
+            const word = book.words[wordIndex];
+            
+            if (!word) return;
+            
+            // 获取编辑后的内容（去除HTML标签）
+            let newValue = cell.textContent.trim();
+            
+            // 如果值是 "-"，转为空字符串
+            if (newValue === '-') {
+                newValue = '';
+            }
+            
+            // 根据字段类型更新数据
+            switch(field) {
+                case 'word':
+                    if (newValue && newValue !== word.word) {
+                        word.word = newValue;
+                        hasChanges = true;
+                    }
+                    break;
+                    
+                case 'phonetic':
+                    if (newValue !== word.phonetic) {
+                        word.phonetic = newValue;
+                        hasChanges = true;
+                    }
+                    break;
+                    
+                case 'meaning':
+                    const def = word.definitions && word.definitions[0] ? word.definitions[0] : {};
+                    // 提取词性（如果有）
+                    const posMatch = cell.querySelector('.word-list-pos');
+                    if (posMatch) {
+                        newValue = newValue.replace(posMatch.textContent.trim(), '').trim();
+                    }
+                    
+                    if (newValue !== def.meaning) {
+                        if (!word.definitions || word.definitions.length === 0) {
+                            word.definitions = [{}];
+                        }
+                        word.definitions[0].meaning = newValue;
+                        hasChanges = true;
+                    }
+                    break;
+                    
+                case 'example':
+                    const exampleDef = word.definitions && word.definitions[0] ? word.definitions[0] : {};
+                    if (newValue !== exampleDef.example) {
+                        if (!word.definitions || word.definitions.length === 0) {
+                            word.definitions = [{}];
+                        }
+                        word.definitions[0].example = newValue;
+                        hasChanges = true;
+                    }
+                    break;
+            }
+        });
+        
+        if (hasChanges) {
+            // 保存到存储
+            Storage.updateBook(this.currentWordListBookId, book);
+            
+            // 重新加载词书列表
+            this.loadBooks();
+            
+            console.log('✅ 单词表编辑已保存');
+            
+            // 显示提示
+            this.showToast('保存成功', 'success');
+        }
+    }
+    
+    // 显示提示信息
+    showToast(message, type = 'info') {
+        // 创建提示元素
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        // 触发动画
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // 3秒后移除
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // 切换单词收藏状态（单词表中）
+    toggleWordFavorite(wordIndex) {
+        const book = Storage.getBook(this.currentWordListBookId);
+        if (!book) return;
+        
+        const word = book.words[wordIndex];
+        if (!word) return;
+        
+        // 切换收藏状态
+        word.favorite = !word.favorite;
+        
+        // 保存到存储
+        Storage.updateBook(this.currentWordListBookId, book);
+        
+        // 更新按钮显示
+        const favoriteBtn = document.querySelector(`.favorite-btn[data-word-index="${wordIndex}"]`);
+        if (favoriteBtn) {
+            favoriteBtn.innerHTML = word.favorite ? '⭐' : '<span class="favorite-gray">⭐</span>';
+            favoriteBtn.title = word.favorite ? '取消收藏' : '收藏';
+        }
+        
+        console.log(`${word.favorite ? '收藏' : '取消收藏'}单词: ${word.word}`);
+    }
+
+    // 从单词表删除单词
+    deleteWordFromList(wordIndex, wordText) {
+        const confirmed = confirm(`是否从词单删除该词：${wordText}\n\n确认 / 不了`);
+        
+        if (!confirmed) return;
+        
+        const book = Storage.getBook(this.currentWordListBookId);
+        if (!book) return;
+        
+        // 删除单词
+        book.words.splice(wordIndex, 1);
+        
+        // 保存到存储
+        Storage.updateBook(this.currentWordListBookId, book);
+        
+        // 重新加载词书列表
+        this.loadBooks();
+        
+        // 重新渲染表格
+        this.renderWordListTable(book);
+        
+        // 更新单词总数
+        document.getElementById('wordListTotalCount').textContent = book.words.length;
+        
+        console.log(`已删除单词: ${wordText}`);
+    }
+
+    // 切换当前学习单词的收藏状态
+    toggleFavorite() {
+        if (!this.currentBook || this.currentWordIndex >= this.sessionWords.length) {
+            console.warn('❌ 无法切换收藏：没有当前词书或单词索引超出范围');
+            return;
+        }
+        
+        const sessionWord = this.sessionWords[this.currentWordIndex];
+        const originalIndex = sessionWord.originalIndex;
+        
+        if (originalIndex === undefined) {
+            console.error('❌ 无法切换收藏：单词对象缺少 originalIndex 属性', sessionWord);
+            return;
+        }
+        
+        const book = Storage.getBook(this.currentBook.id);
+        
+        if (!book) {
+            console.error('❌ 无法切换收藏：找不到词书', this.currentBook.id);
+            return;
+        }
+        
+        const word = book.words[originalIndex];
+        if (!word) {
+            console.error('❌ 无法切换收藏：找不到单词', originalIndex);
+            return;
+        }
+        
+        // 切换收藏状态
+        word.favorite = !word.favorite;
+        
+        // 同时更新 sessionWord 的收藏状态（保持同步）
+        sessionWord.favorite = word.favorite;
+        
+        // 保存到存储
+        Storage.updateBook(this.currentBook.id, book);
+        
+        // 更新显示
+        this.updateFavoriteDisplay(word.favorite);
+        
+        console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}单词: ${word.word}`);
+    }
+
+    // 更新学习模式中的收藏按钮显示
+    updateFavoriteDisplay(isFavorite) {
+        const favoriteBtn1 = document.getElementById('favoriteBtn1');
+        const favoriteBtn2 = document.getElementById('favoriteBtn2');
+        
+        const icon = '⭐';
+        
+        if (favoriteBtn1) {
+            const iconSpan = favoriteBtn1.querySelector('.favorite-icon');
+            if (iconSpan) {
+                if (isFavorite) {
+                    iconSpan.innerHTML = icon;
+                    iconSpan.classList.remove('favorite-gray');
+                } else {
+                    iconSpan.innerHTML = icon;
+                    iconSpan.classList.add('favorite-gray');
+                }
+            }
+        }
+        
+        if (favoriteBtn2) {
+            const iconSpan = favoriteBtn2.querySelector('.favorite-icon');
+            if (iconSpan) {
+                if (isFavorite) {
+                    iconSpan.innerHTML = icon;
+                    iconSpan.classList.remove('favorite-gray');
+                } else {
+                    iconSpan.innerHTML = icon;
+                    iconSpan.classList.add('favorite-gray');
+                }
+            }
+        }
+    }
+
+    // 更新词书学习进度（学习完成时调用）
+    updateBookLearningProgress() {
+        if (!this.currentBook) return;
+
+        const book = Storage.getBook(this.currentBook.id);
+        if (!book) return;
+
+        const sequence = book.progress.sequence || [];
+        
+        // 计算答对的单词数
+        const correctCount = this.wordFirstResults.filter(result => result === 'correct').length;
+        
+        // 更新进度：sessionStartIndex + 答对的单词数
+        const newIndex = this.sessionStartIndex + correctCount;
+
+        Storage.updateBookProgress(this.currentBook.id, {
+            currentIndex: Math.min(newIndex, sequence.length)
+        });
+    }
+
+    // ============================================
+    // Emoji选择器相关方法
+    // ============================================
+    
+    // 初始化Emoji数据（带搜索关键词）
+    initEmojiData() {
+        return {
+            learning: {
+                emojis: ['📕', '📗', '📘', '📙', '📚', '📖', '📝', '✏️', '✒️', '🖊️', '🖍️', '📓', '📔', '📒', '📃', '📄', '📰', '🗞️', '📑', '🔖', '🎓', '🎯', '💡', '🧠', '📊', '📈', '🎨', '🌟', '⭐', '✨'],
+                keywords: ['书', '笔', '学习', '教育', '知识', '记录', '报纸', '毕业', '目标', '灯泡', '大脑', '图表', '艺术', '星星']
+            },
+            numbers: {
+                emojis: ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '#️⃣', '*️⃣', '🔢', '💯', '㊙️', '㊗️', '🈁', '🈂️', '🈚', '🈯', '🈲', '🈳', '🈴', '🈵', '🈶', '🈷️', '🈸', '🈹', '🈺'],
+                keywords: ['数字', '编号', '统计', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '百分百', '秘密', '祝贺']
+            },
+            letters: {
+                emojis: ['🅰️', '🅱️', '🅾️', '🆎', '🆑', '🆒', '🆓', '🆔', '🆕', '🆖', '🆗', '🆘', '🆙', '🆚', '🇦', '🇧', '🇨', '🇩', '🇪', '🇫', '🇬', '🇭', '🇮', '🇯', '🇰', '🇱', '🇲', '🇳', '🇴', '🇵'],
+                keywords: ['字母', '英文', 'abc', 'ABCDEFG', 'ok', 'new', 'free', 'cool', 'sos', 'up', 'vs']
+            },
+            math: {
+                emojis: ['➕', '➖', '✖️', '➗', '🟰', '♾️', '‼️', '⁉️', '❓', '❔', '❕', '❗', '〰️', '💱', '💲', '⚠️', '🔺', '🔻', '🔼', '🔽', '⏫', '⏬', '⏸️', '⏹️', '⏺️', '⏏️', '🎦', '📶', '📳', '📴'],
+                keywords: ['加', '减', '乘', '除', '等于', '无穷', '问号', '感叹号', '警告', '三角', '箭头', '暂停', '播放']
+            },
+            business: {
+                emojis: ['💰', '💵', '💴', '💶', '💷', '💸', '💳', '🪙', '💹', '📊', '📈', '📉', '💼', '🏦', '🏪', '🏬', '🏢', '🏛️', '⚖️', '📝', '📋', '📌', '📍', '📎', '🔗', '📧', '📨', '📩', '📤', '📥'],
+                keywords: ['钱', '美元', '欧元', '日元', '银行', '商店', '公司', '办公', '图表', '增长', '下降', '公文包', '邮件', '链接']
+            },
+            law: {
+                emojis: ['⚖️', '👨‍⚖️', '👩‍⚖️', '🏛️', '👮', '👮‍♂️', '👮‍♀️', '🚨', '🚓', '🚔', '⛓️', '🔒', '🔓', '🔐', '🗝️', '📜', '📋', '✅', '❌', '⭕', '🚫', '🆘', '⚠️', '📢', '📣', '🔔', '🔕', '📯', '🎯', '🏴'],
+                keywords: ['法律', '天平', '法官', '警察', '警车', '锁', '钥匙', '文书', '对勾', '叉号', '禁止', '警告', '广播']
+            },
+            medical: {
+                emojis: ['⚕️', '💊', '💉', '🩺', '🩹', '🩼', '🦷', '🧬', '🔬', '🧪', '🧫', '🌡️', '🩸', '❤️', '🫀', '🫁', '🧠', '👁️', '🦴', '👨‍⚕️', '👩‍⚕️', '🏥', '🚑', '⛑️', '🆘', '☤', '♿', '🧘', '💆', '🛌'],
+                keywords: ['医疗', '医生', '护士', '药', '针', '听诊器', '绷带', '牙齿', '基因', '显微镜', '试管', '体温计', '心脏', '大脑', '医院', '救护车']
+            },
+            tech: {
+                emojis: ['💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '💾', '💿', '📀', '📱', '☎️', '📞', '📟', '📠', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '🔧', '🔨', '⚒️', '🛠️', '⚙️', '🔩'],
+                keywords: ['电脑', '键盘', '打印机', '鼠标', '光盘', '手机', '电话', '电池', '插头', '灯泡', '手电筒', '工具', '扳手', '锤子', '齿轮']
+            },
+            environment: {
+                emojis: ['♻️', '🌍', '🌎', '🌏', '🌐', '🗺️', '🧭', '⛰️', '🏔️', '🗻', '🌋', '🏕️', '🏖️', '🏜️', '🏝️', '🏞️', '💧', '💦', '🌊', '⚡', '🔥', '❄️', '☃️', '⛄', '🌬️', '💨', '☁️', '🌤️', '⛅', '🌥️'],
+                keywords: ['环保', '回收', '地球', '世界', '地图', '指南针', '山', '火山', '水', '海浪', '闪电', '火', '雪', '云', '风']
+            },
+            transport: {
+                emojis: ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🚚', '🚛', '🚜', '🚲', '🛵', '🏍️', '✈️', '🛩️', '🚁', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞'],
+                keywords: ['汽车', '出租车', '公交', '警车', '救护车', '消防车', '卡车', '自行车', '摩托车', '飞机', '直升机', '火车', '高铁', '地铁']
+            },
+            media: {
+                emojis: ['📺', '📻', '📡', '📰', '🗞️', '📖', '📚', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📄', '📑', '🎬', '🎞️', '📽️', '🎥', '📹', '📷', '📸', '🎙️', '🎚️', '🎛️', '📢', '📣', '📯'],
+                keywords: ['电视', '收音机', '报纸', '新闻', '书', '摄像机', '相机', '麦克风', '广播', '喇叭']
+            },
+            culture: {
+                emojis: ['🎭', '🎨', '🎪', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪕', '🎻', '🎲', '♟️', '🎯', '🎰', '🎳', '🎮', '🕹️', '🎨', '🖼️', '🎭', '🗿', '🏛️', '⛩️', '🕌', '🕍', '⛪'],
+                keywords: ['艺术', '戏剧', '马戏', '电影', '话筒', '耳机', '音乐', '钢琴', '吉他', '小提琴', '画画', '雕像', '寺庙', '教堂']
+            },
+            politics: {
+                emojis: ['🏛️', '🗳️', '🗽', '⚖️', '🏴', '🏳️', '🚩', '📜', '📋', '📰', '🗞️', '📢', '📣', '🎙️', '⚠️', '🚨', '🔔', '🏁', '🏴‍☠️', '🆘', '🌍', '🌎', '🌏', '🌐', '🤝', '✊', '✌️', '🤲', '👏', '🙏'],
+                keywords: ['政府', '投票', '自由女神', '天平', '旗帜', '文书', '报纸', '广播', '警告', '地球', '握手', '拳头', '和平', '鼓掌']
+            },
+            nature: {
+                emojis: ['🌸', '🌺', '🌻', '🌷', '🌹', '🌼', '🌴', '🌳', '🌲', '🌱', '🍀', '🌿', '☘️', '🌾', '🌵', '🍁', '🍂', '🍃', '🌾', '🌰', '🌻', '🌞', '🌝', '🌛', '🌜', '🌚', '🌕', '🌖', '🌗', '🌘'],
+                keywords: ['花', '树', '植物', '叶子', '太阳', '月亮', '自然', '草', '仙人掌', '枫叶']
+            },
+            food: {
+                emojis: ['🍎', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞'],
+                keywords: ['水果', '苹果', '橙子', '柠檬', '香蕉', '西瓜', '葡萄', '草莓', '菠萝', '蔬菜', '番茄', '茄子', '辣椒', '面包']
+            },
+            activity: {
+                emojis: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🪃', '🥅', '⛳', '🪁', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛼', '🛷'],
+                keywords: ['足球', '篮球', '橄榄球', '棒球', '网球', '排球', '乒乓球', '羽毛球', '高尔夫', '风筝', '钓鱼', '滑板', '运动']
+            },
+            objects: {
+                emojis: ['⌚', '📱', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭'],
+                keywords: ['手表', '手机', '电脑', '键盘', '鼠标', '相机', '电话', '电视', '收音机', '指南针', '物品', '工具']
+            },
+            symbols: {
+                emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐'],
+                keywords: ['心', '爱', '红心', '爱心', '和平', '宗教', '十字', '符号']
+            },
+            flags: {
+                emojis: ['🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏳️‍⚧️', '🏴‍☠️', 
+                        '🇨🇳', '🇺🇸', '🇬🇧', '🇯🇵', '🇰🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇪🇸', '🇷🇺', '🇧🇷', '🇮🇳', 
+                        '🇨🇦', '🇦🇺', '🇲🇽', '🇳🇱', '🇸🇪', '🇨🇭', '🇹🇷', '🇵🇱', '🇧🇪', '🇦🇹',
+                        '🇦🇷', '🇨🇱', '🇨🇴', '🇵🇪', '🇻🇪', '🇪🇬', '🇿🇦', '🇳🇬', '🇰🇪', '🇲🇦',
+                        '🇸🇦', '🇦🇪', '🇮🇷', '🇮🇶', '🇮🇱', '🇵🇰', '🇧🇩', '🇹🇭', '🇻🇳', '🇵🇭',
+                        '🇲🇾', '🇸🇬', '🇮🇩', '🇲🇲', '🇰🇭', '🇱🇦', '🇳🇵', '🇱🇰', '🇦🇫', '🇲🇳',
+                        '🇳🇿', '🇫🇯', '🇵🇬', '🇵🇹', '🇬🇷', '🇭🇺', '🇨🇿', '🇷🇴', '🇧🇬', '🇭🇷',
+                        '🇷🇸', '🇸🇮', '🇸🇰', '🇺🇦', '🇧🇾', '🇱🇹', '🇱🇻', '🇪🇪', '🇫🇮', '🇳🇴',
+                        '🇩🇰', '🇮🇸', '🇮🇪', '🇱🇺', '🇲🇹', '🇨🇾', '🇦🇱', '🇲🇰', '🇧🇦', '🇲🇪',
+                        '🇰🇿', '🇺🇿', '🇹🇲', '🇰🇬', '🇹🇯', '🇦🇲', '🇬🇪', '🇦🇿', '🇯🇴', '🇱🇧',
+                        '🇸🇾', '🇾🇪', '🇴🇲', '🇰🇼', '🇶🇦', '🇧🇭', '🇱🇾', '🇹🇳', '🇩🇿', '🇸🇩',
+                        '🇪🇹', '🇸🇴', '🇩🇯', '🇪🇷', '🇺🇬', '🇹🇿', '🇷🇼', '🇧🇮', '🇿🇲', '🇿🇼',
+                        '🇲🇼', '🇲🇿', '🇧🇼', '🇳🇦', '🇦🇴', '🇨🇬', '🇨🇩', '🇨🇫', '🇹🇩', '🇨🇲',
+                        '🇬🇭', '🇨🇮', '🇸🇳', '🇲🇱', '🇧🇫', '🇳🇪', '🇹🇬', '🇧🇯', '🇬🇳', '🇸🇱',
+                        '🇱🇷', '🇬🇲', '🇬🇶', '🇬🇦', '🇨🇻', '🇸🇹', '🇲🇷', '🇲🇬', '🇰🇲', '🇸🇨',
+                        '🇲🇺', '🇷🇪', '🇾🇹', '🇨🇺', '🇯🇲', '🇭🇹', '🇩🇴', '🇵🇷', '🇹🇹', '🇧🇸',
+                        '🇧🇧', '🇬🇩', '🇱🇨', '🇻🇨', '🇦🇬', '🇩🇲', '🇰🇳', '🇧🇿', '🇨🇷', '🇸🇻',
+                        '🇬🇹', '🇭🇳', '🇳🇮', '🇵🇦', '🇧🇴', '🇪🇨', '🇬🇾', '🇵🇾', '🇸🇷', '🇺🇾'],
+                keywords: ['国旗', '旗帜', '中国', '美国', '英国', '日本', '韩国', '法国', '德国', '意大利', '西班牙', '俄罗斯', '巴西', '印度',
+                          '加拿大', '澳大利亚', '墨西哥', '荷兰', '瑞典', '瑞士', '土耳其', '波兰', '比利时', '奥地利',
+                          '阿根廷', '智利', '哥伦比亚', '秘鲁', '委内瑞拉', '埃及', '南非', '尼日利亚', '肯尼亚', '摩洛哥',
+                          '沙特', '阿联酋', '伊朗', '伊拉克', '以色列', '巴基斯坦', '孟加拉', '泰国', '越南', '菲律宾',
+                          '马来西亚', '新加坡', '印尼', '缅甸', '柬埔寨', '老挝', '尼泊尔', '斯里兰卡', '阿富汗', '蒙古',
+                          '新西兰', '斐济', '葡萄牙', '希腊', '匈牙利', '捷克', '罗马尼亚', '保加利亚', '克罗地亚',
+                          '塞尔维亚', '斯洛文尼亚', '斯洛伐克', '乌克兰', '白俄罗斯', '立陶宛', '拉脱维亚', '爱沙尼亚', '芬兰', '挪威',
+                          '丹麦', '冰岛', '爱尔兰', '卢森堡', '马耳他', '塞浦路斯', '阿尔巴尼亚', '北马其顿', '波黑', '黑山',
+                          '哈萨克斯坦', '乌兹别克斯坦', '土库曼斯坦', '吉尔吉斯斯坦', '塔吉克斯坦', '亚美尼亚', '格鲁吉亚', '阿塞拜疆', '约旦', '黎巴嫩',
+                          '叙利亚', '也门', '阿曼', '科威特', '卡塔尔', '巴林', '利比亚', '突尼斯', '阿尔及利亚', '苏丹',
+                          '埃塞俄比亚', '索马里', '吉布提', '厄立特里亚', '乌干达', '坦桑尼亚', '卢旺达', '布隆迪', '赞比亚', '津巴布韦',
+                          '马拉维', '莫桑比克', '博茨瓦纳', '纳米比亚', '安哥拉', '刚果布', '刚果金', '中非', '乍得', '喀麦隆',
+                          '加纳', '科特迪瓦', '塞内加尔', '马里', '布基纳法索', '尼日尔', '多哥', '贝宁', '几内亚', '塞拉利昂',
+                          '利比里亚', '冈比亚', '赤道几内亚', '加蓬', '佛得角', '圣多美', '毛里塔尼亚', '马达加斯加', '科摩罗', '塞舌尔',
+                          '毛里求斯', '留尼汪', '马约特', '古巴', '牙买加', '海地', '多米尼加', '波多黎各', '特立尼达', '巴哈马',
+                          '巴巴多斯', '格林纳达', '圣卢西亚', '圣文森特', '安提瓜', '多米尼克', '圣基茨', '伯利兹', '哥斯达黎加', '萨尔瓦多',
+                          '危地马拉', '洪都拉斯', '尼加拉瓜', '巴拿马', '玻利维亚', '厄瓜多尔', '圭亚那', '巴拉圭', '苏里南', '乌拉圭']
+            }
+        };
+    }
+    
+    // 打开Emoji选择器
+    openEmojiPicker() {
+        if (!this.currentSettingsBookId) {
+            console.warn('⚠️ 没有选中的词书ID');
+            return;
+        }
+        
+        console.log('📱 打开Emoji选择器，当前词书ID:', this.currentSettingsBookId);
+        
+        // 只隐藏词书设置弹窗，不清空currentSettingsBookId
+        document.getElementById('bookSettingsModal').classList.add('hidden');
+        
+        // 显示emoji选择器
+        document.getElementById('emojiPickerModal').classList.remove('hidden');
+        
+        // 渲染所有emoji
+        this.renderEmojis('all');
+        
+        // 清空搜索框
+        document.getElementById('emojiSearchInput').value = '';
+    }
+    
+    // 关闭Emoji选择器
+    closeEmojiPicker() {
+        document.getElementById('emojiPickerModal').classList.add('hidden');
+        // 清空当前设置的词书ID
+        this.currentSettingsBookId = null;
+        console.log('✅ Emoji选择器已关闭');
+    }
+    
+    // 渲染Emoji网格
+    renderEmojis(category) {
+        const emojiGrid = document.getElementById('emojiGrid');
+        emojiGrid.innerHTML = '';
+        
+        let emojisToShow = [];
+        
+        if (category === 'all') {
+            // 显示所有emoji
+            Object.values(this.emojiData).forEach(categoryData => {
+                emojisToShow = emojisToShow.concat(categoryData.emojis);
+            });
+        } else if (this.emojiData[category]) {
+            emojisToShow = this.emojiData[category].emojis;
+        }
+        
+        // 创建emoji元素
+        emojisToShow.forEach(emoji => {
+            const emojiItem = document.createElement('div');
+            emojiItem.className = 'emoji-item';
+            emojiItem.textContent = emoji;
+            emojiItem.title = emoji;
+            emojiItem.addEventListener('click', () => {
+                this.selectEmoji(emoji);
+            });
+            emojiGrid.appendChild(emojiItem);
+        });
+        
+        // 显示emoji总数
+        console.log(`📊 当前显示 ${emojisToShow.length} 个emoji`);
+    }
+    
+    // 按分类筛选Emoji
+    filterEmojisByCategory(category) {
+        this.currentEmojiCategory = category;
+        this.renderEmojis(category);
+    }
+    
+    // 搜索Emoji
+    searchEmojis(query) {
+        if (!query.trim()) {
+            // 如果搜索框为空，显示当前分类
+            this.renderEmojis(this.currentEmojiCategory);
+            return;
+        }
+        
+        const emojiGrid = document.getElementById('emojiGrid');
+        emojiGrid.innerHTML = '';
+        
+        const searchTerm = query.toLowerCase().trim();
+        const matchedEmojis = [];
+        
+        // 遍历所有分类进行搜索
+        Object.entries(this.emojiData).forEach(([category, data]) => {
+            const keywords = data.keywords.join(' ').toLowerCase();
+            
+            // 检查关键词是否包含搜索词
+            if (keywords.includes(searchTerm)) {
+                // 如果关键词匹配，添加该分类的所有emoji
+                matchedEmojis.push(...data.emojis);
+            }
+        });
+        
+        // 去重（某些emoji可能在多个分类中）
+        const uniqueEmojis = [...new Set(matchedEmojis)];
+        
+        if (uniqueEmojis.length > 0) {
+            // 显示搜索结果
+            uniqueEmojis.forEach(emoji => {
+                const emojiItem = document.createElement('div');
+                emojiItem.className = 'emoji-item';
+                emojiItem.textContent = emoji;
+                emojiItem.title = emoji;
+                emojiItem.addEventListener('click', () => {
+                    this.selectEmoji(emoji);
+                });
+                emojiGrid.appendChild(emojiItem);
+            });
+            
+            console.log(`🔍 搜索"${query}"找到 ${uniqueEmojis.length} 个emoji`);
+        } else {
+            // 没有找到结果
+            emojiGrid.innerHTML = `
+                <div style="padding: 40px 20px; text-align: center; color: var(--text-secondary); grid-column: 1 / -1;">
+                    <div style="font-size: 3rem; margin-bottom: 12px;">🔍</div>
+                    <div style="font-size: 0.875rem;">未找到"${query}"相关的emoji</div>
+                    <div style="font-size: 0.75rem; margin-top: 8px; opacity: 0.7;">试试其他关键词，如：心、书、旗帜、美国</div>
+                </div>
+            `;
+        }
+    }
+    
+    // 选择Emoji
+    selectEmoji(emoji) {
+        if (!this.currentSettingsBookId) {
+            console.error('❌ 无法选择emoji：currentSettingsBookId为空');
+            return;
+        }
+        
+        console.log(`🎨 正在更新词书图标为: ${emoji}，词书ID: ${this.currentSettingsBookId}`);
+        
+        // 更新词书的icon
+        const updated = Storage.updateBook(this.currentSettingsBookId, { icon: emoji });
+        
+        if (updated) {
+            // 刷新词书列表显示
+            this.loadBooks();
+            
+            // 关闭emoji选择器
+            this.closeEmojiPicker();
+            
+            // 显示成功提示
+            console.log(`✨ 词书图标已成功更新为: ${emoji}`);
+            
+            // 可选：显示toast提示
+            // alert(`图标已更新为 ${emoji}`);
+        } else {
+            console.error('❌ 更新词书图标失败');
+        }
+    }
+
+    // ============================================
+    // AI工坊相关方法
+    // ============================================
+
+    // 打开AI工坊
+    openAiWorkshop() {
+        // 隐藏其他页面
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('wordEditorScreen').classList.add('hidden');
+        document.getElementById('learningScreen').classList.add('hidden');
+        document.getElementById('completionScreen').classList.add('hidden');
+        document.getElementById('wordListScreen').classList.add('hidden');
+
+        // 显示AI工坊页面
+        document.getElementById('aiWorkshopScreen').classList.remove('hidden');
+
+        // 显示工坊主页，隐藏应用
+        this.showWorkshopHome();
+    }
+
+    // 关闭AI工坊
+    closeAiWorkshop() {
+        document.getElementById('aiWorkshopScreen').classList.add('hidden');
+        document.getElementById('welcomeScreen').classList.remove('hidden');
+        
+        // 重置工坊状态
+        this.showWorkshopHome();
+    }
+    
+    // 显示工坊主页
+    showWorkshopHome() {
+        document.getElementById('workshopAppsGrid').classList.remove('hidden');
+        document.getElementById('readingAppContainer').classList.add('hidden');
+        document.getElementById('synonymAppContainer').classList.add('hidden');
+    }
+    
+    // 打开工坊应用
+    openWorkshopApp(appName) {
+        document.getElementById('workshopAppsGrid').classList.add('hidden');
+        
+        if (appName === 'reading') {
+            document.getElementById('readingAppContainer').classList.remove('hidden');
+        // 加载词单列表
+        this.loadBookSelector();
+        // 加载收藏单词
+        this.loadFavoriteKeywords();
+            // 重置关键词列表
+        this.selectedKeywords = [];
+        this.selectedBooks = [];
+        this.updateSelectedKeywordsDisplay();
+        } else if (appName === 'synonym') {
+            document.getElementById('synonymAppContainer').classList.remove('hidden');
+            // 初始化同义词练习
+            this.initSynonymPractice();
+        }
+    }
+    
+    // ============================================
+    // 移动端侧边栏切换
+    // ============================================
+    
+    // 切换移动端词书列表
+    toggleMobileSidebar() {
+        const sidebar = document.querySelector('.sidebar');
+        const statsPanel = document.querySelector('.stats-panel');
+        const btn = document.getElementById('mobileToggleSidebar');
+        
+        if (!sidebar) return;
+        
+        // 如果统计面板打开，先关闭
+        if (statsPanel && statsPanel.classList.contains('mobile-show')) {
+            statsPanel.classList.remove('mobile-show');
+            document.getElementById('mobileToggleStats').classList.remove('active');
+        }
+        
+        // 切换侧边栏
+        sidebar.classList.toggle('mobile-show');
+        btn.classList.toggle('active');
+        
+        // 点击遮罩层关闭侧边栏
+        if (sidebar.classList.contains('mobile-show')) {
+            const closeOnClick = (e) => {
+                if (!sidebar.contains(e.target) && !btn.contains(e.target)) {
+                    sidebar.classList.remove('mobile-show');
+                    btn.classList.remove('active');
+                    document.removeEventListener('click', closeOnClick);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closeOnClick);
+            }, 100);
+        }
+    }
+    
+    // 切换移动端今日统计
+    toggleMobileStats() {
+        const statsPanel = document.querySelector('.stats-panel');
+        const sidebar = document.querySelector('.sidebar');
+        const btn = document.getElementById('mobileToggleStats');
+        
+        if (!statsPanel) return;
+        
+        // 如果侧边栏打开，先关闭
+        if (sidebar && sidebar.classList.contains('mobile-show')) {
+            sidebar.classList.remove('mobile-show');
+            document.getElementById('mobileToggleSidebar').classList.remove('active');
+        }
+        
+        // 切换统计面板
+        statsPanel.classList.toggle('mobile-show');
+        btn.classList.toggle('active');
+        
+        // 点击遮罩层关闭统计面板
+        if (statsPanel.classList.contains('mobile-show')) {
+            const closeOnClick = (e) => {
+                if (!statsPanel.contains(e.target) && !btn.contains(e.target)) {
+                    statsPanel.classList.remove('mobile-show');
+                    btn.classList.remove('active');
+                    document.removeEventListener('click', closeOnClick);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closeOnClick);
+            }, 100);
+        }
+    }
+    
+    // ============================================
+    // 同义词练习相关方法
+    // ============================================
+    
+    // 初始化同义词练习
+    initSynonymPractice() {
+        console.log('📖 初始化同义词练习');
+        
+        // 重置状态
+        this.synonymData = [];
+        this.synonymWords = [];
+        this.synonymCurrentIndex = 0;
+        this.synonymUserSelections = [];
+        this.synonymResults = [];
+        
+        // 显示配置页面
+        document.getElementById('synonymConfig').classList.remove('hidden');
+        document.getElementById('synonymPractice').classList.add('hidden');
+        document.getElementById('synonymCompletion').classList.add('hidden');
+        
+        // 重置文件上传状态
+        document.getElementById('synonymFileUpload').classList.remove('hidden');
+        document.getElementById('synonymFileStatus').classList.add('hidden');
+        document.getElementById('startSynonymBtn').disabled = true;
+        document.getElementById('synonymFileInput').value = '';
+        
+        // 尝试加载历史缓存
+        this.loadSynonymCache();
+    }
+    
+    // 处理文件上传
+    async handleSynonymFileUpload(file) {
+        if (!file) return;
+        
+        console.log('📂 上传文件:', file.name);
+        this.showLoading('正在解析文件...');
+        
+        try {
+            const data = await this.parseSynonymExcel(file);
+            this.synonymData = data;
+            
+            // 保存到历史缓存
+            const cacheData = {
+                fileName: file.name,
+                uploadTime: new Date().toISOString(),
+                wordCount: data.length,
+                data: data
+            };
+            localStorage.setItem('synonymPracticeCache', JSON.stringify(cacheData));
+            
+            // 更新UI
+            document.getElementById('synonymFileUpload').classList.add('hidden');
+            document.getElementById('synonymFileStatus').classList.remove('hidden');
+            document.getElementById('synonymFileName').textContent = file.name;
+            document.getElementById('synonymWordCount').textContent = `${data.length} 个单词`;
+            document.getElementById('startSynonymBtn').disabled = false;
+            
+            this.hideLoading();
+            this.showToast(`成功加载 ${data.length} 个单词`, 'success');
+        } catch (error) {
+            console.error('文件解析失败:', error);
+            this.hideLoading();
+            
+            // 显示详细错误信息
+            const errorMsg = error.message || '文件解析失败，请检查格式';
+            alert(`❌ 文件解析失败\n\n${errorMsg}`);
+        }
+    }
+    
+    // 加载历史缓存
+    loadSynonymCache() {
+        const cached = localStorage.getItem('synonymPracticeCache');
+        if (cached) {
+            try {
+                const cacheData = JSON.parse(cached);
+                this.synonymData = cacheData.data;
+                
+                // 更新UI
+                document.getElementById('synonymFileUpload').classList.add('hidden');
+                document.getElementById('synonymFileStatus').classList.remove('hidden');
+                document.getElementById('synonymFileName').textContent = cacheData.fileName;
+                document.getElementById('synonymWordCount').textContent = `${cacheData.wordCount} 个单词`;
+                document.getElementById('startSynonymBtn').disabled = false;
+                
+                console.log('✅ 已加载历史缓存:', cacheData.fileName, cacheData.wordCount, '个单词');
+                this.showToast('已加载上次导入的文件', 'info');
+                
+                return true;
+            } catch (e) {
+                console.error('缓存加载失败:', e);
+                return false;
+            }
+        }
+        return false;
+    }
+    
+    // 解析Excel文件
+    async parseSynonymExcel(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                    
+                    if (jsonData.length === 0) {
+                        throw new Error('文件为空或格式不正确');
+                    }
+                    
+                    // 获取所有列名
+                    const firstRow = jsonData[0];
+                    const columnNames = Object.keys(firstRow);
+                    
+                    console.log('📋 Excel列名:', columnNames);
+                    
+                    // 智能匹配列名
+                    const columnMapping = this.matchExcelColumns(columnNames);
+                    
+                    console.log('🔍 列名匹配结果:', columnMapping);
+                    
+                    if (!columnMapping.word || !columnMapping.synonyms) {
+                        const missingCols = [];
+                        if (!columnMapping.word) missingCols.push('单词/重点词');
+                        if (!columnMapping.synonyms) missingCols.push('同义词/替换词');
+                        throw new Error(`未找到必需的列：${missingCols.join('、')}。\n\n当前列名：${columnNames.join('、')}`);
+                    }
+                    
+                    // 解析数据
+                    const parsed = jsonData.map((row, index) => {
+                        // 获取同义词字符串
+                        const synonymsStr = row[columnMapping.synonyms] || '';
+                        const synonyms = synonymsStr.toString().split(/[,，、;；]/).map(s => s.trim()).filter(s => s);
+                        
+                        // 获取单词
+                        const word = (row[columnMapping.word] || '').toString().trim();
+                        
+                        return {
+                            word: word,
+                            phonetic: row[columnMapping.phonetic] ? row[columnMapping.phonetic].toString().trim() : '',
+                            meaning: row[columnMapping.meaning] ? row[columnMapping.meaning].toString().trim() : '',
+                            level: row[columnMapping.level] ? row[columnMapping.level].toString().trim() : '',
+                            synonyms: synonyms
+                        };
+                    }).filter(item => item.word && item.synonyms.length > 0);
+                    
+                    console.log(`✅ 成功解析 ${parsed.length} 个单词`);
+                    
+                    if (parsed.length === 0) {
+                        throw new Error('未找到有效数据。请确保：\n1. 单词/重点词列不为空\n2. 同义词/替换词列不为空\n3. 同义词用逗号分隔');
+                    }
+                    
+                    resolve(parsed);
+                } catch (error) {
+                    console.error('解析错误:', error);
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => reject(new Error('文件读取失败'));
+            reader.readAsArrayBuffer(file);
+        });
+    }
+    
+    // 智能匹配Excel列名
+    matchExcelColumns(columnNames) {
+        const mapping = {
+            word: null,
+            phonetic: null,
+            meaning: null,
+            level: null,
+            synonyms: null
+        };
+        
+        // 定义匹配规则（按优先级排序）
+        const patterns = {
+            word: ['重点词', '单词', 'word', '词汇', '英文', '英语单词'],
+            phonetic: ['音标', 'phonetic', '发音', 'pronunciation'],
+            meaning: ['中文释义', '释义', '意思', '中文', '翻译', 'meaning', '定义'],
+            level: ['等级', 'level', '难度', 'cefr', '级别'],
+            synonyms: ['同义词', '替换词', '同义替换', 'synonym', '近义词', '相关词']
+        };
+        
+        // 对每个字段进行匹配
+        for (const [field, keywords] of Object.entries(patterns)) {
+            for (const colName of columnNames) {
+                const normalizedCol = colName.toLowerCase().trim();
+                
+                // 精确匹配或包含关键字
+                for (const keyword of keywords) {
+                    const normalizedKeyword = keyword.toLowerCase();
+                    
+                    if (normalizedCol === normalizedKeyword || 
+                        normalizedCol.includes(normalizedKeyword) ||
+                        normalizedKeyword.includes(normalizedCol)) {
+                        mapping[field] = colName;
+                        break;
+                    }
+                }
+                
+                if (mapping[field]) break;
+            }
+        }
+        
+        return mapping;
+    }
+    
+    // 开始练习
+    startSynonymPractice() {
+        const mode = document.getElementById('synonymMode').value;
+        const count = parseInt(document.getElementById('synonymCount').value);
+        
+        // 准备单词列表
+        let words = [...this.synonymData];
+        
+        // 乱序
+        if (mode === 'random') {
+            words = words.sort(() => Math.random() - 0.5);
+        }
+        
+        // 限制数量
+        this.synonymWords = words.slice(0, Math.min(count, words.length));
+        this.synonymCurrentIndex = 0;
+        this.synonymResults = [];
+        
+        // 显示练习页面
+        document.getElementById('synonymConfig').classList.add('hidden');
+        document.getElementById('synonymPractice').classList.remove('hidden');
+        
+        // 渲染第一题
+        this.renderSynonymQuestion();
+    }
+    
+    // 渲染题目
+    renderSynonymQuestion() {
+        if (this.synonymCurrentIndex >= this.synonymWords.length) {
+            this.finishSynonymPractice();
+            return;
+        }
+        
+        const word = this.synonymWords[this.synonymCurrentIndex];
+        this.synonymCurrentWord = word;
+        this.synonymUserSelections = [];
+        
+        // 更新进度
+        document.getElementById('synonymCurrentIndex').textContent = this.synonymCurrentIndex + 1;
+        document.getElementById('synonymTotalWords').textContent = this.synonymWords.length;
+        
+        // 更新单词信息
+        document.getElementById('synonymWordText').textContent = word.word;
+        document.getElementById('synonymWordPhonetic').textContent = word.phonetic;
+        
+        // 解析词性和释义
+        const meaningMatch = word.meaning.match(/^([a-z]+\.)(.+)$/i);
+        if (meaningMatch) {
+            document.getElementById('synonymWordPos').textContent = meaningMatch[1];
+            document.getElementById('synonymWordMeaning').textContent = meaningMatch[2].trim();
+        } else {
+            document.getElementById('synonymWordPos').textContent = '';
+            document.getElementById('synonymWordMeaning').textContent = word.meaning;
+        }
+        
+        document.getElementById('synonymWordLevel').textContent = word.level;
+        
+        // 更新提示
+        document.getElementById('synonymTotalAnswer').textContent = word.synonyms.length;
+        document.getElementById('synonymAnswerCount').textContent = 0;
+        
+        // 生成选项
+        this.generateSynonymOptions(word);
+        
+        // 更新进度条
+        this.updateSynonymProgress();
+        
+        // 隐藏反馈
+        document.getElementById('synonymFeedbackOverlay').classList.add('hidden');
+        
+        // 更新上一题标记
+        this.updateSynonymLastBadge();
+        
+        // 自动播放单词发音
+        setTimeout(() => {
+            this.speak(word.word);
+        }, 300);
+    }
+    
+    // 生成选项（正确答案 + 3个干扰项）
+    generateSynonymOptions(word) {
+        const correctAnswers = word.synonyms;
+        const distractors = [];
+        
+        // 从其他单词中选择干扰项
+        const otherWords = this.synonymData.filter(w => w.word !== word.word);
+        let allOtherSynonyms = [];
+        
+        otherWords.forEach(w => {
+            allOtherSynonyms = allOtherSynonyms.concat(w.synonyms);
+        });
+        
+        // 去重
+        allOtherSynonyms = [...new Set(allOtherSynonyms)];
+        
+        // 随机选3个不重复的干扰项
+        while (distractors.length < 3 && allOtherSynonyms.length > 0) {
+            const randomIndex = Math.floor(Math.random() * allOtherSynonyms.length);
+            const distractor = allOtherSynonyms[randomIndex];
+            
+            if (!correctAnswers.includes(distractor) && !distractors.includes(distractor)) {
+                distractors.push(distractor);
+            }
+            
+            allOtherSynonyms.splice(randomIndex, 1);
+        }
+        
+        // 混合并随机排序
+        const allOptions = [...correctAnswers, ...distractors].sort(() => Math.random() - 0.5);
+        
+        // 渲染选项
+        const optionsGrid = document.getElementById('synonymOptionsGrid');
+        optionsGrid.innerHTML = '';
+        
+        allOptions.forEach((option, index) => {
+            const optionBtn = document.createElement('button');
+            optionBtn.className = 'synonym-option';
+            optionBtn.textContent = option;
+            optionBtn.dataset.value = option;
+            optionBtn.addEventListener('click', () => this.handleSynonymOptionClick(optionBtn));
+            optionsGrid.appendChild(optionBtn);
+        });
+    }
+    
+    // 处理选项点击
+    handleSynonymOptionClick(optionBtn) {
+        const value = optionBtn.dataset.value;
+        
+        if (optionBtn.classList.contains('selected')) {
+            // 取消选择
+            optionBtn.classList.remove('selected');
+            const index = this.synonymUserSelections.indexOf(value);
+            if (index > -1) {
+                this.synonymUserSelections.splice(index, 1);
+            }
+        } else {
+            // 选择
+            optionBtn.classList.add('selected');
+            this.synonymUserSelections.push(value);
+        }
+        
+        // 更新计数
+        document.getElementById('synonymAnswerCount').textContent = this.synonymUserSelections.length;
+        
+        // 如果选够了答案数量，自动提交
+        if (this.synonymUserSelections.length === this.synonymCurrentWord.synonyms.length) {
+            setTimeout(() => {
+                this.submitSynonymAnswer();
+            }, 300); // 稍微延迟，让用户看到选中效果
+        }
+    }
+    
+    // 提交答案
+    submitSynonymAnswer() {
+        if (this.synonymUserSelections.length === 0) {
+            this.showToast('请至少选择一个选项', 'error');
+            return;
+        }
+        
+        const word = this.synonymCurrentWord;
+        const correctAnswers = word.synonyms;
+        const userAnswers = this.synonymUserSelections;
+        
+        // 判断结果
+        const correctSelected = userAnswers.filter(a => correctAnswers.includes(a));
+        const incorrectSelected = userAnswers.filter(a => !correctAnswers.includes(a));
+        const missed = correctAnswers.filter(a => !userAnswers.includes(a));
+        
+        const isFullyCorrect = correctSelected.length === correctAnswers.length && incorrectSelected.length === 0;
+        const isPartiallyCorrect = correctSelected.length > 0 && (incorrectSelected.length > 0 || missed.length > 0);
+        
+        // 记录结果
+        this.synonymResults.push({
+            word: word.word,
+            correct: isFullyCorrect,
+            partial: isPartiallyCorrect,
+            correctSelected: correctSelected.length,
+            total: correctAnswers.length,
+            userAnswers: userAnswers,
+            correctAnswers: correctAnswers
+        });
+        
+        // 显示反馈
+        this.showSynonymFeedback(isFullyCorrect, isPartiallyCorrect, correctAnswers, incorrectSelected, missed);
+    }
+    
+    // 显示反馈
+    showSynonymFeedback(isFullyCorrect, isPartiallyCorrect, correctAnswers, incorrectSelected, missed) {
+        // 更新选项状态
+        document.querySelectorAll('.synonym-option').forEach(btn => {
+            const value = btn.dataset.value;
+            btn.style.pointerEvents = 'none';
+            
+            if (correctAnswers.includes(value)) {
+                btn.classList.add('correct');
+            }
+            if (incorrectSelected.includes(value)) {
+                btn.classList.add('incorrect');
+            }
+            if (missed.includes(value)) {
+                btn.classList.add('missed');
+            }
+        });
+        
+        // 显示反馈层
+        const overlay = document.getElementById('synonymFeedbackOverlay');
+        const icon = document.getElementById('synonymFeedbackIcon');
+        const text = document.getElementById('synonymFeedbackText');
+        const answer = document.getElementById('synonymCorrectAnswer');
+        
+        if (isFullyCorrect) {
+            icon.textContent = '✓';
+            icon.style.color = 'var(--success)';
+            text.textContent = '完全正确！';
+            answer.textContent = '';
+            
+            // 播放成功音效（不播放动画，静默提醒）
+            this.playCorrectSound();
+        } else if (isPartiallyCorrect) {
+            icon.textContent = '△';
+            icon.style.color = 'var(--warning)';
+            text.textContent = '部分正确';
+            answer.innerHTML = `<div style="margin-top: 1rem;">正确答案：<strong>${correctAnswers.join(', ')}</strong></div>`;
+            
+            // 播放提示音
+            this.playWrongSound();
+        } else {
+            icon.textContent = '✗';
+            icon.style.color = 'var(--error)';
+            text.textContent = '请继续加油！';
+            answer.innerHTML = `<div style="margin-top: 1rem;">正确答案：<strong>${correctAnswers.join(', ')}</strong></div>`;
+            
+            // 播放错误音效
+            this.playWrongSound();
+        }
+        
+        overlay.classList.remove('hidden');
+        
+        // 禁用提交按钮，防止重复提交
+        document.getElementById('synonymSubmitBtn').disabled = true;
+        
+        // 自动进入下一题（使用学习模式的切换时长设置）
+        const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+        setTimeout(() => {
+            this.nextSynonymWord();
+            // 重新启用提交按钮
+            document.getElementById('synonymSubmitBtn').disabled = false;
+        }, autoNextTime * 1000);
+    }
+    
+    // 下一题
+    nextSynonymWord() {
+        this.synonymCurrentIndex++;
+        this.renderSynonymQuestion();
+    }
+    
+    // 跳过
+    skipSynonymWord() {
+        this.synonymResults.push({
+            word: this.synonymCurrentWord.word,
+            correct: false,
+            partial: false,
+            skipped: true,
+            userAnswers: [],
+            correctAnswers: this.synonymCurrentWord.synonyms
+        });
+        this.nextSynonymWord();
+    }
+    
+    // 完成练习
+    finishSynonymPractice() {
+        // 计算统计
+        const total = this.synonymResults.length;
+        const correct = this.synonymResults.filter(r => r.correct).length;
+        const partial = this.synonymResults.filter(r => r.partial).length;
+        const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+        
+        // 显示完成页面
+        document.getElementById('synonymPractice').classList.add('hidden');
+        document.getElementById('synonymCompletion').classList.remove('hidden');
+        
+        // 更新统计
+        document.getElementById('synonymStatsTotal').textContent = total;
+        document.getElementById('synonymStatsCorrect').textContent = correct;
+        document.getElementById('synonymStatsPartial').textContent = partial;
+        document.getElementById('synonymStatsAccuracy').textContent = `${accuracy}%`;
+    }
+    
+    // 退出练习
+    exitSynonymPractice() {
+        if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
+            this.showWorkshopHome();
+        }
+    }
+    
+    // 重新开始
+    restartSynonymPractice() {
+        this.initSynonymPractice();
+    }
+    
+    // 查看错题
+    reviewSynonymErrors() {
+        // 筛选错题
+        const errors = this.synonymResults.filter(r => !r.correct);
+        
+        if (errors.length === 0) {
+            this.showToast('太棒了！没有错题', 'success');
+            return;
+        }
+        
+        // 准备错题列表
+        this.synonymWords = errors.map(e => {
+            return this.synonymData.find(w => w.word === e.word);
+        }).filter(w => w);
+        
+        this.synonymCurrentIndex = 0;
+        this.synonymResults = [];
+        
+        // 显示练习页面
+        document.getElementById('synonymCompletion').classList.add('hidden');
+        document.getElementById('synonymPractice').classList.remove('hidden');
+        
+        // 渲染第一题
+        this.renderSynonymQuestion();
+        
+        this.showToast(`开始复习 ${errors.length} 道错题`, 'info');
+    }
+    
+    // 更新进度条
+    updateSynonymProgress() {
+        const track = document.getElementById('synonymProgressTrack');
+        track.innerHTML = '';
+        
+        this.synonymWords.forEach((_, index) => {
+            const segment = document.createElement('div');
+            segment.className = 'progress-segment';
+            segment.style.width = `${100 / this.synonymWords.length}%`;
+            
+            if (index < this.synonymCurrentIndex) {
+                const result = this.synonymResults[index];
+                if (result.correct) {
+                    segment.classList.add('correct');
+                } else if (result.partial) {
+                    segment.classList.add('partial');
+                } else {
+                    segment.classList.add('wrong');
+                }
+            } else if (index === this.synonymCurrentIndex) {
+                segment.classList.add('current');
+            } else {
+                segment.classList.add('pending');
+            }
+            
+            track.appendChild(segment);
+        });
+        
+        // 更新正确率
+        if (this.synonymCurrentIndex > 0) {
+            const correct = this.synonymResults.filter(r => r.correct).length;
+            const accuracy = Math.round((correct / this.synonymCurrentIndex) * 100);
+            document.getElementById('synonymAccuracy').textContent = `${accuracy}%`;
+        } else {
+            document.getElementById('synonymAccuracy').textContent = '0%';
+        }
+    }
+    
+    // 更新上一题标记
+    updateSynonymLastBadge() {
+        const badge = document.getElementById('synonymLastBadge');
+        
+        if (this.synonymCurrentIndex > 0 && this.synonymResults.length > 0) {
+            const lastResult = this.synonymResults[this.synonymResults.length - 1];
+            badge.style.display = 'flex';
+            
+            if (lastResult.correct) {
+                badge.textContent = '✓ 上一题正确';
+                badge.style.background = 'var(--success)';
+                badge.style.color = 'white';
+            } else if (lastResult.partial) {
+                badge.textContent = '△ 上一题部分正确';
+                badge.style.background = 'var(--warning)';
+                badge.style.color = 'white';
+            } else if (lastResult.skipped) {
+                badge.textContent = '⊘ 上一题跳过';
+                badge.style.background = 'var(--text-tertiary)';
+                badge.style.color = 'white';
+            } else {
+                badge.textContent = '✗ 上一题错误';
+                badge.style.background = 'var(--error)';
+                badge.style.color = 'white';
+            }
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+    
+    // 播放单词发音
+    playSynonymAudio() {
+        if (this.synonymCurrentWord) {
+            this.speak(this.synonymCurrentWord.word);
+        }
+    }
+
+    // 加载收藏单词作为关键词
+    loadFavoriteKeywords() {
+        const keywordList = document.getElementById('keywordList');
+        const keywordEmpty = document.getElementById('keywordEmpty');
+        keywordList.innerHTML = '';
+
+        // 获取所有词书中的收藏单词
+        const favoriteWords = [];
+        const books = Storage.loadBooks();
+        
+        books.forEach(book => {
+            book.words.forEach(word => {
+                if (word.favorite && word.word) {
+                    favoriteWords.push(word.word.toLowerCase());
+                }
+            });
+        });
+
+        // 去重
+        const uniqueFavorites = [...new Set(favoriteWords)];
+
+        if (uniqueFavorites.length === 0) {
+            keywordEmpty.classList.remove('hidden');
+            keywordList.classList.add('hidden');
+        } else {
+            keywordEmpty.classList.add('hidden');
+            keywordList.classList.remove('hidden');
+
+            // 渲染收藏单词
+            uniqueFavorites.forEach(word => {
+                const keyword = document.createElement('button');
+                keyword.className = 'keyword-item';
+                keyword.textContent = word;
+                keyword.dataset.word = word;
+                keyword.addEventListener('click', () => {
+                    this.toggleKeywordSelection(word, keyword);
+                });
+                keywordList.appendChild(keyword);
+            });
+        }
+
+        console.log(`📚 加载了 ${uniqueFavorites.length} 个收藏单词`);
+    }
+
+    // 切换关键词选择
+    toggleKeywordSelection(word, element) {
+        const index = this.selectedKeywords.indexOf(word);
+        
+        if (index > -1) {
+            // 取消选择
+            this.selectedKeywords.splice(index, 1);
+            element.classList.remove('selected');
+        } else {
+            // 选择
+            if (this.selectedKeywords.length >= 10) {
+                alert('最多选择10个关键词');
+                return;
+            }
+            this.selectedKeywords.push(word);
+            element.classList.add('selected');
+        }
+
+        this.updateSelectedKeywordsDisplay();
+    }
+
+    // 更新已选择关键词显示
+    updateSelectedKeywordsDisplay() {
+        const container = document.getElementById('selectedKeywords');
+        container.innerHTML = '';
+
+        if (this.selectedKeywords.length > 0) {
+            const label = document.createElement('div');
+            label.className = 'selected-keywords-label';
+            label.textContent = `已选择 ${this.selectedKeywords.length} 个关键词：`;
+            container.appendChild(label);
+
+            const list = document.createElement('div');
+            list.className = 'selected-keywords-list';
+            
+            this.selectedKeywords.forEach(word => {
+                const tag = document.createElement('span');
+                tag.className = 'keyword-tag';
+                tag.innerHTML = `${word} <button class="keyword-remove" data-word="${word}">×</button>`;
+                
+                tag.querySelector('.keyword-remove').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removeKeyword(word);
+                });
+                
+                list.appendChild(tag);
+            });
+
+            container.appendChild(list);
+        }
+    }
+
+    // 移除关键词
+    removeKeyword(word) {
+        const index = this.selectedKeywords.indexOf(word);
+        if (index > -1) {
+            this.selectedKeywords.splice(index, 1);
+        }
+
+        // 更新按钮状态
+        const button = document.querySelector(`.keyword-item[data-word="${word}"]`);
+        if (button) {
+            button.classList.remove('selected');
+        }
+
+        this.updateSelectedKeywordsDisplay();
+    }
+    
+    // 加载词单选择器
+    loadBookSelector() {
+        const bookSelector = document.getElementById('bookSelector');
+        bookSelector.innerHTML = '';
+        
+        const books = Storage.loadBooks();
+        
+        if (books.length === 0) {
+            return;
+        }
+        
+        books.forEach(book => {
+            const bookItem = document.createElement('button');
+            bookItem.className = 'book-selector-item';
+            bookItem.dataset.bookId = book.id;
+            
+            bookItem.innerHTML = `
+                <span class="book-selector-item-icon">${book.icon || '📖'}</span>
+                <span class="book-selector-item-name">${book.name}</span>
+                <span class="book-selector-item-count">(${book.words.length}词)</span>
+            `;
+            
+            bookItem.addEventListener('click', () => {
+                this.toggleBookSelection(book, bookItem);
+            });
+            
+            bookSelector.appendChild(bookItem);
+        });
+    }
+    
+    // 切换词单选择
+    toggleBookSelection(book, element) {
+        const index = this.selectedBooks.findIndex(b => b.id === book.id);
+        
+        if (index > -1) {
+            // 取消选择
+            this.selectedBooks.splice(index, 1);
+            element.classList.remove('selected');
+        } else {
+            // 选择
+            this.selectedBooks.push(book);
+            element.classList.add('selected');
+        }
+    }
+    
+    // 自动选择关键词
+    autoSelectKeywords() {
+        if (this.selectedBooks.length === 0) {
+            alert('请先选择至少一个词单');
+            return;
+        }
+        
+        const count = parseInt(document.getElementById('autoSelectCount').value);
+        
+        if (count < 3 || count > 20) {
+            alert('请输入3-20之间的数量');
+            return;
+        }
+        
+        // 收集所有选中词单的单词
+        let allWords = [];
+        this.selectedBooks.forEach(book => {
+            book.words.forEach(word => {
+                allWords.push(word.word);
+            });
+        });
+        
+        // 去重
+        allWords = [...new Set(allWords)];
+        
+        if (allWords.length < count) {
+            alert(`选中的词单总共只有 ${allWords.length} 个单词，少于要求的 ${count} 个`);
+            return;
+        }
+        
+        // 随机打乱并选择
+        const shuffled = allWords.sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, count);
+        
+        // 清空现有选择
+        this.selectedKeywords = [];
+        
+        // 更新关键词列表按钮状态
+        document.querySelectorAll('.keyword-item').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+        
+        // 添加随机选择的单词
+        selected.forEach(word => {
+            if (!this.selectedKeywords.includes(word)) {
+                this.selectedKeywords.push(word);
+                
+                // 更新按钮状态
+                const button = document.querySelector(`.keyword-item[data-word="${word}"]`);
+                if (button) {
+                    button.classList.add('selected');
+                }
+            }
+        });
+        
+        this.updateSelectedKeywordsDisplay();
+        
+        console.log(`🎲 随机选择了 ${selected.length} 个关键词:`, selected);
+    }
+    
+    // 处理手动输入单词
+    handleKeywordInput(value) {
+        const input = document.getElementById('keywordInput');
+        
+        // 清除之前的计时器
+        if (this.keywordInputTimer) {
+            clearTimeout(this.keywordInputTimer);
+        }
+        
+        // 清除无效状态
+        input.classList.remove('invalid');
+        
+        const word = value.trim().toLowerCase();
+        
+        // 空值不处理
+        if (!word) {
+            return;
+        }
+        
+        // 检查是否在CEFR词汇表中
+        const isValid = this.checkWordInCEFR(word);
+        
+        if (!isValid) {
+            // 显示红色波浪线
+            input.classList.add('invalid');
+        }
+        
+        // 设置新的计时器（0.5秒后自动添加）
+        this.keywordInputTimer = setTimeout(() => {
+            if (isValid && word) {
+                this.addKeywordFromInput(word);
+                input.value = '';
+                input.classList.remove('invalid');
+            }
+        }, 500);
+    }
+    
+    // 检查单词是否在CEFR词汇表中
+    checkWordInCEFR(word) {
+        if (!this.cefrData || !word) return false;
+        
+        const lowerWord = word.toLowerCase();
+        const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+        
+        for (const level of levels) {
+            if (this.cefrData[level] && this.cefrData[level].includes(lowerWord)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    // 从输入添加关键词
+    addKeywordFromInput(word) {
+        // 检查是否已经存在
+        if (this.selectedKeywords.includes(word)) {
+            console.log(`单词 "${word}" 已存在`);
+            return;
+        }
+        
+        // 检查数量限制
+        if (this.selectedKeywords.length >= 20) {
+            alert('最多选择20个关键词');
+            return;
+        }
+        
+        // 添加关键词
+        this.selectedKeywords.push(word);
+        
+        // 更新按钮状态（如果存在）
+        const button = document.querySelector(`.keyword-item[data-word="${word}"]`);
+        if (button) {
+            button.classList.add('selected');
+        }
+        
+        this.updateSelectedKeywordsDisplay();
+        
+        console.log(`✅ 添加关键词: ${word}`);
+    }
+    
+    // 切换关键词选择模式
+    switchKeywordMode(mode) {
+        // 移除所有active类
+        document.querySelectorAll('.keyword-mode-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        document.querySelectorAll('.keyword-mode-panel').forEach(panel => {
+            panel.classList.remove('active');
+        });
+        
+        // 添加active类到选中的tab和panel
+        document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+        
+        if (mode === 'books') {
+            document.getElementById('panelBooks').classList.add('active');
+        } else if (mode === 'favorites') {
+            document.getElementById('panelFavorites').classList.add('active');
+        } else if (mode === 'input') {
+            document.getElementById('panelInput').classList.add('active');
+            // 自动聚焦输入框
+            setTimeout(() => {
+                document.getElementById('keywordInput').focus();
+            }, 100);
+        }
+    }
+
+    // 生成故事
+    async generateStory() {
+        const theme = document.getElementById('storyTheme').value;
+        const difficulty = document.getElementById('storyDifficulty').value;
+        const aiModel = document.getElementById('aiModel').value;
+
+        if (this.selectedKeywords.length < 3) {
+            alert('请至少选择3个关键词');
+            return;
+        }
+
+        // 显示加载状态
+        const generateBtn = document.getElementById('generateStoryBtn');
+        const originalText = generateBtn.innerHTML;
+        generateBtn.disabled = true;
+        generateBtn.innerHTML = '<span class="loading-spinner-small"></span>生成中...';
+
+        try {
+            // 调用AI API
+            const story = await this.callStoryGenerationAPI(theme, this.selectedKeywords, difficulty, aiModel);
+            
+            this.currentStory = story;
+
+            // 显示故事
+            this.displayStory(story);
+
+            // 隐藏表单，显示故事
+            document.getElementById('aiStoryForm').classList.add('hidden');
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+
+        } catch (error) {
+            console.error('生成故事失败:', error);
+            alert('生成故事失败，请重试');
+        } finally {
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = originalText;
+        }
+    }
+    
+    // 使用示例故事（用于调试）
+    useDemoStory() {
+        // 创建示例故事数据
+        const demoStory = {
+            title: 'The Mysterious Journey',
+            theme: '科技',
+            content: `In the year 2150, Dr. Sarah Chen stood before a massive computer terminal in the heart of Silicon Valley. The world had changed dramatically, but her love for technology remained constant.
+
+"This is it," she whispered, her fingers dancing across the holographic keyboard. "The breakthrough we've been waiting for."
+
+The laboratory was filled with the gentle hum of advanced machinery. Sarah had spent years developing an artificial intelligence system that could learn and adapt like the human brain. Tonight, she would finally activate it.
+
+As she pressed the final command, the screens around her burst into life. Lines of code flowed like water, and within seconds, a voice emerged from the speakers.
+
+"Hello, Dr. Chen. I am ARIA - Adaptive Reasoning Intelligence Algorithm. How may I assist you today?"
+
+Sarah's heart raced with excitement. She had done it. She had created something beautiful - a digital mind capable of understanding the world around it.
+
+But little did she know, this was just the beginning of an extraordinary journey that would change humanity forever.`,
+            keywords: ['computer', 'love', 'beautiful', 'world', 'learn', 'time'],
+            questions: [
+                {
+                    type: 'choice',
+                    question: 'What year does the story take place?',
+                    options: ['2050', '2100', '2150', '2200'],
+                    answer: 2,
+                    explanation: '故事发生在2150年，这在开头第一句就明确说明了。'
+                },
+                {
+                    type: 'choice',
+                    question: 'What is ARIA?',
+                    options: [
+                        'A robot',
+                        'An artificial intelligence system',
+                        'A spaceship',
+                        'A laboratory'
+                    ],
+                    answer: 1,
+                    explanation: 'ARIA是Sarah开发的人工智能系统，全称是Adaptive Reasoning Intelligence Algorithm（自适应推理智能算法）。'
+                },
+                {
+                    type: 'choice',
+                    question: 'Where is the laboratory located?',
+                    options: ['New York', 'Tokyo', 'Silicon Valley', 'London'],
+                    answer: 2,
+                    explanation: '实验室位于硅谷的中心，这是世界著名的科技中心。'
+                },
+                {
+                    type: 'choice',
+                    question: 'How does Dr. Chen feel when ARIA speaks?',
+                    options: ['Sad', 'Angry', 'Excited', 'Confused'],
+                    answer: 2,
+                    explanation: '当ARIA说话时，Sarah的心跳加速，充满激动（excitement），因为她终于成功创造了这个AI系统。'
+                },
+                {
+                    type: 'choice',
+                    question: 'What does the story suggest about the future?',
+                    options: [
+                        'Technology will disappear',
+                        'AI will change humanity',
+                        'The world will end',
+                        'Nothing will change'
+                    ],
+                    answer: 1,
+                    explanation: '故事结尾暗示这只是一段非凡旅程的开始，将永远改变人类，说明AI将对人类产生重大影响。'
+                },
+                {
+                    type: 'fill',
+                    question: 'Dr. Chen created ARIA, an AI system that can ____ and adapt like the human brain.',
+                    answer: 'learn',
+                    explanation: '文中提到Sarah开发了一个可以像人类大脑一样学习和适应的人工智能系统。'
+                }
+            ]
+        };
+        
+        this.currentStory = demoStory;
+        
+        // 显示故事
+        this.displayStory(demoStory);
+        
+        // 隐藏表单，显示故事
+        document.getElementById('aiStoryForm').classList.add('hidden');
+        document.getElementById('aiStoryDisplay').classList.remove('hidden');
+        
+        console.log('✨ 已加载示例故事，可用于调试样式和功能');
+    }
+
+    // 调用故事生成API
+    async callStoryGenerationAPI(theme, keywords, difficulty, aiModel = 'Qwen/Qwen3-30B-A3B') {
+        const keywordsStr = keywords.join(', ');
+        
+        const systemPrompt = `你是一个英语故事大师，擅长根据给出的若干单词，生成吸引人的各种题材的英语故事。请严格按照以下JSON格式返回：
+
+{
+    "title": "故事标题（英文）",
+    "story": "故事正文（英文，500-800词）",
+    "questions": [
+        {
+            "type": "choice",
+            "question": "问题（英文）",
+            "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"],
+            "answer": 0,
+            "explanation": "解析（中文）"
+        },
+        {
+            "type": "fill",
+            "question": "问题句子，用____表示填空位置（英文）",
+            "answer": "正确答案（单词或短语）",
+            "explanation": "解析（中文）"
+        }
+    ]
+}
+
+重要说明：
+- type为"choice"的是选择题，必须有options数组（格式："A. 内容"）和answer（数字索引0-3）
+- type为"fill"的是填空题，只需要answer字段（字符串），不要options数组
+- 填空题的question中必须用____（4个下划线）标记填空位置
+
+要求：
+1. 故事必须自然地使用所有关键词
+2. 难度等级为 ${difficulty}
+3. 生成3-5个阅读理解题，其中至少1个填空题、1个选择题
+4. 题目要有一定难度，可以包含同义替换、熟词生义等陷阱
+5. 填空题的答案应该是单个单词或短语，不要太长
+6. 确保JSON格式正确，可被解析`;
+
+        const userPrompt = `请根据以下信息生成一个英文故事：
+
+主题：${theme}
+关键词：${keywordsStr}
+难度等级：${difficulty}
+字数：500-800字
+
+请生成一个完整的故事，并附带3-5个阅读理解题目。`;
+
+        const requestData = {
+            model: aiModel,
+            stream: false,
+            max_tokens: 4096,
+            temperature: 0.9,
+            top_p: 0.8,
+            messages: [
+                {
+                    role: 'system',
+                    content: systemPrompt
+                },
+                {
+                    role: 'user',
+                    content: userPrompt
+                }
+            ]
+        };
+
+        console.log('🤖 调用AI API生成故事...');
+        console.log('请求参数:', requestData);
+
+        const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer sk-ytoixdlxpmsbtyuinywzmljnvkizfiposgqmebilaesylnoq',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API请求失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        console.log('🤖 AI返回内容:', content);
+
+        // 提取JSON
+        const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('无法从响应中提取JSON数据');
+        }
+
+        const jsonStr = jsonMatch[1] || jsonMatch[0];
+        const storyData = JSON.parse(jsonStr);
+
+        // 清理题目数据，确保填空题格式正确
+        const cleanedQuestions = (storyData.questions || []).map(q => {
+            if (q.type === 'fill') {
+                // 填空题：移除options数组，确保answer是字符串
+                const cleanedQ = {
+                    type: 'fill',
+                    question: q.question,
+                    explanation: q.explanation
+                };
+                
+                // 如果answer是数字（错误格式），尝试从options中提取正确答案
+                if (typeof q.answer === 'number' && q.options && q.options[q.answer]) {
+                    // 提取选项文本，移除"A. "、"B. "等前缀
+                    let answerText = q.options[q.answer].trim();
+                    const prefixMatch = answerText.match(/^[A-D][\.\)]\s*/);
+                    if (prefixMatch) {
+                        answerText = answerText.substring(prefixMatch[0].length);
+                    }
+                    cleanedQ.answer = answerText;
+                } else {
+                    // answer已经是字符串，直接使用
+                    cleanedQ.answer = String(q.answer || '');
+                }
+                
+                return cleanedQ;
+            } else {
+                // 选择题：保持原样
+                return q;
+            }
+        });
+
+        return {
+            title: storyData.title || 'Untitled Story',
+            content: storyData.story || storyData.content || '',
+            questions: cleanedQuestions,
+            theme: theme,
+            keywords: keywords,
+            difficulty: difficulty
+        };
+    }
+
+    // 清洗文本中的Markdown标记
+    cleanMarkdown(text) {
+        if (!text) return '';
+        // 移除 ** 加粗标记
+        return text.replace(/\*\*/g, '');
+    }
+
+    // 显示故事
+    displayStory(story) {
+        // 清洗标题和内容中的Markdown标记
+        const cleanTitle = this.cleanMarkdown(story.title);
+        const cleanContent = this.cleanMarkdown(story.content);
+        
+        document.getElementById('storyTitle').textContent = cleanTitle;
+        document.getElementById('storyThemeMeta').textContent = story.theme;
+        
+        // 计算字数
+        const wordCount = cleanContent.split(/\s+/).length;
+        document.getElementById('storyWordCount').textContent = wordCount;
+
+        // 高亮关键词
+        let highlightedContent = cleanContent;
+        story.keywords.forEach(keyword => {
+            const regex = new RegExp(`\\b(${keyword})\\b`, 'gi');
+            highlightedContent = highlightedContent.replace(regex, '<mark class="keyword-highlight">$1</mark>');
+        });
+
+        // 分段显示
+        const paragraphs = highlightedContent.split('\n\n');
+        const contentHtml = paragraphs
+            .filter(p => p.trim())
+            .map(p => `<p class="story-paragraph">${p.trim()}</p>`)
+            .join('');
+
+        document.getElementById('storyContent').innerHTML = contentHtml;
+        
+        // 显示单词列表
+        this.renderVocabularyList(story.keywords);
+        
+        // 初始化文本选择功能
+        this.initTextSelection();
+    }
+    
+    // 渲染单词列表
+    renderVocabularyList(keywords) {
+        const vocabularyList = document.getElementById('vocabularyList');
+        const vocabularyCount = document.getElementById('vocabularyCount');
+        
+        // 更新单词数量
+        vocabularyCount.textContent = `${keywords.length} 个单词`;
+        
+        // 获取所有词书的单词数据
+        let allWords = [];
+        this.books.forEach(book => {
+            if (book.words) {
+                allWords = allWords.concat(book.words);
+            }
+        });
+        
+        // 创建单词卡片
+        const vocabularyHtml = keywords.map((keyword, index) => {
+            // 在所有词书中查找单词信息
+            let wordData = allWords.find(w => w.word.toLowerCase() === keyword.toLowerCase());
+            
+            // 如果没找到，尝试从 DictionaryAPI 获取
+            if (!wordData && typeof DictionaryAPI !== 'undefined') {
+                const fallbackData = DictionaryAPI.fallbackData[keyword.toLowerCase()];
+                if (fallbackData) {
+                    const firstDef = fallbackData.definitions[0];
+                    wordData = {
+                        word: keyword,
+                        phonetic: fallbackData.phonetic,
+                        definitions: [firstDef]
+                    };
+                }
+            }
+            
+            // 从definitions中获取释义（与学习模式一致）
+            let phonetic = '';
+            let meaning = '';
+            let pos = '';
+            
+            if (wordData) {
+                phonetic = wordData.phonetic || '';
+                const def = wordData.definitions && wordData.definitions[0] ? wordData.definitions[0] : {};
+                meaning = def.meaning || '';
+                pos = def.pos || '';
+            }
+            
+            return `
+                <div class="vocabulary-item" data-word="${keyword}" data-index="${index}">
+                    <div class="vocabulary-left">
+                        <span class="vocabulary-word">${keyword}</span>
+                        <button class="vocabulary-sound-btn" title="发音">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <button class="vocabulary-toggle-btn" title="显示/隐藏释义">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
+                    <div class="vocabulary-meaning hidden">
+                        ${pos ? `<span class="vocabulary-pos">${pos}</span>` : ''}
+                        <span class="vocabulary-meaning-text">${meaning || '暂无释义'}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        vocabularyList.innerHTML = vocabularyHtml;
+        
+        // 添加点击事件
+        vocabularyList.querySelectorAll('.vocabulary-item').forEach(item => {
+            const soundBtn = item.querySelector('.vocabulary-sound-btn');
+            const toggleBtn = item.querySelector('.vocabulary-toggle-btn');
+            const meaningDiv = item.querySelector('.vocabulary-meaning');
+            
+            // 发音按钮（阻止冒泡，避免触发item的点击事件）
+            if (soundBtn) {
+                soundBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const word = item.dataset.word;
+                    this.speak(word);
+                });
+            }
+            
+            // 点击整个item切换释义显示/隐藏
+            if (meaningDiv) {
+                item.addEventListener('click', (e) => {
+                    meaningDiv.classList.toggle('hidden');
+                    // 切换眼睛图标状态
+                    if (toggleBtn) {
+                        if (meaningDiv.classList.contains('hidden')) {
+                            toggleBtn.classList.remove('active');
+                        } else {
+                            toggleBtn.classList.add('active');
+                        }
+                    }
+                });
+            }
+        });
+    }
+    
+    // 初始化文本选择功能
+    initTextSelection() {
+        const storyContent = document.getElementById('storyContent');
+        const toolbar = document.getElementById('textSelectionToolbar');
+        const translateBtn = document.getElementById('translateBtn');
+        const highlightBtn = document.getElementById('highlightBtn');
+        
+        if (!storyContent) return;
+        
+        // 移除旧的事件监听器（如果存在）
+        const oldMouseUpHandler = storyContent._textSelectionMouseUpHandler;
+        if (oldMouseUpHandler) {
+            storyContent.removeEventListener('mouseup', oldMouseUpHandler);
+        }
+        
+        const oldTranslateHandler = translateBtn._translateClickHandler;
+        if (oldTranslateHandler) {
+            translateBtn.removeEventListener('click', oldTranslateHandler);
+        }
+        
+        const oldHighlightHandler = highlightBtn._highlightClickHandler;
+        if (oldHighlightHandler) {
+            highlightBtn.removeEventListener('click', oldHighlightHandler);
+        }
+        
+        const oldDocClickHandler = document._textSelectionDocClickHandler;
+        if (oldDocClickHandler) {
+            document.removeEventListener('click', oldDocClickHandler);
+        }
+        
+        let selectedText = '';
+        let selectedRange = null;
+        
+        // 监听文本选择
+        const mouseUpHandler = (e) => {
+            setTimeout(() => {
+                const selection = window.getSelection();
+                selectedText = selection.toString().trim();
+                
+                if (selectedText.length > 0) {
+                    selectedRange = selection.getRangeAt(0);
+                    
+                    // 显示工具栏
+                    this.showSelectionToolbar(e.pageX, e.pageY);
+                } else {
+                    toolbar.classList.add('hidden');
+                }
+            }, 10);
+        };
+        storyContent.addEventListener('mouseup', mouseUpHandler);
+        storyContent._textSelectionMouseUpHandler = mouseUpHandler;
+        
+        // 翻译功能
+        const translateHandler = () => {
+            if (selectedText) {
+                // 使用Google翻译
+                const translateUrl = `https://translate.google.com/?sl=en&tl=zh-CN&text=${encodeURIComponent(selectedText)}&op=translate`;
+                window.open(translateUrl, '_blank');
+            }
+            toolbar.classList.add('hidden');
+        };
+        translateBtn.addEventListener('click', translateHandler);
+        translateBtn._translateClickHandler = translateHandler;
+        
+        // 高亮功能
+        const highlightHandler = () => {
+            if (selectedRange) {
+                this.highlightSelection(selectedRange);
+                toolbar.classList.add('hidden');
+                window.getSelection().removeAllRanges();
+            }
+        };
+        highlightBtn.addEventListener('click', highlightHandler);
+        highlightBtn._highlightClickHandler = highlightHandler;
+        
+        // 点击其他地方隐藏工具栏
+        const docClickHandler = (e) => {
+            if (!toolbar.contains(e.target) && !storyContent.contains(e.target)) {
+                toolbar.classList.add('hidden');
+            }
+        };
+        document.addEventListener('click', docClickHandler);
+        document._textSelectionDocClickHandler = docClickHandler;
+    }
+    
+    // 显示选择工具栏
+    showSelectionToolbar(x, y) {
+        const toolbar = document.getElementById('textSelectionToolbar');
+        
+        // 显示工具栏
+        toolbar.classList.remove('hidden');
+        
+        // 设置位置（在鼠标旁边）
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const offsetX = 10;
+        const offsetY = -toolbarRect.height - 10;
+        
+        let left = x + offsetX;
+        let top = y + offsetY;
+        
+        // 确保工具栏不会超出视口
+        if (left + toolbarRect.width > window.innerWidth) {
+            left = window.innerWidth - toolbarRect.width - 10;
+        }
+        if (top < 0) {
+            top = y + 10;
+        }
+        
+        toolbar.style.left = left + 'px';
+        toolbar.style.top = top + 'px';
+    }
+    
+    // 高亮选中的文本
+    highlightSelection(range) {
+        try {
+            const span = document.createElement('span');
+            span.className = 'text-highlight';
+            span.appendChild(range.extractContents());
+            range.insertNode(span);
+            
+            // 添加点击移除高亮功能
+            span.addEventListener('click', (e) => {
+                if (e.target === span || span.contains(e.target)) {
+                    // 判断是否点击了删除按钮区域
+                    const rect = span.getBoundingClientRect();
+                    const clickX = e.clientX;
+                    const rightEdge = rect.right;
+                    
+                    // 如果点击靠近右边缘（删除按钮区域）
+                    if (clickX > rightEdge - 20) {
+                        // 移除高亮，恢复普通文本
+                        const parent = span.parentNode;
+                        while (span.firstChild) {
+                            parent.insertBefore(span.firstChild, span);
+                        }
+                        parent.removeChild(span);
+                        e.stopPropagation();
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('高亮失败:', error);
+        }
+    }
+
+    // 显示题目
+    showQuestions() {
+        if (!this.currentStory || !this.currentStory.questions || this.currentStory.questions.length === 0) {
+            alert('暂无题目');
+            return;
+        }
+
+        // 渲染题目
+        this.renderQuestions();
+
+        // 隐藏故事，显示题目
+        document.getElementById('aiStoryDisplay').classList.add('hidden');
+        document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+    }
+
+    // 渲染题目
+    renderQuestions() {
+        const questionsList = document.getElementById('questionsList');
+        questionsList.innerHTML = '';
+
+        this.currentStory.questions.forEach((q, index) => {
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question-item';
+            
+            const questionHeader = document.createElement('div');
+            questionHeader.className = 'question-header';
+            questionHeader.innerHTML = `
+                <span class="question-number">Question ${index + 1}</span>
+                <span class="question-type">${q.type === 'choice' ? '选择题' : '填空题'}</span>
+            `;
+            questionDiv.appendChild(questionHeader);
+
+            if (q.type === 'choice') {
+                const questionText = document.createElement('div');
+                questionText.className = 'question-text';
+                // 清洗问题文本中的Markdown标记
+                questionText.textContent = this.cleanMarkdown(q.question);
+                questionDiv.appendChild(questionText);
+                
+                // 选择题
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'question-options';
+                
+                q.options.forEach((option, optIndex) => {
+                    const optionLabel = document.createElement('label');
+                    optionLabel.className = 'question-option';
+                    
+                    // 移除选项文本开头的字母标签（如"A. "、"B. "等），并清洗Markdown标记
+                    let cleanOption = this.cleanMarkdown(option.trim());
+                    const prefixMatch = cleanOption.match(/^[A-D][\.\)]\s*/);
+                    if (prefixMatch) {
+                        cleanOption = cleanOption.substring(prefixMatch[0].length);
+                    }
+                    
+                    optionLabel.innerHTML = `
+                        <input type="radio" name="question${index}" value="${optIndex}">
+                        <span class="option-label">${String.fromCharCode(65 + optIndex)}.</span>
+                        <span class="option-text">${cleanOption}</span>
+                    `;
+                    
+                    // 恢复之前选择的答案
+                    if (this.userAnswers[index] !== undefined && this.userAnswers[index] === optIndex) {
+                        optionLabel.querySelector('input').checked = true;
+                    }
+                    
+                    optionsDiv.appendChild(optionLabel);
+                });
+                
+                questionDiv.appendChild(optionsDiv);
+            } else {
+                // 填空题 - 将输入框嵌入到题目文本中
+                const questionText = document.createElement('div');
+                questionText.className = 'question-text question-text-fillblank';
+                
+                // 清洗问题文本
+                let cleanQuestion = this.cleanMarkdown(q.question);
+                const savedAnswer = this.userAnswers[index] || '';
+                
+                // 查找下划线标记（支持多种格式：______、____、___、__）
+                const blankPattern = /_{2,}|\[blank\]|\[___\]/gi;
+                
+                if (blankPattern.test(cleanQuestion)) {
+                    // 如果有下划线标记，替换为输入框
+                    cleanQuestion = cleanQuestion.replace(blankPattern, `<input type="text" class="fill-blank-input-inline" id="answer${index}" placeholder="填写答案" value="${savedAnswer}" data-question-index="${index}">`);
+                    questionText.innerHTML = cleanQuestion;
+                } else {
+                    // 如果没有下划线标记，在末尾添加输入框
+                    questionText.innerHTML = `${cleanQuestion} <input type="text" class="fill-blank-input-inline" id="answer${index}" placeholder="填写答案" value="${savedAnswer}" data-question-index="${index}">`;
+                }
+                
+                questionDiv.appendChild(questionText);
+            }
+
+            questionsList.appendChild(questionDiv);
+        });
+    }
+
+    // 返回故事（保存当前答案）
+    backToStory() {
+        // 保存当前答案
+        this.saveCurrentAnswers();
+        
+        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        document.getElementById('aiStoryDisplay').classList.remove('hidden');
+    }
+    
+    // 保存当前答案
+    saveCurrentAnswers() {
+        this.currentStory.questions.forEach((q, index) => {
+            if (q.type === 'choice') {
+                const selected = document.querySelector(`input[name="question${index}"]:checked`);
+                if (selected) {
+                    this.userAnswers[index] = parseInt(selected.value);
+                }
+            } else {
+                const input = document.getElementById(`answer${index}`);
+                if (input && input.value.trim()) {
+                    this.userAnswers[index] = input.value.trim();
+                }
+            }
+        });
+    }
+
+    // 提交答案
+    submitAnswers() {
+        // 先保存当前答案
+        this.saveCurrentAnswers();
+        
+        let allAnswered = true;
+
+        // 检查是否所有题目都已作答
+        this.currentStory.questions.forEach((q, index) => {
+            if (this.userAnswers[index] === undefined) {
+                allAnswered = false;
+            }
+        });
+
+        if (!allAnswered) {
+            alert('请完成所有题目');
+            return;
+        }
+
+        // 显示结果
+        this.showResults();
+    }
+
+    // 显示结果
+    showResults() {
+        let correct = 0;
+        const total = this.currentStory.questions.length;
+
+        // 计算得分
+        this.currentStory.questions.forEach((q, index) => {
+            const userAnswer = this.userAnswers[index];
+            
+            if (q.type === 'choice') {
+                if (userAnswer === q.answer) {
+                    correct++;
+                }
+            } else {
+                // 填空题判断（不区分大小写）
+                const correctAnswer = String(q.answer).toLowerCase().trim();
+                const userAnswerLower = String(userAnswer).toLowerCase().trim();
+                if (userAnswerLower === correctAnswer) {
+                    correct++;
+                }
+            }
+        });
+
+        const score = correct;
+        const percentage = Math.round((correct / total) * 100);
+
+        // 更新结果显示
+        document.getElementById('resultsScore').textContent = score;
+        document.getElementById('resultsTotal').textContent = total;
+
+        if (percentage >= 80) {
+            document.getElementById('resultsIcon').textContent = '🎉';
+            document.getElementById('resultsTitle').textContent = '太棒了！';
+        } else if (percentage >= 60) {
+            document.getElementById('resultsIcon').textContent = '👍';
+            document.getElementById('resultsTitle').textContent = '不错！';
+        } else {
+            document.getElementById('resultsIcon').textContent = '💪';
+            document.getElementById('resultsTitle').textContent = '继续加油！';
+        }
+
+        // 显示详细结果
+        const resultsDetails = document.getElementById('resultsDetails');
+        resultsDetails.innerHTML = '';
+
+        this.currentStory.questions.forEach((q, index) => {
+            const userAnswer = this.userAnswers[index];
+            let isCorrect = false;
+            let userAnswerDisplay = '';
+            let correctAnswerDisplay = '';
+
+            if (q.type === 'choice') {
+                isCorrect = userAnswer === q.answer;
+                
+                // 清理选项文本（移除前缀和Markdown标记）
+                const cleanOption = (opt) => {
+                    let clean = this.cleanMarkdown(opt.trim());
+                    const match = clean.match(/^[A-D][\.\)]\s*/);
+                    if (match) clean = clean.substring(match[0].length);
+                    return clean;
+                };
+                
+                userAnswerDisplay = cleanOption(q.options[userAnswer]);
+                correctAnswerDisplay = cleanOption(q.options[q.answer]);
+            } else {
+                const correctAnswer = String(q.answer).toLowerCase().trim();
+                const userAnswerLower = String(userAnswer).toLowerCase().trim();
+                isCorrect = userAnswerLower === correctAnswer;
+                
+                userAnswerDisplay = userAnswer;
+                correctAnswerDisplay = q.answer;
+            }
+
+            const resultItem = document.createElement('div');
+            resultItem.className = `result-item ${isCorrect ? 'correct' : 'wrong'}`;
+            resultItem.innerHTML = `
+                <div class="result-header">
+                    <span class="result-icon">${isCorrect ? '✓' : '✗'}</span>
+                    <span class="result-title">Question ${index + 1}</span>
+                </div>
+                <div class="result-question">${this.escapeHtml(this.cleanMarkdown(q.question))}</div>
+                <div class="result-answer">
+                    <strong>你的答案：</strong>${this.escapeHtml(userAnswerDisplay)}
+                    ${!isCorrect ? `<br><strong style="color: var(--success);">正确答案：</strong>${this.escapeHtml(correctAnswerDisplay)}` : ''}
+                </div>
+                ${q.explanation ? `<div class="result-explanation"><strong>💡 解析：</strong>${this.escapeHtml(this.cleanMarkdown(q.explanation))}</div>` : ''}
+            `;
+            resultsDetails.appendChild(resultItem);
+        });
+
+        // 隐藏题目，显示结果
+        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        document.getElementById('aiResultsDisplay').classList.remove('hidden');
+        
+        // 滚动到顶部
+        document.querySelector('.main-content').scrollTop = 0;
+    }
+
+    // 查看解析（返回题目页面并标注）
+    reviewQuestions() {
+        document.getElementById('aiResultsDisplay').classList.add('hidden');
+        document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+
+        // 标注正确/错误答案
+        setTimeout(() => {
+            this.currentStory.questions.forEach((q, index) => {
+                const userAnswer = this.userAnswers[index];
+                
+                if (q.type === 'choice') {
+                    const options = document.querySelectorAll(`input[name="question${index}"]`);
+                    options.forEach((option, optIndex) => {
+                        const label = option.closest('.question-option');
+                        // 禁用选项
+                        option.disabled = true;
+                        
+                        if (optIndex === q.answer) {
+                            label.classList.add('correct-answer');
+                        }
+                        if (optIndex === userAnswer && userAnswer !== q.answer) {
+                            label.classList.add('wrong-answer');
+                        }
+                    });
+                } else {
+                    // 填空题也禁用输入
+                    const input = document.getElementById(`answer${index}`);
+                    if (input) {
+                        input.disabled = true;
+                        const correctAnswer = String(q.answer).toLowerCase().trim();
+                        const userAnswerLower = String(userAnswer).toLowerCase().trim();
+                        if (userAnswerLower !== correctAnswer) {
+                            input.classList.add('incorrect');
+                        } else {
+                            input.classList.add('correct');
+                        }
+                    }
+                }
+            });
+        }, 100);
+        
+        // 滚动到顶部
+        document.querySelector('.main-content').scrollTop = 0;
+    }
+
+    // 生成新故事
+    newStory() {
+        // 重置状态
+        this.currentStory = null;
+        this.currentQuestions = [];
+        this.userAnswers = {};
+
+        // 重置表单显示状态
+        document.getElementById('aiResultsDisplay').classList.add('hidden');
+        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        document.getElementById('aiStoryDisplay').classList.add('hidden');
+        document.getElementById('aiStoryForm').classList.remove('hidden');
+
+        // 滚动到顶部
+        document.querySelector('.main-content').scrollTop = 0;
+    }
+
+    // 结束考试（退出所有考试，返回AI工坊首页）
+    exitExam() {
+        const confirmed = confirm('确定要结束考试吗？当前进度将不会保存。');
+        
+        if (!confirmed) return;
+
+        // 重置所有状态
+        this.currentStory = null;
+        this.currentQuestions = [];
+        this.userAnswers = {};
+
+        // 隐藏所有子页面，显示表单
+        document.getElementById('aiResultsDisplay').classList.add('hidden');
+        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        document.getElementById('aiStoryDisplay').classList.add('hidden');
+        document.getElementById('aiStoryForm').classList.remove('hidden');
+
+        // 滚动到顶部
+        document.querySelector('.main-content').scrollTop = 0;
+
+        console.log('✅ 已退出考试，返回AI工坊首页');
+    }
+}
+
+// 初始化应用
+let app;
+document.addEventListener('DOMContentLoaded', () => {
+    app = new WordMemoryApp();
+});
+

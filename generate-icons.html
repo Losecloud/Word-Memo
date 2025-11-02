@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA 图标生成器</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .preview {
+            display: flex;
+            justify-content: space-around;
+            margin: 30px 0;
+            gap: 20px;
+        }
+        .preview-item {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            flex: 1;
+        }
+        .preview-item canvas {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            max-width: 100%;
+            height: auto;
+        }
+        .preview-item h3 {
+            margin: 15px 0 10px;
+            color: #555;
+            font-size: 18px;
+        }
+        .preview-item p {
+            margin: 5px 0;
+            color: #888;
+            font-size: 13px;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .success {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+            display: none;
+        }
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 8px 0;
+            color: #856404;
+        }
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            font-weight: bold;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 PWA 图标生成器</h1>
+        <p class="subtitle">从 book.svg 生成 192x192 和 512x512 图标</p>
+
+        <div class="instructions">
+            <h3>📋 使用说明：</h3>
+            <ol>
+                <li>点击下方的"生成图标"按钮</li>
+                <li>等待图标在预览区域显示</li>
+                <li>点击对应的下载按钮保存图标</li>
+                <li>将下载的图标放入 <code>static/image/</code> 目录</li>
+            </ol>
+        </div>
+
+        <button id="generateBtn" onclick="generateIcons()">🚀 生成图标</button>
+
+        <div class="status" id="status"></div>
+
+        <div class="preview" id="preview" style="display: none;">
+            <div class="preview-item">
+                <h3>192×192</h3>
+                <canvas id="canvas192" width="192" height="192"></canvas>
+                <p>用于移动设备主屏幕</p>
+                <button onclick="downloadIcon(192)">⬇️ 下载 icon-192.png</button>
+            </div>
+            <div class="preview-item">
+                <h3>512×512</h3>
+                <canvas id="canvas512" width="512" height="512"></canvas>
+                <p>用于启动画面和应用商店</p>
+                <button onclick="downloadIcon(512)">⬇️ 下载 icon-512.png</button>
+            </div>
+        </div>
+
+        <div class="success" id="success">
+            ✅ 图标生成成功！请点击下载按钮保存图标文件。
+        </div>
+    </div>
+
+    <script>
+        async function generateIcons() {
+            const status = document.getElementById('status');
+            const preview = document.getElementById('preview');
+            const success = document.getElementById('success');
+            const generateBtn = document.getElementById('generateBtn');
+
+            status.textContent = '⏳ 正在生成图标...';
+            generateBtn.disabled = true;
+            preview.style.display = 'none';
+            success.style.display = 'none';
+
+            try {
+                // 加载 SVG
+                const response = await fetch('static/image/book.svg');
+                const svgText = await response.text();
+
+                // 创建一个临时的 img 元素来加载 SVG
+                const img = new Image();
+                const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(svgBlob);
+
+                img.onload = function() {
+                    // 生成 192x192
+                    const canvas192 = document.getElementById('canvas192');
+                    const ctx192 = canvas192.getContext('2d');
+                    ctx192.fillStyle = 'white';
+                    ctx192.fillRect(0, 0, 192, 192);
+                    ctx192.drawImage(img, 0, 0, 192, 192);
+
+                    // 生成 512x512
+                    const canvas512 = document.getElementById('canvas512');
+                    const ctx512 = canvas512.getContext('2d');
+                    ctx512.fillStyle = 'white';
+                    ctx512.fillRect(0, 0, 512, 512);
+                    ctx512.drawImage(img, 0, 0, 512, 512);
+
+                    // 清理
+                    URL.revokeObjectURL(url);
+
+                    // 显示结果
+                    status.textContent = '';
+                    preview.style.display = 'flex';
+                    success.style.display = 'block';
+                    generateBtn.disabled = false;
+                };
+
+                img.onerror = function() {
+                    status.textContent = '❌ 加载 SVG 失败，请确保文件路径正确';
+                    status.style.color = '#d32f2f';
+                    generateBtn.disabled = false;
+                };
+
+                img.src = url;
+
+            } catch (error) {
+                status.textContent = '❌ 生成失败: ' + error.message;
+                status.style.color = '#d32f2f';
+                generateBtn.disabled = false;
+            }
+        }
+
+        function downloadIcon(size) {
+            const canvas = document.getElementById('canvas' + size);
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'icon-' + size + '.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 'image/png');
+        }
+
+        // 页面加载完成后自动生成
+        window.addEventListener('load', function() {
+            setTimeout(generateIcons, 500);
+        });
+    </script>
+</body>
+</html>
+

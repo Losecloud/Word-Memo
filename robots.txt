@@ -1,0 +1,14 @@
+# robots.txt for 词忆 (Word Memory App)
+
+User-agent: *
+Allow: /
+
+# 允许所有搜索引擎爬取
+Disallow: 
+
+# Sitemap位置（如果有的话）
+Sitemap: https://your-username.github.io/reciting/sitemap.xml
+
+# 爬取延迟（可选）
+Crawl-delay: 10
+
