@@ -1792,20 +1792,31 @@ class WordMemoryApp {
         if (!wordText) return;
 
         try {
-            // 【修复Win11发音问题】先取消所有正在播放的语音，避免卡住
-            if (speechSynthesis.speaking || speechSynthesis.pending) {
-                console.log('🔊 取消之前的语音播放');
+            // 清除之前的定时器，避免多次调用
+            if (this.speakTimeout) {
+                clearTimeout(this.speakTimeout);
+                this.speakTimeout = null;
+            }
+
+            // 【修复】只在真正需要时才取消，避免频繁取消导致interrupted错误
+            if (speechSynthesis.speaking) {
+                console.log('🔊 有语音正在播放，取消并准备播放新的');
                 speechSynthesis.cancel();
             }
 
-            // 添加小延迟确保cancel完成（Win11 Chrome必需）
-            setTimeout(() => {
+            // 防抖：延迟播放，避免快速切换导致的中断
+            this.speakTimeout = setTimeout(() => {
                 try {
+                    // 再次检查是否还有语音在播放
+                    if (speechSynthesis.speaking) {
+                        speechSynthesis.cancel();
+                    }
+
                     const utterance = new SpeechSynthesisUtterance(wordText);
                     utterance.lang = this.settings.voiceAccent || 'en-US';
-                    utterance.rate = this.settings.voiceRate || 1.0; // 使用用户设置的语速
-                    utterance.pitch = 1.0; // 音调
-                    utterance.volume = 1.0; // 音量
+                    utterance.rate = this.settings.voiceRate || 1.0;
+                    utterance.pitch = 1.0;
+                    utterance.volume = 1.0;
 
                     // 如果用户选择了特定声优
                     if (this.settings.voiceModel && this.availableVoices.length > 0) {
@@ -1823,24 +1834,22 @@ class WordMemoryApp {
                         if (voices.length > 0) {
                             utterance.voice = voices[0];
                             console.log('🔊 使用声音:', voices[0].name);
-                        } else {
-                            console.warn('⚠️ 未找到匹配的语音，使用默认');
                         }
                     }
 
                     // 添加错误和结束回调
                     utterance.onerror = (event) => {
-                        console.error('❌ 发音错误:', event.error, event);
-                        // 如果是"interrupted"错误，可能是正常的取消操作
-                        if (event.error === 'interrupted') {
-                            console.log('ℹ️ 发音被中断（正常）');
-                        } else if (event.error === 'not-allowed') {
-                            console.warn('⚠️ 浏览器阻止了自动播放，请点击发音按钮手动播放');
+                        // 只在非正常中断时输出错误
+                        if (event.error !== 'interrupted') {
+                            console.error('❌ 发音错误:', event.error);
+                            if (event.error === 'not-allowed') {
+                                console.warn('⚠️ 浏览器阻止了自动播放，请手动点击发音按钮');
+                            }
                         }
                     };
 
                     utterance.onend = () => {
-                        console.log('✅ 发音完成');
+                        console.log('✅ 发音完成:', wordText);
                     };
 
                     console.log('🔊 开始播放:', wordText);
@@ -1848,7 +1857,7 @@ class WordMemoryApp {
                 } catch (innerError) {
                     console.error('❌ 播放语音时出错:', innerError);
                 }
-            }, 100); // Win11 Chrome需要这个延迟
+            }, 150); // 增加延迟到150ms，避免快速切换
 
         } catch (error) {
             console.error('❌ 发音失败:', error);
@@ -2402,6 +2411,9 @@ class WordMemoryApp {
         document.getElementById('voiceRate').value = voiceRate;
         document.getElementById('voiceRateValue').textContent = voiceRate.toFixed(1);
 
+        // 加载AI API密钥
+        document.getElementById('aiApiKey').value = this.settings.aiApiKey || '';
+
         // 填充声优列表
         this.populateVoiceList();
 
@@ -2535,6 +2547,7 @@ class WordMemoryApp {
             animationLevel: document.getElementById('animationLevel').value,
             autoNext: document.getElementById('autoNext').checked,
             autoNextTime: parseFloat(document.getElementById('autoNextTime').value),
+            aiApiKey: document.getElementById('aiApiKey').value.trim() || '', // 保存AI API密钥
             hotkeys: {
                 option1: document.getElementById('hotkey1').value,
                 option2: document.getElementById('hotkey2').value,
@@ -2566,6 +2579,7 @@ class WordMemoryApp {
                 animationLevel: 'medium',
                 autoNext: true,
                 autoNextTime: 3,
+                aiApiKey: '', // 默认为空，用户需要自己配置
                 hotkeys: {
                     option1: '1',
                     option2: '2',
@@ -5237,13 +5251,19 @@ But little did she know, this was just the beginning of an extraordinary journey
             ]
         };
 
+        // 检查用户是否配置了API密钥
+        const apiKey = this.settings.aiApiKey || '';
+        if (!apiKey) {
+            throw new Error('请先在设置中配置AI API密钥！\n\n获取免费密钥：\n1. 访问 https://cloud.siliconflow.cn/i/WtZO3i7N\n2. 注册账号（使用邀请码 WtZO3i7N 可获赠2000万token）\n3. 在API密钥管理中创建密钥\n4. 将密钥复制到本应用的设置中');
+        }
+
         console.log('🤖 调用AI API生成故事...');
         console.log('请求参数:', requestData);
 
         const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
             method: 'POST',
             headers: {
-                'Authorization': 'Bearer sk-ytoixdlxpmsbtyuinywzmljnvkizfiposgqmebilaesylnoq',
+                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestData)

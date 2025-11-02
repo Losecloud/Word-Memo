@@ -3286,7 +3286,7 @@ body {
     .word-card {
         
         padding: var(--spacing-md) !important;
-        margin-bottom: 10px;
+        margin-bottom: var(--spacing-sm);
     }
     
     .word-display {
@@ -3634,6 +3634,16 @@ body {
     margin-bottom: var(--spacing-lg);
 }
 
+.setting-section-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: var(--spacing-xl);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 2px solid var(--border-color);
+}
+
 .setting-label {
     display: flex;
     justify-content: space-between;
@@ -3683,6 +3693,25 @@ body {
     font-size: 0.75rem;
     color: var(--text-tertiary);
     margin-top: var(--spacing-xs);
+    line-height: 1.6;
+}
+
+.setting-hint a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.setting-hint a:hover {
+    text-decoration: underline;
+}
+
+.setting-hint code {
+    background: var(--card-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
 }
 
 /* 快捷键设置 */
