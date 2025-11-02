@@ -6,7 +6,7 @@
 
 一个专注、高效、现代化的背单词工具，支持多词书管理、智能复习、AI工坊等功能。
 
-[在线体验](https://your-username.github.io/reciting) | [使用文档](#使用指南) | [问题反馈](https://github.com/your-username/reciting/issues)
+[在线体验](https://Losecloud.github.io/reciting) | [使用文档](#使用指南) | [问题反馈](https://github.com/Losecloud/reciting/issues)
 
 </div>
 
@@ -27,13 +27,13 @@
 
 ### 在线使用
 
-直接访问：[https://your-username.github.io/reciting](https://your-username.github.io/reciting)
+直接访问：[https://Losecloud.github.io/reciting](https://Losecloud.github.io/reciting)
 
 ### 本地运行
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/reciting.git
+git clone https://github.com/Losecloud/reciting.git
 
 # 2. 进入项目目录
 cd reciting
@@ -187,8 +187,8 @@ reciting/
 
 ## 📮 联系方式
 
-- 问题反馈：[GitHub Issues](https://github.com/your-username/reciting/issues)
-- 功能建议：[GitHub Discussions](https://github.com/your-username/reciting/discussions)
+- 问题反馈：[GitHub Issues](https://github.com/Losecloud/reciting/issues)
+- 功能建议：[GitHub Discussions](https://github.com/Losecloud/reciting/discussions)
 
 ---
 
@@ -196,7 +196,7 @@ reciting/
 
 **如果这个项目对你有帮助，请给个 ⭐️ Star 支持一下！**
 
-Made with ❤️ by [Your Name]
+Made with ❤️ by [Losecloud]
 
 </div>
 
