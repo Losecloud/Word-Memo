@@ -28,6 +28,12 @@ class WordMemoryApp {
         this.speechSynthesisActivated = false; // 【Win11修复】标记speechSynthesis是否已激活
         this.cefrData = null; // CEFR词汇数据
         this.sessionStartIndex = 0; // 本次学习开始的索引
+        this.sessionStatsRecorded = {
+            correct: 0,
+            wrong: 0,
+            unknown: 0
+        }; // 本次session已经记录到今日统计的数量，避免重复计数
+        this.statsDisplayTimer = null; // 今日统计显示更新定时器（每秒更新显示，不保存）
         this.isReviewMode = false; // 是否处于复习模式
         this.reviewingWrongCount = 0; // 正在复习的错题数量
         this.isWordListEditMode = false; // 单词表是否处于编辑模式
@@ -42,7 +48,9 @@ class WordMemoryApp {
         this.keywordInputTimer = null; // 输入计时器
         
         // 同义词练习相关
-        this.synonymData = []; // 同义词数据
+        this.synonymDocs = []; // 文档列表（支持多文档缓存）
+        this.synonymCurrentDocId = null; // 当前选中的文档ID
+        this.synonymData = []; // 当前文档的同义词数据
         this.synonymWords = []; // 当前练习的单词列表
         this.synonymCurrentIndex = 0; // 当前题目索引
         this.synonymCurrentWord = null; // 当前单词
@@ -76,6 +84,43 @@ class WordMemoryApp {
         this.updateStats();
         this.checkReview();
         this.loadAvailableVoices();
+    }
+
+    // ============================================
+    // 统一的页面管理机制
+    // ============================================
+    
+    /**
+     * 隐藏所有主页面
+     */
+    hideAllMainScreens() {
+        const screens = [
+            'welcomeScreen',
+            'wordEditorScreen',
+            'learningScreen',
+            'completionScreen',
+            'aiWorkshopScreen',
+            'wordListScreen'
+        ];
+        
+        screens.forEach(screenId => {
+            const screen = document.getElementById(screenId);
+            if (screen) {
+                screen.classList.add('hidden');
+            }
+        });
+    }
+    
+    /**
+     * 显示指定的主页面（自动隐藏其他所有页面）
+     * @param {string} screenId - 要显示的页面ID
+     */
+    showScreen(screenId) {
+        this.hideAllMainScreens();
+        const screen = document.getElementById(screenId);
+        if (screen) {
+            screen.classList.remove('hidden');
+        }
     }
 
     // 加载CEFR数据
@@ -367,13 +412,14 @@ class WordMemoryApp {
         });
         
         // 同义词练习事件
-        document.getElementById('synonymFileUpload').addEventListener('click', () => {
+        document.getElementById('synonymAddDocBtn').addEventListener('click', () => {
             document.getElementById('synonymFileInput').click();
         });
 
         document.getElementById('synonymFileInput').addEventListener('change', (e) => {
             if (e.target.files[0]) {
                 this.handleSynonymFileUpload(e.target.files[0]);
+                e.target.value = ''; // 重置以允许上传相同文件名
             }
         });
 
@@ -586,8 +632,7 @@ class WordMemoryApp {
 
     // 显示编辑器
     showEditor() {
-        document.getElementById('welcomeScreen').classList.add('hidden');
-        document.getElementById('wordEditorScreen').classList.remove('hidden');
+        this.showScreen('wordEditorScreen');
         this.renderEditorTable();
     }
 
@@ -638,11 +683,13 @@ class WordMemoryApp {
         this.startTime = Date.now();
 
         // 切换到学习界面
-        document.getElementById('wordEditorScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.remove('hidden');
+        this.showScreen('learningScreen');
 
         // 显示侧边栏和统计面板
         document.getElementById('sidebar').classList.remove('collapsed');
+        
+        // 启动今日统计显示定时器
+        this.startStatsDisplayTimer();
 
         this.showWord();
     }
@@ -728,8 +775,8 @@ class WordMemoryApp {
         // 使用当前词书的所有单词作为干扰项来源
         const allWords = this.currentBook ? this.currentBook.words : this.sessionWords;
         
-        // 20%概率让"无正确答案"成为正确答案
-        const noCorrectAnswerIsCorrect = Math.random() < 0.2;
+        // 10%概率让"无正确答案"成为正确答案
+        const noCorrectAnswerIsCorrect = Math.random() < 0.1;
         
         let options, allOptions, actualCorrectAnswer;
         
@@ -824,56 +871,18 @@ class WordMemoryApp {
 
     // 调整选项文本大小以保持一致高度
     adjustOptionTextSizes() {
-        const buttons = document.querySelectorAll('.option-btn');
-        if (buttons.length === 0) return;
-        
-        // 等待DOM渲染完成，增加延迟确保布局稳定
-        setTimeout(() => {
-            const maxHeight = 120; // 固定最大高度（与CSS中的max-height保持一致）
-            const minFontSize = 0.7; // 最小字体缩放比例（70%，即-30%）
-            
-            buttons.forEach(btn => {
-                const optionText = btn.querySelector('.option-text');
-                if (!optionText) return;
-                
-                // 重置样式，确保从原始状态开始
-                optionText.style.fontSize = '1rem';
-                optionText.style.overflow = 'visible';
-                optionText.style.textOverflow = 'clip';
-                optionText.style.display = 'block';
-                optionText.style.webkitLineClamp = 'unset';
-                optionText.style.webkitBoxOrient = 'unset';
-                
-                // 强制重新计算布局
-                void btn.offsetHeight;
-                
-                let currentHeight = btn.offsetHeight;
-                let fontSize = 1.0; // 初始字体大小比例
-                
-                // 如果高度超过最大高度，逐步减小字体
-                while (currentHeight > maxHeight && fontSize > minFontSize) {
-                    fontSize -= 0.05; // 每次减少5%
-                    optionText.style.fontSize = `${fontSize}rem`;
-                    // 强制重新计算
-                    void btn.offsetHeight;
-                    currentHeight = btn.offsetHeight;
-                }
-                
-                // 如果减到最小字体后仍然太高，使用省略号
-                if (currentHeight > maxHeight) {
-                    optionText.style.overflow = 'hidden';
-                    optionText.style.textOverflow = 'ellipsis';
-                    optionText.style.display = '-webkit-box';
-                    optionText.style.webkitLineClamp = '3'; // 最多显示3行
-                    optionText.style.webkitBoxOrient = 'vertical';
-                    optionText.style.lineHeight = '1.4';
-                }
-            });
-        }, 50); // 增加到50ms延迟
+        // 不再动态调整字体大小，改用CSS固定样式
+        // 超长文本通过CSS的line-clamp直接截断并显示省略号
+        // 这样可以保持字体大小合适，避免文字太小看不清
     }
 
     // 选择选项
     selectOption(selected, correct) {
+        // 移除焦点，避免移动端出现绿色边框
+        if (document.activeElement) {
+            document.activeElement.blur();
+        }
+        
         const buttons = document.querySelectorAll('.option-btn');
         
         const isCorrect = selected === correct;
@@ -894,9 +903,13 @@ class WordMemoryApp {
             // 如果是首次答题，记录首次结果
             if (!this.wordFirstResults[this.currentWordIndex]) {
                 this.wordFirstResults[this.currentWordIndex] = 'correct';
+                this.sessionResults.correct++;
+                
+                // 首次作答，更新词书进度和今日统计
+                this.updateBookProgress();
+                this.updateStatsRealtime();
             }
             
-            this.sessionResults.correct++;
             this.wordResults[this.currentWordIndex] = 'correct';
             this.playAnimation(true);
             
@@ -929,11 +942,15 @@ class WordMemoryApp {
             // 如果是首次答题，记录首次结果
             if (!this.wordFirstResults[this.currentWordIndex]) {
                 this.wordFirstResults[this.currentWordIndex] = 'unknown';
+                this.sessionResults.unknown++;
                 // 实时更新错题到词书并更新待复习数量
                 this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+                
+                // 首次作答，更新词书进度和今日统计
+                this.updateBookProgress();
+                this.updateStatsRealtime();
             }
             
-            this.sessionResults.unknown++;
             this.wordResults[this.currentWordIndex] = 'unknown';
             
             // 播放答错音效（不知道也算错）
@@ -965,11 +982,17 @@ class WordMemoryApp {
             // 如果是首次答题，记录首次结果
             if (!this.wordFirstResults[this.currentWordIndex]) {
                 this.wordFirstResults[this.currentWordIndex] = 'wrong';
+                this.sessionResults.wrong++;
                 // 实时更新错题到词书并更新待复习数量
                 this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+                
+                // 首次作答（答错），更新词书进度
+                this.updateBookProgress();
+                
+                // 实时更新今日统计
+                this.updateStatsRealtime();
             }
             
-            this.sessionResults.wrong++;
             this.wordResults[this.currentWordIndex] = 'wrong';
             this.playAnimation(false);
             
@@ -1183,18 +1206,22 @@ class WordMemoryApp {
             slots[letters.length].classList.add('active');
         }
 
-        // 如果有错误字母，标记为答错（但不播放动画、不更新进度条）
-        if (hasWrongLetter) {
-            // 如果是首次答题，记录首次结果并播放音效
-            if (!this.wordFirstResults[this.currentWordIndex]) {
-                this.wordFirstResults[this.currentWordIndex] = 'wrong';
-                this.sessionResults.wrong++;
-                this.playWrongSound(); // 首次答错时播放音效
-                // 实时更新错题到词书并更新待复习数量
-                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
-            }
-            
-            // 禁用"下一题"按钮
+            // 如果有错误字母，标记为答错（但不播放动画、不更新进度条）
+            if (hasWrongLetter) {
+                // 如果是首次答题，记录首次结果并播放音效
+                if (!this.wordFirstResults[this.currentWordIndex]) {
+                    this.wordFirstResults[this.currentWordIndex] = 'wrong';
+                    this.sessionResults.wrong++;
+                    this.playWrongSound(); // 首次答错时播放音效
+                    // 实时更新错题到词书并更新待复习数量
+                    this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+                    
+                    // 首次作答（答错），更新词书进度和今日统计
+                    this.updateBookProgress();
+                    this.updateStatsRealtime();
+                }
+                
+                // 禁用"下一题"按钮
             document.getElementById('nextBtn').disabled = true;
             // 清除自动切换计时器
             if (this.autoNextTimer) {
@@ -1240,6 +1267,10 @@ class WordMemoryApp {
                     this.sessionResults.unknown++;
                     // 实时更新错题到词书并更新待复习数量
                     this.updateWrongWordToBook(word);
+                    
+                    // 首次作答，更新词书进度和今日统计
+                    this.updateBookProgress();
+                    this.updateStatsRealtime();
                 }
                 this.wordResults[this.currentWordIndex] = 'unknown';
             } else {
@@ -1248,6 +1279,10 @@ class WordMemoryApp {
                 if (!this.wordFirstResults[this.currentWordIndex]) {
                     this.wordFirstResults[this.currentWordIndex] = 'correct';
                     this.sessionResults.correct++;
+                    
+                    // 首次作答，更新词书进度和今日统计
+                    this.updateBookProgress();
+                    this.updateStatsRealtime();
                 }
                 // 更新进度条（只在答对时）
                 this.wordResults[this.currentWordIndex] = this.wordFirstResults[this.currentWordIndex];
@@ -1303,11 +1338,15 @@ class WordMemoryApp {
         // 如果是首次答题，记录首次结果
         if (!this.wordFirstResults[this.currentWordIndex]) {
             this.wordFirstResults[this.currentWordIndex] = 'unknown';
+            this.sessionResults.unknown++;
             // 实时更新错题到词书并更新待复习数量
             this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+            
+            // 首次作答，更新词书进度和今日统计
+            this.updateBookProgress();
+            this.updateStatsRealtime();
         }
         
-        this.sessionResults.unknown++;
         this.wordResults[this.currentWordIndex] = 'unknown';
         
         // 播放答错音效（不知道也算错）
@@ -1393,7 +1432,20 @@ class WordMemoryApp {
 
     // 跳过单词
     skipWord() {
-        this.sessionResults.unknown++;
+        // 如果是首次答题，记录首次结果
+        if (!this.wordFirstResults[this.currentWordIndex]) {
+            this.wordFirstResults[this.currentWordIndex] = 'unknown';
+            this.sessionResults.unknown++;
+            // 实时更新错题到词书并更新待复习数量
+            this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
+            
+            // 首次作答，更新词书进度和今日统计
+            this.updateBookProgress();
+            this.updateStatsRealtime();
+        }
+        
+        this.wordResults[this.currentWordIndex] = 'unknown';
+        
         this.nextWord();
     }
 
@@ -1413,8 +1465,8 @@ class WordMemoryApp {
         // 更新异色进度条
         this.updateColoredProgress();
 
-        // 实时更新词书列表中的进度
-        this.updateBookProgress();
+        // 不在这里更新词书进度，改为在用户作答后才更新
+        // this.updateBookProgress();
     }
 
     // 更新异色进度条
@@ -1520,8 +1572,10 @@ class WordMemoryApp {
 
     // 显示完成页面
     showCompletion() {
-        document.getElementById('learningScreen').classList.add('hidden');
-        document.getElementById('completionScreen').classList.remove('hidden');
+        // 停止今日统计显示定时器
+        this.stopStatsDisplayTimer();
+        
+        this.showScreen('completionScreen');
 
         // 更新统计
         const total = this.sessionResults.correct + this.sessionResults.wrong + this.sessionResults.unknown;
@@ -1532,14 +1586,17 @@ class WordMemoryApp {
         document.getElementById('statsWrong').textContent = this.sessionResults.wrong;
         document.getElementById('statsAccuracy').textContent = `${accuracy}%`;
 
-        // 保存统计数据
-        const elapsed = Math.round((Date.now() - this.startTime) / 60000); // 分钟
-        Storage.updateStats({
-            time: Storage.loadStats().time + elapsed,
-            words: Storage.loadStats().words + total,
-            correct: Storage.loadStats().correct + this.sessionResults.correct,
-            wrong: Storage.loadStats().wrong + this.sessionResults.wrong
-        });
+        // 保存最后的时间增量（单词数和答题结果已在实时更新中记录，避免重复）
+        const elapsed = (Date.now() - this.startTime) / 60000; // 分钟（保留小数）
+        if (elapsed > 0) {
+            const currentStats = Storage.loadStats();
+            Storage.updateStats({
+                time: currentStats.time + elapsed,
+                words: currentStats.words,
+                correct: currentStats.correct,
+                wrong: currentStats.wrong
+            });
+        }
 
         // 检测是否完成整本词书
         let bookCompleted = false;
@@ -1642,6 +1699,7 @@ class WordMemoryApp {
         this.isReviewMode = true; // 标记为复习模式
         this.sessionStartIndex = newProgress; // 从减去错题后的位置开始
         this.startTime = Date.now();
+        this.sessionStatsRecorded = { correct: 0, wrong: 0, unknown: 0 }; // 重置已记录的统计
 
         // 记录复习前的错题数量（用于后续对比）
         this.reviewingWrongCount = wrongWords.length;
@@ -1658,8 +1716,10 @@ class WordMemoryApp {
         this.checkReview();
 
         // 切换到学习界面
-        document.getElementById('completionScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.remove('hidden');
+        this.showScreen('learningScreen');
+        
+        // 启动今日统计显示定时器
+        this.startStatsDisplayTimer();
 
         this.showWord();
     }
@@ -1720,15 +1780,18 @@ class WordMemoryApp {
 
     // 返回首页
     backToHome() {
-        document.getElementById('completionScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.add('hidden');
-        document.getElementById('wordEditorScreen').classList.add('hidden');
-        document.getElementById('welcomeScreen').classList.remove('hidden');
+        // 停止今日统计显示定时器
+        this.stopStatsDisplayTimer();
+        
+        this.showScreen('welcomeScreen');
     }
 
     // 退出学习
     exitLearning() {
         if (confirm('确定要退出学习吗？进度将不会保存。')) {
+            // 停止今日统计显示定时器
+            this.stopStatsDisplayTimer();
+            
             this.backToHome();
         }
     }
@@ -1977,7 +2040,7 @@ class WordMemoryApp {
         }
 
         const { word, pos, meaning, result } = this.lastWordInfo;
-        const icon = result === 'correct' ? '√' : result === 'wrong' ? '✗' : '?';
+        const icon = result === 'correct' ? '✔' : result === 'wrong' ? '✗' : '?';
         const className = result === 'correct' ? 'correct' : result === 'wrong' ? 'wrong' : 'unknown';
         
         badge.style.display = 'flex';
@@ -2598,10 +2661,111 @@ class WordMemoryApp {
     // 更新统计面板
     updateStats() {
         const stats = Storage.loadStats();
-        document.getElementById('todayTime').textContent = stats.time || 0;
+        
+        // 将分钟转换为 MM:SS 格式显示
+        const totalMinutes = stats.time || 0;
+        const minutes = Math.floor(totalMinutes);
+        const seconds = Math.round((totalMinutes - minutes) * 60);
+        const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        document.getElementById('todayTime').textContent = timeStr;
         document.getElementById('todayWords').textContent = stats.words || 0;
         document.getElementById('todayMastery').textContent = `${stats.mastery || 0}%`;
         document.getElementById('todayWrong').textContent = stats.wrong || 0;
+    }
+
+    // 实时更新今日统计（只在首次作答时调用）
+    updateStatsRealtime() {
+        // 计算本次新增的作答数（sessionResults - sessionStatsRecorded）
+        const newCorrect = this.sessionResults.correct - this.sessionStatsRecorded.correct;
+        const newWrong = this.sessionResults.wrong - this.sessionStatsRecorded.wrong;
+        const newUnknown = this.sessionResults.unknown - this.sessionStatsRecorded.unknown;
+        const newTotal = newCorrect + newWrong + newUnknown;
+        
+        if (newTotal > 0) {
+            // 更新已记录的统计，避免下次重复计数
+            this.sessionStatsRecorded.correct = this.sessionResults.correct;
+            this.sessionStatsRecorded.wrong = this.sessionResults.wrong;
+            this.sessionStatsRecorded.unknown = this.sessionResults.unknown;
+            
+            // 计算当前session的实时时长（分钟，保留小数以支持秒级精度）
+            const currentElapsed = (Date.now() - this.startTime) / 60000;
+            
+            // 更新存储的统计数据
+            const currentStats = Storage.loadStats();
+            
+            // 复习模式不计入学习单词数（学习单词是指新单词，不是复习）
+            const wordsToAdd = this.isReviewMode ? 0 : newTotal;
+            
+            Storage.updateStats({
+                time: currentStats.time + currentElapsed,
+                words: currentStats.words + wordsToAdd,  // 复习模式不增加学习单词数
+                correct: currentStats.correct + newCorrect,
+                wrong: currentStats.wrong + newWrong + newUnknown  // unknown也算作wrong
+            });
+            
+            // 重置开始时间，下次只计算增量时间
+            this.startTime = Date.now();
+            
+            // 更新界面显示
+            this.updateStats();
+            
+            const mode = this.isReviewMode ? '复习' : '学习';
+            console.log(`📊 实时统计更新(${mode}) - 新增: ${newTotal}词 (✓${newCorrect} ✗${newWrong} ?${newUnknown})${this.isReviewMode ? ' [不计入学习单词数]' : ''}`);
+        }
+    }
+
+    // 启动今日统计显示定时器（每秒更新时长显示）
+    startStatsDisplayTimer() {
+        // 清除可能存在的旧定时器
+        this.stopStatsDisplayTimer();
+        
+        // 记录基础统计（分钟数）
+        const baseStats = Storage.loadStats();
+        const baseMinutes = baseStats.time || 0;
+        const baseStartTime = this.startTime;
+        
+        // 每秒更新一次时长显示（不保存到storage）
+        this.statsDisplayTimer = setInterval(() => {
+            // 计算经过的总秒数
+            const elapsedSeconds = Math.floor((Date.now() - baseStartTime) / 1000);
+            // 转换为分钟（小数）
+            const elapsedMinutes = elapsedSeconds / 60;
+            // 总时长（分钟）
+            const totalMinutes = baseMinutes + elapsedMinutes;
+            
+            // 转换为 MM:SS 格式
+            const minutes = Math.floor(totalMinutes);
+            const seconds = Math.floor((totalMinutes - minutes) * 60);
+            const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            
+            const timeElement = document.getElementById('todayTime');
+            const oldTimeStr = timeElement.textContent;
+            
+            // 每秒都更新显示
+            if (timeStr !== oldTimeStr) {
+                timeElement.textContent = timeStr;
+                
+                // 只在整分钟变化时添加动画效果
+                if (seconds === 0) {
+                    timeElement.classList.add('updating');
+                    setTimeout(() => {
+                        timeElement.classList.remove('updating');
+                    }, 500);
+                }
+            }
+        }, 1000);
+        
+        console.log('⏱️ 今日统计显示定时器已启动（MM:SS格式）');
+    }
+    
+    // 停止今日统计显示定时器
+    stopStatsDisplayTimer() {
+        if (this.statsDisplayTimer) {
+            clearInterval(this.statsDisplayTimer);
+            this.statsDisplayTimer = null;
+            console.log('⏱️ 今日统计显示定时器已停止');
+        }
     }
 
     // 检查复习
@@ -2737,6 +2901,7 @@ class WordMemoryApp {
         this.isReviewMode = true;
         this.sessionStartIndex = book.progress.currentIndex || 0;
         this.startTime = Date.now();
+        this.sessionStatsRecorded = { correct: 0, wrong: 0, unknown: 0 }; // 重置已记录的统计
         
         // 记录复习前的错题数量
         this.reviewingWrongCount = wrongWords.length;
@@ -2753,10 +2918,11 @@ class WordMemoryApp {
         this.checkReview();
         
         // 切换到学习界面
-        document.getElementById('welcomeScreen').classList.add('hidden');
-        document.getElementById('completionScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.remove('hidden');
+        this.showScreen('learningScreen');
         
+        // 启动今日统计显示定时器
+        this.startStatsDisplayTimer();
+
         this.showWord();
     }
 
@@ -3057,15 +3223,17 @@ class WordMemoryApp {
         this.sessionStartIndex = startIndex; // 记录本次学习开始的索引
         this.isReviewMode = false; // 标记是否为复习模式
         this.startTime = Date.now();
+        this.sessionStatsRecorded = { correct: 0, wrong: 0, unknown: 0 }; // 重置已记录的统计
 
         // 更新最后练习时间
         Storage.updateBook(bookId, { lastPracticeAt: new Date().toISOString() });
 
         // 切换到学习界面
-        document.getElementById('welcomeScreen').classList.add('hidden');
-        document.getElementById('wordEditorScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.remove('hidden');
+        this.showScreen('learningScreen');
         document.getElementById('sidebar').classList.remove('collapsed');
+        
+        // 启动今日统计显示定时器
+        this.startStatsDisplayTimer();
 
         this.showWord();
     }
@@ -3275,14 +3443,8 @@ class WordMemoryApp {
         // 关闭设置弹窗
         this.closeBookSettings();
 
-        // 隐藏其他页面
-        document.getElementById('welcomeScreen').classList.add('hidden');
-        document.getElementById('wordEditorScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.add('hidden');
-        document.getElementById('completionScreen').classList.add('hidden');
-
         // 显示单词表页面
-        document.getElementById('wordListScreen').classList.remove('hidden');
+        this.showScreen('wordListScreen');
 
         // 设置标题和图标
         document.getElementById('wordListIcon').textContent = book.icon || '📖';
@@ -3424,8 +3586,7 @@ class WordMemoryApp {
 
     // 关闭单词表页面
     closeWordList() {
-        document.getElementById('wordListScreen').classList.add('hidden');
-        document.getElementById('welcomeScreen').classList.remove('hidden');
+        this.showScreen('welcomeScreen');
         
         // 重置编辑模式
         this.isWordListEditMode = false;
@@ -4002,15 +4163,8 @@ class WordMemoryApp {
 
     // 打开AI工坊
     openAiWorkshop() {
-        // 隐藏其他页面
-        document.getElementById('welcomeScreen').classList.add('hidden');
-        document.getElementById('wordEditorScreen').classList.add('hidden');
-        document.getElementById('learningScreen').classList.add('hidden');
-        document.getElementById('completionScreen').classList.add('hidden');
-        document.getElementById('wordListScreen').classList.add('hidden');
-
         // 显示AI工坊页面
-        document.getElementById('aiWorkshopScreen').classList.remove('hidden');
+        this.showScreen('aiWorkshopScreen');
 
         // 显示工坊主页，隐藏应用
         this.showWorkshopHome();
@@ -4018,8 +4172,7 @@ class WordMemoryApp {
 
     // 关闭AI工坊
     closeAiWorkshop() {
-        document.getElementById('aiWorkshopScreen').classList.add('hidden');
-        document.getElementById('welcomeScreen').classList.remove('hidden');
+        this.showScreen('welcomeScreen');
         
         // 重置工坊状态
         this.showWorkshopHome();
@@ -4128,7 +4281,7 @@ class WordMemoryApp {
     // ============================================
     
     // 初始化同义词练习
-    initSynonymPractice() {
+    async initSynonymPractice() {
         console.log('📖 初始化同义词练习');
         
         // 重置状态
@@ -4143,14 +4296,97 @@ class WordMemoryApp {
         document.getElementById('synonymPractice').classList.add('hidden');
         document.getElementById('synonymCompletion').classList.add('hidden');
         
-        // 重置文件上传状态
-        document.getElementById('synonymFileUpload').classList.remove('hidden');
-        document.getElementById('synonymFileStatus').classList.add('hidden');
-        document.getElementById('startSynonymBtn').disabled = true;
-        document.getElementById('synonymFileInput').value = '';
+        // 加载文档缓存
+        this.loadSynonymDocsCache();
         
-        // 尝试加载历史缓存
-        this.loadSynonymCache();
+        // 如果没有文档，加载内置示例文档
+        if (this.synonymDocs.length === 0) {
+            await this.loadBuiltInSynonymDoc();
+        }
+        
+        // 渲染文档列表
+        this.renderSynonymDocsList();
+        
+        // 如果有文档，选择第一个
+        if (this.synonymDocs.length > 0 && !this.synonymCurrentDocId) {
+            this.selectSynonymDoc(this.synonymDocs[0].id);
+        }
+        
+        // 更新开始按钮状态
+        this.updateSynonymStartButton();
+    }
+    
+    // 加载内置示例文档
+    async loadBuiltInSynonymDoc() {
+        console.log('📚 加载内置示例文档...');
+        this.showLoading('正在加载示例文档...');
+        
+        try {
+            // 使用预加载的JS数据（避免CORS问题）
+            if (typeof synonym538Data === 'undefined') {
+                throw new Error('内置数据未加载，请确保 synonym-538-data.js 已引入');
+            }
+            
+            // 处理数据格式，转换为标准格式
+            const data = this.processSynonym538Data(synonym538Data);
+            
+            const doc = {
+                id: 'built-in-538',
+                name: '538阅读同义替换词（内置）',
+                fileName: '538阅读同义替换词.xlsx',
+                uploadTime: new Date().toISOString(),
+                wordCount: data.length,
+                data: data,
+                isBuiltIn: true
+            };
+            
+            this.synonymDocs.push(doc);
+            this.saveSynonymDocsCache();
+            
+            this.hideLoading();
+            this.showToast('已加载内置示例文档', 'success');
+            console.log('✅ 内置文档加载成功:', data.length, '个单词');
+        } catch (error) {
+            console.error('内置文档加载失败:', error);
+            this.hideLoading();
+            this.showToast('内置文档加载失败：' + error.message, 'error');
+        }
+    }
+    
+    // 处理538数据格式
+    processSynonym538Data(rawData) {
+        const processed = [];
+        
+        for (const row of rawData) {
+            const word = (row['重点词'] || '').toString().trim();
+            const synonymsStr = (row['同义词/替换词'] || '').toString();
+            
+            if (!word || !synonymsStr) continue;
+            
+            // 解析同义词（支持换行符、逗号等分隔）
+            const synonyms = synonymsStr
+                .split(/[\n,，、;；]/)
+                .map(s => s.trim())
+                .filter(s => s && s.length > 0);
+            
+            if (synonyms.length === 0) continue;
+            
+            // 从"全义"字段提取音标
+            const fullDef = row['全义'] || '';
+            const phoneticMatch = fullDef.match(/^\/[^\/]+\//);
+            const phonetic = phoneticMatch ? phoneticMatch[0] : '';
+            
+            processed.push({
+                word: word,
+                phonetic: phonetic,
+                meaning: (row['释义'] || '').toString().trim(),
+                level: '',  // 538数据中没有等级字段
+                synonyms: synonyms
+            });
+        }
+        
+        console.log(`📊 处理538数据: ${rawData.length} 行 → ${processed.length} 个有效单词`);
+        return processed;
     }
     
     // 处理文件上传
@@ -4162,23 +4398,22 @@ class WordMemoryApp {
         
         try {
             const data = await this.parseSynonymExcel(file);
-            this.synonymData = data;
             
-            // 保存到历史缓存
-            const cacheData = {
+            // 创建新文档
+            const doc = {
+                id: 'upload-' + Date.now(),
+                name: file.name.replace(/\.(xlsx|xls)$/, ''),
                 fileName: file.name,
                 uploadTime: new Date().toISOString(),
                 wordCount: data.length,
-                data: data
+                data: data,
+                isBuiltIn: false
             };
-            localStorage.setItem('synonymPracticeCache', JSON.stringify(cacheData));
             
-            // 更新UI
-            document.getElementById('synonymFileUpload').classList.add('hidden');
-            document.getElementById('synonymFileStatus').classList.remove('hidden');
-            document.getElementById('synonymFileName').textContent = file.name;
-            document.getElementById('synonymWordCount').textContent = `${data.length} 个单词`;
-            document.getElementById('startSynonymBtn').disabled = false;
+            this.synonymDocs.push(doc);
+            this.saveSynonymDocsCache();
+            this.renderSynonymDocsList();
+            this.selectSynonymDoc(doc.id);
             
             this.hideLoading();
             this.showToast(`成功加载 ${data.length} 个单词`, 'success');
@@ -4186,37 +4421,154 @@ class WordMemoryApp {
             console.error('文件解析失败:', error);
             this.hideLoading();
             
-            // 显示详细错误信息
             const errorMsg = error.message || '文件解析失败，请检查格式';
             alert(`❌ 文件解析失败\n\n${errorMsg}`);
         }
     }
     
-    // 加载历史缓存
-    loadSynonymCache() {
-        const cached = localStorage.getItem('synonymPracticeCache');
+    // 加载文档缓存
+    loadSynonymDocsCache() {
+        const cached = localStorage.getItem('synonymDocsCache');
         if (cached) {
             try {
-                const cacheData = JSON.parse(cached);
-                this.synonymData = cacheData.data;
-                
-                // 更新UI
-                document.getElementById('synonymFileUpload').classList.add('hidden');
-                document.getElementById('synonymFileStatus').classList.remove('hidden');
-                document.getElementById('synonymFileName').textContent = cacheData.fileName;
-                document.getElementById('synonymWordCount').textContent = `${cacheData.wordCount} 个单词`;
-                document.getElementById('startSynonymBtn').disabled = false;
-                
-                console.log('✅ 已加载历史缓存:', cacheData.fileName, cacheData.wordCount, '个单词');
-                this.showToast('已加载上次导入的文件', 'info');
-                
+                this.synonymDocs = JSON.parse(cached);
+                console.log('✅ 已加载文档缓存:', this.synonymDocs.length, '个文档');
                 return true;
             } catch (e) {
                 console.error('缓存加载失败:', e);
+                this.synonymDocs = [];
                 return false;
             }
         }
+        this.synonymDocs = [];
         return false;
+    }
+    
+    // 保存文档缓存
+    saveSynonymDocsCache() {
+        try {
+            localStorage.setItem('synonymDocsCache', JSON.stringify(this.synonymDocs));
+            console.log('💾 文档缓存已保存');
+        } catch (e) {
+            console.error('缓存保存失败:', e);
+        }
+    }
+    
+    // 渲染文档列表
+    renderSynonymDocsList() {
+        const docsList = document.getElementById('synonymDocsList');
+        docsList.innerHTML = '';
+        
+        this.synonymDocs.forEach(doc => {
+            const docItem = document.createElement('div');
+            docItem.className = 'doc-item';
+            if (doc.isBuiltIn) {
+                docItem.classList.add('built-in');
+            }
+            if (doc.id === this.synonymCurrentDocId) {
+                docItem.classList.add('active');
+            }
+            
+            docItem.innerHTML = `
+                <span class="doc-item-icon">${doc.isBuiltIn ? '📚' : '📄'}</span>
+                <div class="doc-item-info">
+                    <div class="doc-item-name">${doc.name}</div>
+                    <div class="doc-item-meta">${doc.wordCount} 个单词 · ${this.formatDate(doc.uploadTime)}</div>
+                </div>
+                ${!doc.isBuiltIn ? `
+                    <div class="doc-item-actions">
+                        <button class="btn-doc-action" data-action="delete" data-id="${doc.id}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                ` : ''}
+            `;
+            
+            // 点击选择文档
+            docItem.addEventListener('click', (e) => {
+                if (!e.target.closest('.btn-doc-action')) {
+                    this.selectSynonymDoc(doc.id);
+                }
+            });
+            
+            // 删除按钮
+            const deleteBtn = docItem.querySelector('[data-action="delete"]');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.deleteSynonymDoc(doc.id);
+                });
+            }
+            
+            docsList.appendChild(docItem);
+        });
+    }
+    
+    // 选择文档
+    selectSynonymDoc(docId) {
+        const doc = this.synonymDocs.find(d => d.id === docId);
+        if (!doc) return;
+        
+        this.synonymCurrentDocId = docId;
+        this.synonymData = doc.data;
+        
+        // 更新文档列表的active状态
+        this.renderSynonymDocsList();
+        
+        // 更新当前文档信息
+        document.getElementById('synonymCurrentDocName').textContent = doc.name;
+        document.getElementById('synonymCurrentDocCount').textContent = doc.wordCount;
+        
+        // 更新开始按钮
+        this.updateSynonymStartButton();
+        
+        console.log('📖 已选择文档:', doc.name);
+    }
+    
+    // 删除文档
+    deleteSynonymDoc(docId) {
+        if (!confirm('确定要删除这个文档吗？')) return;
+        
+        this.synonymDocs = this.synonymDocs.filter(d => d.id !== docId);
+        this.saveSynonymDocsCache();
+        
+        // 如果删除的是当前文档，选择其他文档
+        if (this.synonymCurrentDocId === docId) {
+            if (this.synonymDocs.length > 0) {
+                this.selectSynonymDoc(this.synonymDocs[0].id);
+            } else {
+                this.synonymCurrentDocId = null;
+                this.synonymData = [];
+                document.getElementById('synonymCurrentDocName').textContent = '未选择';
+                document.getElementById('synonymCurrentDocCount').textContent = '0';
+            }
+        }
+        
+        this.renderSynonymDocsList();
+        this.updateSynonymStartButton();
+        this.showToast('文档已删除', 'success');
+    }
+    
+    // 更新开始按钮状态
+    updateSynonymStartButton() {
+        const startBtn = document.getElementById('startSynonymBtn');
+        startBtn.disabled = this.synonymData.length === 0;
+    }
+    
+    // 格式化日期
+    formatDate(dateStr) {
+        const date = new Date(dateStr);
+        const now = new Date();
+        const diff = now - date;
+        
+        if (diff < 60000) return '刚刚';
+        if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+        if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+        if (diff < 604800000) return Math.floor(diff / 86400000) + '天前';
+        
+        return date.toLocaleDateString('zh-CN');
     }
     
     // 解析Excel文件
@@ -4231,52 +4583,7 @@ class WordMemoryApp {
                     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                     const jsonData = XLSX.utils.sheet_to_json(firstSheet);
                     
-                    if (jsonData.length === 0) {
-                        throw new Error('文件为空或格式不正确');
-                    }
-                    
-                    // 获取所有列名
-                    const firstRow = jsonData[0];
-                    const columnNames = Object.keys(firstRow);
-                    
-                    console.log('📋 Excel列名:', columnNames);
-                    
-                    // 智能匹配列名
-                    const columnMapping = this.matchExcelColumns(columnNames);
-                    
-                    console.log('🔍 列名匹配结果:', columnMapping);
-                    
-                    if (!columnMapping.word || !columnMapping.synonyms) {
-                        const missingCols = [];
-                        if (!columnMapping.word) missingCols.push('单词/重点词');
-                        if (!columnMapping.synonyms) missingCols.push('同义词/替换词');
-                        throw new Error(`未找到必需的列：${missingCols.join('、')}。\n\n当前列名：${columnNames.join('、')}`);
-                    }
-                    
-                    // 解析数据
-                    const parsed = jsonData.map((row, index) => {
-                        // 获取同义词字符串
-                        const synonymsStr = row[columnMapping.synonyms] || '';
-                        const synonyms = synonymsStr.toString().split(/[,，、;；]/).map(s => s.trim()).filter(s => s);
-                        
-                        // 获取单词
-                        const word = (row[columnMapping.word] || '').toString().trim();
-                        
-                        return {
-                            word: word,
-                            phonetic: row[columnMapping.phonetic] ? row[columnMapping.phonetic].toString().trim() : '',
-                            meaning: row[columnMapping.meaning] ? row[columnMapping.meaning].toString().trim() : '',
-                            level: row[columnMapping.level] ? row[columnMapping.level].toString().trim() : '',
-                            synonyms: synonyms
-                        };
-                    }).filter(item => item.word && item.synonyms.length > 0);
-                    
-                    console.log(`✅ 成功解析 ${parsed.length} 个单词`);
-                    
-                    if (parsed.length === 0) {
-                        throw new Error('未找到有效数据。请确保：\n1. 单词/重点词列不为空\n2. 同义词/替换词列不为空\n3. 同义词用逗号分隔');
-                    }
-                    
+                    const parsed = this.processSynonymExcelData(jsonData);
                     resolve(parsed);
                 } catch (error) {
                     console.error('解析错误:', error);
@@ -4287,6 +4594,57 @@ class WordMemoryApp {
             reader.onerror = () => reject(new Error('文件读取失败'));
             reader.readAsArrayBuffer(file);
         });
+    }
+    
+    // 处理Excel数据（提取共同逻辑）
+    processSynonymExcelData(jsonData) {
+        if (jsonData.length === 0) {
+            throw new Error('文件为空或格式不正确');
+        }
+        
+        // 获取所有列名
+        const firstRow = jsonData[0];
+        const columnNames = Object.keys(firstRow);
+        
+        console.log('📋 Excel列名:', columnNames);
+        
+        // 智能匹配列名
+        const columnMapping = this.matchExcelColumns(columnNames);
+        
+        console.log('🔍 列名匹配结果:', columnMapping);
+        
+        if (!columnMapping.word || !columnMapping.synonyms) {
+            const missingCols = [];
+            if (!columnMapping.word) missingCols.push('单词/重点词');
+            if (!columnMapping.synonyms) missingCols.push('同义词/替换词');
+            throw new Error(`未找到必需的列：${missingCols.join('、')}。\n\n当前列名：${columnNames.join('、')}`);
+        }
+        
+        // 解析数据
+        const parsed = jsonData.map((row, index) => {
+            // 获取同义词字符串
+            const synonymsStr = row[columnMapping.synonyms] || '';
+            const synonyms = synonymsStr.toString().split(/[,，、;；]/).map(s => s.trim()).filter(s => s);
+            
+            // 获取单词
+            const word = (row[columnMapping.word] || '').toString().trim();
+            
+            return {
+                word: word,
+                phonetic: row[columnMapping.phonetic] ? row[columnMapping.phonetic].toString().trim() : '',
+                meaning: row[columnMapping.meaning] ? row[columnMapping.meaning].toString().trim() : '',
+                level: row[columnMapping.level] ? row[columnMapping.level].toString().trim() : '',
+                synonyms: synonyms
+            };
+        }).filter(item => item.word && item.synonyms.length > 0);
+        
+        console.log(`✅ 成功解析 ${parsed.length} 个单词`);
+        
+        if (parsed.length === 0) {
+            throw new Error('未找到有效数据。请确保：\n1. 单词/重点词列不为空\n2. 同义词/替换词列不为空\n3. 同义词用逗号分隔');
+        }
+        
+        return parsed;
     }
     
     // 智能匹配Excel列名
@@ -4458,6 +4816,11 @@ class WordMemoryApp {
     
     // 处理选项点击
     handleSynonymOptionClick(optionBtn) {
+        // 移除焦点，避免移动端出现绿色边框
+        if (document.activeElement) {
+            document.activeElement.blur();
+        }
+        
         const value = optionBtn.dataset.value;
         
         if (optionBtn.classList.contains('selected')) {
@@ -5090,8 +5453,8 @@ class WordMemoryApp {
             document.getElementById('aiStoryDisplay').classList.remove('hidden');
 
         } catch (error) {
-            console.error('生成故事失败:', error);
-            alert('生成故事失败，请重试');
+            console.error('生成阅读失败:', error);
+            alert('生成阅读失败，请检查大模型API key是否配置正确');
         } finally {
             generateBtn.disabled = false;
             generateBtn.innerHTML = originalText;
@@ -5189,11 +5552,11 @@ But little did she know, this was just the beginning of an extraordinary journey
     async callStoryGenerationAPI(theme, keywords, difficulty, aiModel = 'Qwen/Qwen3-30B-A3B') {
         const keywordsStr = keywords.join(', ');
         
-        const systemPrompt = `你是一个英语故事大师，擅长根据给出的若干单词，生成吸引人的各种题材的英语故事。请严格按照以下JSON格式返回：
+        const systemPrompt = `你是一个英语刊物主编，擅长根据给出的若干单词，生成吸引人的各种题材的英语外刊。请严格按照以下JSON格式返回：
 
 {
-    "title": "故事标题（英文）",
-    "story": "故事正文（英文，500-800词）",
+    "title": "外刊标题（英文）",
+    "story": "外刊正文（英文，500-800词）",
     "questions": [
         {
             "type": "choice",
@@ -5205,7 +5568,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         {
             "type": "fill",
             "question": "问题句子，用____表示填空位置（英文）",
-            "answer": "正确答案（单词或短语）",
+            "answer": "正确答案（ONLY ONE WORD）",
             "explanation": "解析（中文）"
         }
     ]
@@ -5217,21 +5580,21 @@ But little did she know, this was just the beginning of an extraordinary journey
 - 填空题的question中必须用____（4个下划线）标记填空位置
 
 要求：
-1. 故事必须自然地使用所有关键词
+1. 外刊必须自然地使用所有关键词
 2. 难度等级为 ${difficulty}
 3. 生成3-5个阅读理解题，其中至少1个填空题、1个选择题
-4. 题目要有一定难度，可以包含同义替换、熟词生义等陷阱
-5. 填空题的答案应该是单个单词或短语，不要太长
+4. 题目要有一定难度，可以包含英语阅读题常用的同义替换、熟词生义等陷阱
+5. 填空题的答案应该是从文章提取的单个单词
 6. 确保JSON格式正确，可被解析`;
 
-        const userPrompt = `请根据以下信息生成一个英文故事：
+        const userPrompt = `请根据以下信息生成一个英文外刊：
 
 主题：${theme}
 关键词：${keywordsStr}
 难度等级：${difficulty}
 字数：500-800字
 
-请生成一个完整的故事，并附带3-5个阅读理解题目。`;
+请生成一个完整的外刊文章，并附带4-5个阅读理解题目。`;
 
         const requestData = {
             model: aiModel,
@@ -5257,7 +5620,7 @@ But little did she know, this was just the beginning of an extraordinary journey
             throw new Error('请先在设置中配置AI API密钥！\n\n获取免费密钥：\n1. 访问 https://cloud.siliconflow.cn/i/WtZO3i7N\n2. 注册账号（使用邀请码 WtZO3i7N 可获赠2000万token）\n3. 在API密钥管理中创建密钥\n4. 将密钥复制到本应用的设置中');
         }
 
-        console.log('🤖 调用AI API生成故事...');
+        console.log('🤖 调用AI API生成阅读...');
         console.log('请求参数:', requestData);
 
         const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {

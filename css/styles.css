@@ -458,10 +458,10 @@ body {
 
 /* 右侧统计面板 */
 .stats-panel {
-    width: 240px;
+    width: 260px;
     background: var(--surface);
     border-left: 1px solid var(--border-color);
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: var(--spacing-sm) var(--spacing-sm);
     overflow-y: auto;
     height: 100%;
     flex-shrink: 0;
@@ -469,6 +469,7 @@ body {
 
 .stats-header {
     margin-bottom: var(--spacing-md);
+    padding: var(--spacing-md);
 }
 
 .stats-header h3 {
@@ -504,6 +505,41 @@ body {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--primary-color);
+}
+
+/* 学习时长 - 现代化时钟样式 (MM:SS格式) */
+#todayTime {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--primary-color), #9333ea);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-size: 1.85rem;
+    font-weight: 800;
+    position: relative;
+    display: inline-block;
+    transition: all 0.3s ease;
+    min-width: 5ch; /* 确保 00:00 有足够空间 */
+}
+
+/* 暗黑模式下的时钟样式 */
+[data-theme="dark"] #todayTime {
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* 时钟数字变化时的微动画 */
+@keyframes pulse-subtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.95; }
+}
+
+#todayTime.updating {
+    animation: pulse-subtle 0.5s ease;
 }
 
 .stat-name {
@@ -1074,7 +1110,7 @@ body {
 }
 
 .progress-segment.current {
-    background: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color), transparent 60%); 
     animation: pulse 1s ease-in-out infinite;
 }
 
@@ -1303,6 +1339,7 @@ body {
     border: 2px solid var(--border-color);
     border-radius: var(--radius-md);
     font-size: 1rem;
+    color: var(--text-primary);
     cursor: pointer;
     transition: all var(--transition-fast);
     text-align: center;
@@ -1312,6 +1349,8 @@ body {
     height: 100px;
     position: relative;
     overflow: hidden;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .option-content {
@@ -1343,9 +1382,18 @@ body {
 .option-text {
     font-size: 1rem;
     font-weight: 500;
-    word-break: break-word;
     width: 100%;
     max-width: 100%;
+    color: inherit;
+    /* 使用省略号截断超长文本，不缩小字体 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3; /* 最多显示3行 */
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+    word-break: break-word;
 }
 
 .option-pos {
@@ -1359,6 +1407,15 @@ body {
     background: var(--primary-light);
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
+}
+
+.option-btn:focus {
+    outline: none;
+    border-color: var(--border-color);
+}
+
+.option-btn:active {
+    transform: scale(0.98);
 }
 
 .option-btn.selected {
@@ -2221,6 +2278,7 @@ body {
 }
 
 .form-label {
+    margin-top: 25px;
     font-weight: 600;
     color: var(--text-primary);
     font-size: 0.95rem;
@@ -3274,7 +3332,7 @@ body {
         left: 0;
         right: 0;
         bottom: 60px;
-        background: rgba(0, 0, 0, 0.4);
+        
         z-index: -1;
     }
     
@@ -3325,6 +3383,24 @@ body {
         min-height: auto !important;
         font-size: 0.875rem !important;
     }
+    
+    .option-text {
+        font-size: 0.875rem !important;
+        -webkit-line-clamp: 2 !important; /* 移动端最多显示2行 */
+        line-clamp: 2 !important;
+        line-height: 1.3 !important;
+    }
+    
+    /* 调整移动端选项顺序：左列第2个和左列第3个调换位置 */
+    .option-btn:nth-child(3) {
+        order: 5; /* 无正确答案从第3移到左列第5，但被不知道强行调换5-6 */
+    }
+    .option-btn:nth-child(6) {
+        order: 5; /* 无正确答案从第6移到第5，再跟不知道调回来 */
+    }
+    
+
+
     
     /* 同义替换练习选项优化 - 2列布局，高度减半 */
     .synonym-options-grid {
@@ -3917,7 +3993,7 @@ body {
     }
     
     .stats-panel {
-        width: 220px;
+        width: 240px;
     }
     
     .main-content {
@@ -3937,7 +4013,7 @@ body {
         height: calc(100vh - 56px);
         z-index: 50;
         transform: translateX(-100%);
-        width: 280px;
+     
     }
     
     .sidebar.show {
@@ -4209,49 +4285,326 @@ body {
 .synonym-app-container {
     max-width: 900px;
     margin: 0 auto;
+    padding: 0 var(--spacing-md);
+}
+
+@media (max-width: 768px) {
+    .synonym-settings .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .synonym-intro h2 {
+        font-size: 1.5rem;
+    }
+    
+    .synonym-intro p {
+        font-size: 0.9rem;
+    }
 }
 
 .synonym-header {
     display: flex;
     align-items: center;
-    gap: var(--spacing-lg);
-    margin-bottom: var(--spacing-xl);
-    padding-bottom: var(--spacing-lg);
-    border-bottom: 2px solid var(--border-color);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .synonym-header h3 {
     flex: 1;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 600;
+    color: var(--text-primary);
 }
 
 .synonym-intro {
     text-align: center;
-    margin-bottom: var(--spacing-xl);
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
 }
 
 .synonym-intro-icon {
-    font-size: 4rem;
-    margin-bottom: var(--spacing-md);
-    animation: float 3s ease-in-out infinite;
+    font-size: 2.5rem;
+    margin-bottom: var(--spacing-xs);
+    opacity: 0.85;
 }
 
 .synonym-intro h2 {
-    font-size: 2rem;
-    margin-bottom: var(--spacing-sm);
+    font-size: 1.5rem;
+    margin-bottom: var(--spacing-xs);
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .synonym-intro p {
     color: var(--text-secondary);
-    font-size: 1.1rem;
+    font-size: 0.875rem;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.5;
 }
 
 .synonym-settings {
     background: var(--surface);
-    border-radius: var(--radius-xl);
-    padding: var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.synonym-settings .form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.synonym-settings .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.synonym-settings .form-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.synonym-settings .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: 0;
+}
+
+.synonym-settings .form-select {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 0.9rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--background);
+    color: var(--text-primary);
+    transition: all var(--transition-fast);
+}
+
+.synonym-settings .form-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(74, 157, 154, 0.1);
+}
+
+.synonym-settings .form-actions {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--border-color);
+}
+
+.synonym-settings .btn-primary {
+    width: 100%;
+    padding: var(--spacing-md);
+    font-size: 1rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.synonym-settings .btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
     box-shadow: var(--shadow-md);
+}
+
+.synonym-settings .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.synonym-settings .btn-primary svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* 文档管理器 */
+.synonym-docs-manager {
+    background: var(--background);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+}
+
+.docs-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
+    max-height: 240px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.docs-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.docs-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.docs-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: var(--radius-full);
+}
+
+.docs-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}
+
+.doc-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.doc-item:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.doc-item.active {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+   
+}
+
+.doc-item.built-in {
+    border-left: 3px solid var(--primary-color);
+}
+
+.doc-item-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.doc-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.doc-item-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+}
+
+.doc-item-meta {
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+}
+
+.doc-item-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.btn-doc-action {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    opacity: 0;
+}
+
+.doc-item:hover .btn-doc-action {
+    opacity: 1;
+}
+
+.btn-doc-action:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+}
+
+.btn-doc-action svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-add-doc {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+}
+
+.btn-add-doc:hover {
+    background: var(--primary-hover);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-add-doc svg {
+    width: 16px;
+    height: 16px;
+}
+
+.current-doc-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(74, 157, 154, 0.08);
+    border-left: 3px solid var(--primary-color);
+    border-radius: var(--radius-sm);
+    margin-top: var(--spacing-sm);
+}
+
+.current-doc-info .info-icon {
+    font-size: 1.1rem;
+    opacity: 0.7;
+}
+
+.current-doc-info .info-text {
+    flex: 1;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.current-doc-info .info-text span {
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 .file-upload-area {
@@ -4322,18 +4675,30 @@ body {
     background: var(--background);
     border: 2px solid var(--border-color);
     border-radius: var(--radius-md);
+    color: var(--text-primary);
     cursor: pointer;
     transition: all var(--transition-fast);
     text-align: center;
     font-size: 1.05rem;
     font-weight: 500;
     user-select: none;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .synonym-option:hover {
     border-color: var(--primary-color);
     background: var(--primary-light);
     transform: translateY(-2px);
+}
+
+.synonym-option:focus {
+    outline: none;
+    border-color: var(--border-color);
+}
+
+.synonym-option:active {
+    transform: scale(0.98);
 }
 
 .synonym-option.selected {
