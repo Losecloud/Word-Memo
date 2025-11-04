@@ -98,6 +98,7 @@ const Storage = {
             learningMode: 'mixed', // mixed, selectOnly, spellOnly
             wordOrder: 'sequential', // sequential, random
             wordsPerSession: 20,
+            noAnswerProbability: 10, // 无正确答案出现概率（0-20%）
             voiceAccent: 'en-US',
             voiceModel: '', // 声优模型（如果可用）
             voiceRate: 1.0, // 语速（0.5-2.0）

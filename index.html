@@ -210,6 +210,11 @@
                                     </button>
                                 </div>
                             </div>
+                            <!-- 答错时显示的例句 -->
+                            <div class="wrong-answer-example" id="wrongAnswerExample">
+                                <div class="example-label">📝 例句：</div>
+                                <p class="example-sentence-choice" id="exampleSentenceChoice">&nbsp;</p>
+                            </div>
                             <div class="options-container" id="optionsContainer">
                                 <!-- 动态生成选项 -->
                             </div>
@@ -903,14 +908,43 @@
                     </svg>
                 </button>
             </div>
+            
+            <!-- 设置选项卡 -->
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="basic">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m-6 6l-4.2 4.2m16.4 0l-4.2-4.2m-6-6l-4.2-4.2"/>
+                    </svg>
+                    <span>基本设置</span>
+                </button>
+                <button class="settings-tab" data-tab="ai">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                    <span>AI工坊设置</span>
+                </button>
+                <button class="settings-tab" data-tab="other">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>其他设置</span>
+                </button>
+            </div>
+            
             <div class="modal-body">
+                <!-- 基本设置选项卡 -->
+                <div class="settings-tab-content active" id="basicSettings">
                 <div class="setting-group">
                     <label class="setting-label">学习模式</label>
-                    <select class="setting-select" id="learningMode">
-                        <option value="mixed">模式①+②交替</option>
-                        <option value="selectOnly">仅看单词选释义</option>
-                        <option value="spellOnly">仅看释义拼单词</option>
-                    </select>
+                    <div class="switch-buttons" id="learningModeButtons">
+                        <button class="switch-btn active" data-mode="mixed">①+②交替</button>
+                        <button class="switch-btn" data-mode="selectOnly">看单词选释义</button>
+                        <button class="switch-btn" data-mode="spellOnly">看释义拼单词</button>
+                    </div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">单词顺序</label>
@@ -924,6 +958,22 @@
                     <input type="number" class="setting-input" id="wordsPerSession" 
                            value="20" min="-1" placeholder="输入单词数量（-1为无限）">
                     <div class="setting-hint">输入-1表示无限制，直到退出为止</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <span>"无正确答案"出现概率</span>
+                        <span class="time-value"><span id="noAnswerProbabilityValue">10</span>%</span>
+                    </label>
+                    <input type="range" class="setting-slider" id="noAnswerProbability" 
+                           min="0" max="20" step="1" value="10">
+                    <div class="slider-marks">
+                        <span>0%（从不）</span>
+                        <span>5%</span>
+                        <span>10%（默认）</span>
+                        <span>15%</span>
+                        <span>20%（经常）</span>
+                    </div>
+                    <div class="setting-hint">设置"无正确答案"作为正确选项的出现频率，0%表示永不出现</div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">发音口音</label>
@@ -987,25 +1037,6 @@
                     </select>
                 </div>
                 
-                <!-- AI设置 -->
-                <div class="setting-section-title">🤖 AI工坊设置</div>
-                <div class="setting-group">
-                    <label class="setting-label">硅基流动 API密钥</label>
-                    <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxx">
-                    <div class="setting-hint" style="margin-top: 8px;">
-                        <div style="margin-bottom: 4px;">💡 <strong>如何获取免费API密钥：</strong></div>
-                        <div style="padding-left: 20px; line-height: 1.8;">
-                            1. 访问 <a href="https://cloud.siliconflow.cn/i/WtZO3i7N" target="_blank" style="color: #667eea;">硅基流动官网</a><br>
-                            2. 注册账号（使用邀请码 <code style="background: #f0f0f0; padding: 2px 6px;font-size: x-large; border-radius: 3px; color: #d63031;">WtZO3i7N</code> 可<strong>免费获赠2000万token</strong>）<br>
-                            3. 在"API密钥管理"中创建新密钥<br>
-                            4. 将密钥复制粘贴到上方输入框<br>
-                        </div>
-                        <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
-                            ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- 快捷键设置 -->
                 <div class="setting-group">
                     <label class="setting-label">选项快捷键设置</label>
@@ -1059,6 +1090,39 @@
                         <span>10s</span>
                     </div>
                 </div>
+                </div>
+                <!-- 基本设置选项卡结束 -->
+                
+                <!-- AI工坊设置选项卡 -->
+                <div class="settings-tab-content" id="aiSettings">
+                    <div class="setting-group">
+                        <label class="setting-label">硅基流动 API密钥</label>
+                        <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxx">
+                        <div class="setting-hint" style="margin-top: 8px;">
+                            <div style="margin-bottom: 4px;">💡 <strong>如何获取免费API密钥：</strong></div>
+                            <div style="padding-left: 20px; line-height: 1.8;">
+                                1. 访问 <a href="https://cloud.siliconflow.cn/i/WtZO3i7N" target="_blank" style="color: #667eea;">硅基流动官网</a><br>
+                                2. 注册账号（使用邀请码 <code style="background: #f0f0f0; padding: 2px 6px;font-size: x-large; border-radius: 3px; color: #d63031;">WtZO3i7N</code> 可<strong>免费获赠2000万token</strong>）<br>
+                                3. 在"API密钥管理"中创建新密钥<br>
+                                4. 将密钥复制粘贴到上方输入框<br>
+                            </div>
+                            <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
+                                ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- AI工坊设置选项卡结束 -->
+                
+                <!-- 其他设置选项卡 -->
+                <div class="settings-tab-content" id="otherSettings">
+                    <div class="setting-group">
+                        <p style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+                            暂无其他设置项
+                        </p>
+                    </div>
+                </div>
+                <!-- 其他设置选项卡结束 -->
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="resetSettingsBtn">恢复默认</button>

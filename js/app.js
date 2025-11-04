@@ -231,6 +231,14 @@ class WordMemoryApp {
             this.closeSettings();
         });
 
+        // 设置选项卡切换
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const targetTab = e.currentTarget.dataset.tab;
+                this.switchSettingsTab(targetTab);
+            });
+        });
+
         document.getElementById('modalOverlay').addEventListener('click', () => {
             this.closeSettings();
         });
@@ -758,6 +766,12 @@ class WordMemoryApp {
             posElement.style.display = 'none'; // 没有CEFR等级则隐藏
         }
 
+        // 隐藏例句（切换单词时重置）
+        const exampleContainer = document.getElementById('wrongAnswerExample');
+        if (exampleContainer) {
+            exampleContainer.classList.remove('show');
+        }
+
         // 生成选项
         this.generateOptions(word);
         
@@ -775,8 +789,10 @@ class WordMemoryApp {
         // 使用当前词书的所有单词作为干扰项来源
         const allWords = this.currentBook ? this.currentBook.words : this.sessionWords;
         
-        // 10%概率让"无正确答案"成为正确答案
-        const noCorrectAnswerIsCorrect = Math.random() < 0.1;
+        // 使用设置的概率让"无正确答案"成为正确答案（复习错题时概率为0%）
+        const settingNoAnswerProb = this.settings.noAnswerProbability !== undefined ? this.settings.noAnswerProbability : 10;
+        const noCorrectAnswerProbability = this.isReviewMode ? 0 : (settingNoAnswerProb / 100);
+        const noCorrectAnswerIsCorrect = Math.random() < noCorrectAnswerProbability;
         
         let options, allOptions, actualCorrectAnswer;
         
@@ -865,6 +881,18 @@ class WordMemoryApp {
             container.appendChild(btn);
         });
         
+        // 如果无正确答案概率为0%，禁用并灰化该选项
+        if (settingNoAnswerProb === 0) {
+            const buttons = document.querySelectorAll('.option-btn');
+            buttons.forEach(btn => {
+                if (btn.dataset.option === '无正确答案') {
+                    btn.disabled = true;
+                    btn.classList.add('option-disabled');
+                    btn.title = '该选项已在设置中禁用（概率为0%）';
+                }
+            });
+        }
+        
         // 调整选项文本大小以保持一致高度
         this.adjustOptionTextSizes();
     }
@@ -877,6 +905,35 @@ class WordMemoryApp {
     }
 
     // 选择选项
+    // 显示例句并朗读（答错时调用）
+    showExampleOnWrongAnswer() {
+        const currentWord = this.sessionWords[this.currentWordIndex];
+        if (!currentWord) return;
+
+        const exampleContainer = document.getElementById('wrongAnswerExample');
+        const exampleText = document.getElementById('exampleSentenceChoice');
+        
+        if (!exampleContainer || !exampleText) return;
+
+        // 获取例句
+        const def = currentWord.definitions && currentWord.definitions[0];
+        const example = def?.example || '';
+
+        if (example) {
+            // 显示例句（不隐藏单词，直接显示完整例句）
+            exampleText.textContent = example;
+            exampleContainer.classList.add('show');
+
+            // 朗读例句
+            console.log('🔊 答错时朗读例句:', example);
+            this.speak(example);
+        } else {
+            // 如果没有例句，只显示单词
+            exampleText.textContent = '（该单词暂无例句）';
+            exampleContainer.classList.add('show');
+        }
+    }
+
     selectOption(selected, correct) {
         // 移除焦点，避免移动端出现绿色边框
         if (document.activeElement) {
@@ -998,6 +1055,9 @@ class WordMemoryApp {
             
             // 播放答错音效
             this.playWrongSound();
+            
+            // 显示例句并朗读
+            this.showExampleOnWrongAnswer();
             
             // ❌ 答错不允许切换，禁用"下一题"按钮
             document.getElementById('nextBtn').disabled = true;
@@ -1421,7 +1481,9 @@ class WordMemoryApp {
                 word: currentWord.word,
                 pos: currentWord.definitions[0].pos,
                 meaning: currentWord.definitions[0].meaning,
-                result: currentFirstResult // 'correct', 'wrong', 'unknown' - 使用首次结果
+                result: currentFirstResult, // 'correct', 'wrong', 'unknown' - 使用首次结果
+                favorite: currentWord.favorite || false, // 收藏状态
+                originalIndex: currentWord.originalIndex // 原始索引，用于收藏功能
             };
         }
 
@@ -2039,9 +2101,12 @@ class WordMemoryApp {
             return;
         }
 
-        const { word, pos, meaning, result } = this.lastWordInfo;
+        const { word, pos, meaning, result, favorite } = this.lastWordInfo;
         const icon = result === 'correct' ? '✔' : result === 'wrong' ? '✗' : '?';
         const className = result === 'correct' ? 'correct' : result === 'wrong' ? 'wrong' : 'unknown';
+        
+        // 收藏按钮的状态
+        const favoriteClass = favorite ? '' : 'favorite-gray';
         
         badge.style.display = 'flex';
         badge.className = `last-word-badge ${className}`;
@@ -2051,7 +2116,19 @@ class WordMemoryApp {
                 <span class="badge-word">${word}</span>
                 <span class="badge-meaning">${pos} ${meaning}</span>
             </span>
+            <button class="btn-favorite-badge" title="收藏/取消收藏">
+                <span class="favorite-icon ${favoriteClass}">⭐</span>
+            </button>
         `;
+        
+        // 为收藏按钮添加点击事件
+        const favoriteBtn = badge.querySelector('.btn-favorite-badge');
+        if (favoriteBtn) {
+            favoriteBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 防止事件冒泡
+                this.toggleLastWordFavorite();
+            });
+        }
     }
 
     // 播放动画（根据设置选择类型）
@@ -2457,9 +2534,28 @@ class WordMemoryApp {
         document.getElementById('settingsModal').classList.remove('hidden');
         
         // 加载当前设置
-        document.getElementById('learningMode').value = this.settings.learningMode;
+        // 学习模式 - 使用switch-button
+        const learningMode = this.settings.learningMode || 'mixed';
+        document.querySelectorAll('#learningModeButtons .switch-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.mode === learningMode) {
+                btn.classList.add('active');
+            }
+            // 添加点击事件
+            btn.onclick = () => {
+                document.querySelectorAll('#learningModeButtons .switch-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            };
+        });
+        
         document.getElementById('wordOrder').value = this.settings.wordOrder || 'sequential';
         document.getElementById('wordsPerSession').value = this.settings.wordsPerSession || 20;
+        
+        // 无正确答案概率设置
+        const noAnswerProbability = this.settings.noAnswerProbability !== undefined ? this.settings.noAnswerProbability : 10;
+        document.getElementById('noAnswerProbability').value = noAnswerProbability;
+        document.getElementById('noAnswerProbabilityValue').textContent = noAnswerProbability;
+        
         document.getElementById('voiceAccent').value = this.settings.voiceAccent;
         document.getElementById('autoSound').checked = this.settings.autoSound;
         document.getElementById('enableSoundEffects').checked = this.settings.enableSoundEffects !== false; // 默认开启
@@ -2510,6 +2606,12 @@ class WordMemoryApp {
         const rateSlider = document.getElementById('voiceRate');
         rateSlider.addEventListener('input', (e) => {
             document.getElementById('voiceRateValue').textContent = parseFloat(e.target.value).toFixed(1);
+        });
+
+        // 监听无正确答案概率滑块变化
+        const noAnswerSlider = document.getElementById('noAnswerProbability');
+        noAnswerSlider.addEventListener('input', (e) => {
+            document.getElementById('noAnswerProbabilityValue').textContent = e.target.value;
         });
 
         // 监听口音变化，重新填充声优列表
@@ -2587,6 +2689,43 @@ class WordMemoryApp {
         document.getElementById('settingsModal').classList.add('hidden');
     }
 
+    // 切换设置选项卡
+    switchSettingsTab(tabName) {
+        // 移除所有选项卡的active类
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        
+        // 移除所有内容区域的active类
+        document.querySelectorAll('.settings-tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        
+        // 激活对应的选项卡和内容
+        const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
+        if (activeTab) {
+            activeTab.classList.add('active');
+        }
+        
+        let contentId;
+        switch(tabName) {
+            case 'basic':
+                contentId = 'basicSettings';
+                break;
+            case 'ai':
+                contentId = 'aiSettings';
+                break;
+            case 'other':
+                contentId = 'otherSettings';
+                break;
+        }
+        
+        const activeContent = document.getElementById(contentId);
+        if (activeContent) {
+            activeContent.classList.add('active');
+        }
+    }
+
     // 保存设置
     saveSettings() {
         const wordsPerSession = parseInt(document.getElementById('wordsPerSession').value);
@@ -2597,10 +2736,15 @@ class WordMemoryApp {
             return;
         }
 
+        // 从switch-button获取学习模式
+        const learningModeBtn = document.querySelector('#learningModeButtons .switch-btn.active');
+        const learningMode = learningModeBtn ? learningModeBtn.dataset.mode : 'mixed';
+
         this.settings = {
-            learningMode: document.getElementById('learningMode').value,
+            learningMode: learningMode,
             wordOrder: document.getElementById('wordOrder').value,
             wordsPerSession: wordsPerSession,
+            noAnswerProbability: parseInt(document.getElementById('noAnswerProbability').value), // 无正确答案概率（0-20）
             voiceAccent: document.getElementById('voiceAccent').value,
             voiceModel: document.getElementById('voiceModel').value || '', // 保存选择的声优
             voiceRate: parseFloat(document.getElementById('voiceRate').value) || 1.0, // 保存语速
@@ -2633,6 +2777,7 @@ class WordMemoryApp {
                 learningMode: 'mixed',
                 wordOrder: 'sequential',
                 wordsPerSession: 20,
+                noAnswerProbability: 10, // 无正确答案出现概率
                 voiceAccent: 'en-US',
                 voiceModel: '',
                 voiceRate: 1.0,
@@ -3831,6 +3976,63 @@ class WordMemoryApp {
         this.updateFavoriteDisplay(word.favorite);
         
         console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}单词: ${word.word}`);
+    }
+
+    // 收藏/取消收藏上次答题的单词
+    toggleLastWordFavorite() {
+        if (!this.currentBook || !this.lastWordInfo) {
+            console.warn('❌ 无法切换收藏：没有当前词书或上次单词信息');
+            return;
+        }
+        
+        const originalIndex = this.lastWordInfo.originalIndex;
+        
+        if (originalIndex === undefined) {
+            console.error('❌ 无法切换收藏：lastWordInfo 缺少 originalIndex 属性', this.lastWordInfo);
+            return;
+        }
+        
+        const book = Storage.getBook(this.currentBook.id);
+        
+        if (!book) {
+            console.error('❌ 无法切换收藏：找不到词书', this.currentBook.id);
+            return;
+        }
+        
+        const word = book.words[originalIndex];
+        if (!word) {
+            console.error('❌ 无法切换收藏：找不到单词', originalIndex);
+            return;
+        }
+        
+        // 切换收藏状态
+        word.favorite = !word.favorite;
+        
+        // 更新 lastWordInfo 的收藏状态
+        this.lastWordInfo.favorite = word.favorite;
+        
+        // 如果上一题和当前题是同一个单词，也要更新 sessionWord
+        if (this.currentWordIndex > 0) {
+            const prevSessionWord = this.sessionWords[this.currentWordIndex - 1];
+            if (prevSessionWord && prevSessionWord.originalIndex === originalIndex) {
+                prevSessionWord.favorite = word.favorite;
+            }
+        }
+        
+        // 保存到存储
+        Storage.updateBook(this.currentBook.id, book);
+        
+        // 重新显示badge以更新星星状态
+        const badge1 = document.getElementById('lastWordBadge1');
+        const badge2 = document.getElementById('lastWordBadge2');
+        if (badge1 && badge1.style.display !== 'none') {
+            this.showLastWordBadge('lastWordBadge1');
+        }
+        if (badge2 && badge2.style.display !== 'none') {
+            this.showLastWordBadge('lastWordBadge2');
+        }
+        
+        console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}上次单词: ${word.word}`);
     }
 
     // 更新学习模式中的收藏按钮显示

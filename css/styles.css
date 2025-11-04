@@ -1244,6 +1244,41 @@ body {
     max-width: 12em;
 }
 
+/* Badge中的收藏按钮 */
+.btn-favorite-badge {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 0.25rem;
+    flex-shrink: 0;
+    transition: transform var(--transition-fast);
+}
+
+.btn-favorite-badge:hover {
+    transform: scale(1.15);
+}
+
+.btn-favorite-badge:active {
+    transform: scale(0.95);
+}
+
+.btn-favorite-badge .favorite-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;    
+    transition: all var(--transition-fast);
+}
+
+.btn-favorite-badge:hover .favorite-icon {
+    transform: rotate(15deg);
+}
+
+.btn-favorite-badge:hover .favorite-gray {
+    opacity: 0.6;
+}
+
 @keyframes slideInFromTop {
     from {
         opacity: 0;
@@ -1268,7 +1303,7 @@ body {
 /* 模式1: 看单词选释义 */
 .word-display {
     text-align: center;
-    margin-bottom: var(--spacing-xl);
+    margin-bottom: var(--spacing-sm);
     padding: var(--spacing-xl) 0;
 }
 
@@ -1438,6 +1473,22 @@ body {
     animation: shake var(--transition-normal);
 }
 
+/* 禁用状态（概率为0%时） */
+.option-btn.option-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--background);
+    border-color: var(--border-color);
+    pointer-events: none;
+}
+
+.option-btn.option-disabled:hover {
+    transform: none;
+    box-shadow: none;
+    background: var(--background);
+    border-color: var(--border-color);
+}
+
 @keyframes bounce {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-10px); }
@@ -1531,6 +1582,64 @@ body {
     font-style: italic;
     padding-left: var(--spacing-md);
     border-left: 3px solid var(--primary-color);
+}
+
+/* 答错时显示的例句容器 */
+.wrong-answer-example {
+    margin: var(--spacing-sm) 0;
+    padding: var(--spacing-sm) var(--spacing-sm);
+    background: linear-gradient(135deg, #FFF5F5 0%, #FEE2E2 100%);
+    border-left: 4px solid var(--error);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    transition: opacity 0.3s ease-out, visibility 0.3s ease-out;
+    /* 默认隐藏但占据空间 */
+    opacity: 0;
+    visibility: hidden;
+    /* 设置最小高度确保占位 */
+    min-height: 60px;
+    box-sizing: border-box;
+}
+
+[data-theme="dark"] .wrong-answer-example {
+    background: linear-gradient(135deg, #3E1F1F 0%, #4A2626 100%);
+}
+
+/* 显示状态 */
+.wrong-answer-example.show {
+    opacity: 1;
+    visibility: visible;
+    animation: slideDown 0.3s ease-out;
+}
+
+.example-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--error);
+    margin-bottom: var(--spacing-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.example-sentence-choice {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-style: italic;
+    line-height: 1.6;
+    margin: 0;
+    /* 确保内容最小高度，避免空内容时容器塌陷 */
+    min-height: 1.6em;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .spell-input-area {
@@ -2401,6 +2510,75 @@ body {
 
 .keyword-mode-tab.active svg {
     stroke: currentColor;
+}
+
+/* 设置选项卡样式 */
+.settings-tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md);
+    padding-bottom: 0;
+    background: transparent;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.settings-tab svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2px;
+}
+
+.settings-tab:hover {
+    color: var(--text-primary);
+    background: var(--background);
+}
+
+.settings-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.settings-tab.active svg {
+    stroke: currentColor;
+}
+
+/* 设置选项卡内容 */
+.settings-tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.settings-tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* 模式内容区 */
@@ -3790,6 +3968,46 @@ body {
     font-size: 0.85em;
 }
 
+/* Switch Button 样式 */
+.switch-buttons {
+    display: flex;
+    gap: var(--spacing-xs);
+    background: var(--background);
+    padding: 4px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.switch-btn {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.switch-btn:hover {
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.switch-btn.active {
+    background: var(--primary-color);
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(74, 157, 154, 0.3);
+}
+
+.switch-btn:active {
+    transform: scale(0.98);
+}
+
 /* 快捷键设置 */
 .hotkey-grid {
     display: grid;
@@ -4882,6 +5100,26 @@ body {
     .keyword-mode-tab svg {
         width: 20px;
         height: 20px;
+    }
+    
+    /* 设置选项卡移动端适配 */
+    .settings-tab span {
+        display: none;
+    }
+    
+    .settings-tab {
+        padding: 0.75rem;
+    }
+    
+    .settings-tab svg {
+        width: 20px;
+        height: 20px;
+    }
+    
+    /* Switch Button 移动端适配 */
+    .switch-btn {
+        padding: 0.6rem 0.5rem;
+        font-size: 0.75rem;
     }
     
     .auto-select-control {
