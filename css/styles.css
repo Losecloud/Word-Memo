@@ -1177,32 +1177,18 @@ body {
     top: -10px;
     right: 0px;
     padding: 0.5rem 0.75rem;
-    background: var(--background);
-    border-radius: var(--radius-md);
+    background: transparent;
+
 
     font-size: 0.75rem;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.1rem;
     max-width: 350px;
     z-index: 10;
-    border: 2px solid;
     animation: slideInFromTop 0.3s ease-out;
 }
 
-.last-word-badge.correct {
-    border-color: color-mix(in srgb, #10B981, transparent 60%);     
-    background: rgba(16, 185, 129, 0.05);
-}
 
-.last-word-badge.wrong {
-    border-color: color-mix(in srgb, #EF4444, transparent 60%);
-    background: rgba(239, 68, 68, 0.05);
-}
-
-.last-word-badge.unknown {
-    border-color: color-mix(in srgb, #ffa502, transparent 60%);
-    background: rgba(255, 165, 2, 0.05);
-}
 
 .badge-icon {
     font-size: 1.2rem;
@@ -1223,9 +1209,10 @@ body {
 }
 
 .badge-content {
+    padding-left: 0.5rem;
     display: flex;
     flex-direction: row;
-    gap: 0.5rem;
+    gap: 0.1rem;
     align-items: center;
     justify-content: center;
     overflow: hidden;
@@ -1234,18 +1221,19 @@ body {
 
 .badge-word {
     font-weight: 600;
-    font-size: 0.875rem;
-    color: var(--text-primary);
+    font-size: 0.925rem;
+    color: var(--text-secondary);
     flex-shrink: 0;
 }
 
 .badge-meaning {
+    padding-left: 0.4rem;
     color: var(--text-secondary);
     font-size: 0.7rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 12em;
+    max-width: 15em;
 }
 
 /* Badge中的收藏按钮 */
@@ -1258,6 +1246,7 @@ body {
     margin-left: 0.25rem;
     flex-shrink: 0;
     transition: transform var(--transition-fast);
+    margin-bottom: 0.25rem;
 
 }
 
@@ -1655,13 +1644,25 @@ body {
     padding: var(--spacing-sm) var(--spacing-sm);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
-    transition: opacity 0.3s ease-out, visibility 0.3s ease-out, background 0.3s ease-out, border-color 0.3s ease-out;
+    transition: opacity 0.3s ease-out, visibility 0.3s ease-out, background 0.3s ease-out, border-color 0.3s ease-out, transform 0.2s ease;
     /* 默认隐藏但占据空间 */
     opacity: 0;
     visibility: hidden;
     /* 设置最小高度确保占位 */
     min-height: 60px;
     box-sizing: border-box;
+    /* 可点击样式 */
+    cursor: pointer;
+    user-select: none;
+}
+
+.wrong-answer-example:hover {
+    transform: scale(1.02);
+    box-shadow: var(--shadow-md);
+}
+
+.wrong-answer-example:active {
+    transform: scale(0.98);
 }
 
 /* 答错样式（红色） */
@@ -4732,7 +4733,20 @@ body {
     }
     
     .stats-summary {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-sm);
+    }
+    
+    .stat-item {
+        padding: var(--spacing-md);
+    }
+    
+    .stat-value {
+        font-size: 2rem;
+    }
+    
+    .stat-label {
+        font-size: 0.85rem;
     }
     
     .completion-actions {

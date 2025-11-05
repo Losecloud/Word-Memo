@@ -38,6 +38,7 @@ class WordMemoryApp {
         this.reviewingWrongCount = 0; // 正在复习的错题数量
         this.isWordListEditMode = false; // 单词表是否处于编辑模式
         this.currentWordListBookId = null; // 当前浏览的词书ID
+        this.currentExample = ''; // 当前显示的例句文本（用于重新播放）
         
         // AI工坊相关
         this.selectedKeywords = []; // 选中的关键词
@@ -576,6 +577,11 @@ class WordMemoryApp {
                 this.openAiWorkshop();
             });
         }
+
+        // 例句点击播放
+        document.getElementById('wrongAnswerExample').addEventListener('click', () => {
+            this.replayExample();
+        });
     }
 
     // 处理文件上传
@@ -972,6 +978,9 @@ class WordMemoryApp {
         const example = def?.example || '';
 
         if (example) {
+            // 保存当前例句文本，用于重新播放
+            this.currentExample = example;
+            
             // 高亮显示当前单词的例句，根据类型应用不同样式
             const highlightedExample = this.highlightWordInExample(example, currentWord.word, type);
             exampleText.innerHTML = highlightedExample;
@@ -986,11 +995,23 @@ class WordMemoryApp {
             this.speak(example);
         } else {
             // 如果没有例句，只显示单词
+            this.currentExample = '';
             exampleText.textContent = '（该单词暂无例句）';
             exampleContainer.classList.remove('example-wrong', 'example-unknown');
             exampleContainer.classList.add(`example-${type}`);
             exampleContainer.classList.add('show');
         }
+    }
+
+    // 重新播放例句
+    replayExample() {
+        if (!this.currentExample) {
+            console.log('🔇 没有可播放的例句');
+            return;
+        }
+        
+        console.log('🔊 重新播放例句:', this.currentExample);
+        this.speak(this.currentExample);
     }
 
     selectOption(selected, correct) {
@@ -2392,7 +2413,7 @@ class WordMemoryApp {
         badge.innerHTML = `
             <span class="badge-icon">${icon}</span>
             <span class="badge-content">
-                <span class="badge-word">${word}</span>
+                <span class="badge-word">${word}</span>:
                 <span class="badge-meaning">${pos} ${meaning}</span>
             </span>
             <button class="btn-favorite-badge" title="收藏/取消收藏">
