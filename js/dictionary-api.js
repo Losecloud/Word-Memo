@@ -364,14 +364,20 @@ const DictionaryAPI = {
         const shuffled = this.shuffleArray([...candidates]);
         
         for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-            // 选择第一个定义作为干扰项
+            // 选择第一个定义作为干扰项，同时保存原词
             const def = shuffled[i].definitions[0];
-            distractors.push(def.meaning);
+            distractors.push({
+                meaning: def.meaning,
+                word: shuffled[i].word
+            });
         }
         
         // 如果干扰项不够，生成一些通用的
         while (distractors.length < count) {
-            distractors.push('其他含义（请选择正确答案）');
+            distractors.push({
+                meaning: '其他含义（请选择正确答案）',
+                word: null
+            });
         }
         
         return distractors;

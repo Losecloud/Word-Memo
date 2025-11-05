@@ -205,6 +205,7 @@
                                 <p class="word-phonetic" id="wordPhonetic">/ˈæpl/</p>
                                 <div class="word-meta">
                                     <span class="word-pos" id="wordPos">n.</span>
+                                    <span class="word-stats" id="wordStats" style="display: none;"></span>
                                     <button class="btn-favorite" id="favoriteBtn1" title="收藏/取消收藏">
                                         <span class="favorite-icon favorite-gray">⭐</span>
                                     </button>
@@ -363,8 +364,19 @@
                     <div class="ai-story-form" id="aiStoryForm">
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label">外刊主题</label>
+                                <label class="form-label">阅读题材</label>
+                                <select class="form-select" id="storyGenre">
+                                    <option value="外文刊物">📰 外文刊物</option>
+                                    <option value="生动故事">📖 生动故事</option>
+                                    <option value="文献报告">📚 文献报告</option>
+                                    <option value="海外工作生活">🌏 海外工作生活</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">文章主题</label>
                                 <select class="form-select" id="storyTheme">
+                                    <option value="随机" selected>🔄 随机选择</option>
                                     <option value="科技未来">🚀 科技未来</option>
                                     <option value="环境与能源">🌍 环境与能源</option>
                                     <option value="法律与犯罪">⚖️ 法律与犯罪</option>
@@ -373,16 +385,15 @@
                                     <option value="文化传媒">🎭 文化传媒</option>
                                     <option value="农业与食品">🍎 农业与食品</option>
                                     <option value="商业职场">💼 商业职场</option>
-                                    <option value=" 社会问题">🔍 社会问题</option>
+                                    <option value="社会问题">🔍 社会问题</option>
                                     <option value="政府政策">🏛️ 政府政策</option>
                                     <option value="健康与生活">❤️ 健康与生活</option>
                                     <option value="全球化">✈️ 全球化</option>
-
-
-
                                 </select>
                             </div>
-
+                        </div>
+                        
+                        <div class="form-row">
                             <div class="form-group">
                                 <label class="form-label">难度等级</label>
                                 <select class="form-select" id="storyDifficulty">
@@ -396,16 +407,14 @@
                                     <option value="考研">考研 (Postgraduate)</option>
                                 </select>
                             </div>
-                        </div>
-
-                        <div class="form-row">
+                            
                             <div class="form-group">
                                 <label class="form-label">
                                     AI模型选择
                                     <span class="form-hint">(不同模型生成风格不同)</span>
                                 </label>
                                 <select class="form-select" id="aiModel">
-                                    <option value="Qwen/Qwen3-30B-A3B" >Qwen3-30B-A3B (通义千问3-30B)</option>
+                                    <option value="Qwen/Qwen3-30B-A3B">Qwen3-30B-A3B (通义千问3-30B)</option>
                                     <option value="deepseek-ai/DeepSeek-R1" selected>DeepSeek-R1 (深度求索R1)</option>
                                     <option value="inclusionAI/Ling-1T">Ling-1T (多语言模型)</option>
                                     <option value="Qwen/Qwen3-235B-A22B">Qwen3-235B-A22B (通义千问3-235B)</option>
@@ -413,9 +422,6 @@
                                     <option value="tencent/Hunyuan-A13B-Instruct">Hunyuan-A13B (腾讯混元A13B)</option>
                                     <option value="ByteDance-Seed/Seed-OSS-36B-Instruct">Seed-OSS-36B (字节跳动Seed-36B)</option>
                                 </select>
-                            </div>
-                            <div class="form-group">
-                                <!-- 占位，保持两列布局 -->
                             </div>
                         </div>
 
@@ -440,6 +446,14 @@
                                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                                     </svg>
                                     <span>收藏单词</span>
+                                </button>
+                                <button class="keyword-mode-tab" data-mode="review" id="tabReview">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path d="M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2 2 6.5 2 12s4.5 10 10 10z"/>
+                                        <path d="M12 8v4"/>
+                                        <path d="M12 16h.01"/>
+                                    </svg>
+                                    <span>从待复习中</span>
                                 </button>
                                 <button class="keyword-mode-tab" data-mode="input" id="tabInput">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -485,6 +499,18 @@
                                     </div>
                                 </div>
 
+                                <!-- 待复习单词模式 -->
+                                <div class="keyword-mode-panel" id="panelReview">
+                                    <div class="keyword-selector" id="reviewKeywordSelector">
+                                        <div class="keyword-empty" id="reviewKeywordEmpty">
+                                            暂无待复习单词，请先完成一些学习练习
+                                        </div>
+                                        <div class="keyword-list" id="reviewKeywordList">
+                                            <!-- 动态生成待复习单词 -->
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- 手动输入模式 -->
                                 <div class="keyword-mode-panel" id="panelInput">
                                     <div class="keyword-input-wrapper">
@@ -515,7 +541,7 @@
                         <div class="form-actions">
                             <button class="btn-primary btn-generate" id="generateStoryBtn">
                                 <span class="generate-icon">✨</span>
-                                生成故事
+                                生成
                             </button>
                             <button class="btn-secondary" id="useDemoStoryBtn">
                                 <span>📝</span>
@@ -527,22 +553,31 @@
                     <!-- 故事展示区 -->
                     <div class="ai-story-display hidden" id="aiStoryDisplay">
                         <div class="story-header">
-                            <h3 class="story-title" id="storyTitle"></h3>
-                            <div class="story-meta">
-                                <span class="story-meta-item">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-                                    </svg>
-                                    <span id="storyThemeMeta"></span>
-                                </span>
-                                <span class="story-meta-item">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <circle cx="12" cy="12" r="10"/>
-                                        <polyline points="12 6 12 12 16 14"/>
-                                    </svg>
-                                    <span id="storyWordCount"></span> 词
-                                </span>
+                            <div class="story-header-content">
+                                <h3 class="story-title" id="storyTitle"></h3>
+                                <div class="story-meta">
+                                    <span class="story-meta-item">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                                        </svg>
+                                        <span id="storyThemeMeta"></span>
+                                    </span>
+                                    <span class="story-meta-item">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <polyline points="12 6 12 12 16 14"/>
+                                        </svg>
+                                        <span id="storyWordCount"></span> 词
+                                    </span>
+                                </div>
                             </div>
+                            <button class="btn-dual-view" id="toggleDualViewBtn" title="双页展示（仅PC端可用）">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="7" height="18" rx="1"/>
+                                    <rect x="14" y="3" width="7" height="18" rx="1"/>
+                                </svg>
+                                <span>双页展示</span>
+                            </button>
                         </div>
                         <div class="story-content" id="storyContent">
                             <!-- 故事内容 -->
@@ -561,10 +596,7 @@
                         
                         <div class="story-actions">
                             <button class="btn-secondary" id="regenerateStoryBtn">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <polyline points="23 4 23 10 17 10"/>
-                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                </svg>
+                               
                                 重新生成
                             </button>
                             <button class="btn-primary" id="showQuestionsBtn">

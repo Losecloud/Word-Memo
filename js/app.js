@@ -463,6 +463,14 @@ class WordMemoryApp {
             this.reviewSynonymErrors();
         });
 
+        // 题材切换逻辑
+        document.getElementById('storyGenre').addEventListener('change', (e) => {
+            this.updateThemeOptions(e.target.value);
+        });
+        
+        // 初始化默认题材的主题选项
+        this.updateThemeOptions('外文刊物');
+
         document.getElementById('generateStoryBtn').addEventListener('click', () => {
             this.generateStory();
         });
@@ -496,6 +504,11 @@ class WordMemoryApp {
 
         document.getElementById('backToStoryBtn').addEventListener('click', () => {
             this.backToStory();
+        });
+        
+        // 双页展示按钮
+        document.getElementById('toggleDualViewBtn').addEventListener('click', () => {
+            this.toggleDualView();
         });
 
         document.getElementById('submitAnswersBtn').addEventListener('click', () => {
@@ -748,10 +761,16 @@ class WordMemoryApp {
     showSelectMode(word) {
         document.getElementById('modeSelectMeaning').classList.remove('hidden');
         document.getElementById('modeSpellWord').classList.add('hidden');
+        
+        // 隐藏"下一个"按钮（选择模式不需要）
+        document.getElementById('nextBtn').style.display = 'none';
 
         const def = word.definitions[0];
         document.getElementById('wordText').textContent = word.word;
         document.getElementById('wordPhonetic').textContent = word.phonetic || '';
+        
+        // 显示单词统计信息（复习模式）
+        this.updateWordStatsDisplay(word);
         
         // 显示CEFR等级而非词性
         const cefrLevel = this.getWordCEFRLevel(word.word);
@@ -796,11 +815,18 @@ class WordMemoryApp {
         
         let options, allOptions, actualCorrectAnswer;
         
+        // 创建释义到原词的映射
+        this.meaningToWordMap = {};
+        
         if (noCorrectAnswerIsCorrect) {
             // "无正确答案"是正确答案：生成4个干扰项（不包括真实答案）
             const distractors = DictionaryAPI.getDistractors(word, allWords, 4);
+            // 保存映射关系
+            distractors.forEach(d => {
+                if (d.word) this.meaningToWordMap[d.meaning] = d.word;
+            });
             options = [
-                ...distractors,
+                ...distractors.map(d => d.meaning),
                 '无正确答案',
                 '不知道'
             ];
@@ -812,9 +838,13 @@ class WordMemoryApp {
         } else {
             // 正常情况：正确答案+3个干扰项
             const distractors = DictionaryAPI.getDistractors(word, allWords, 3);
+            // 保存映射关系
+            distractors.forEach(d => {
+                if (d.word) this.meaningToWordMap[d.meaning] = d.word;
+            });
             options = [
                 correctAnswer,
-                ...distractors,
+                ...distractors.map(d => d.meaning),
                 '无正确答案',
                 '不知道'
             ];
@@ -905,8 +935,30 @@ class WordMemoryApp {
     }
 
     // 选择选项
-    // 显示例句并朗读（答错时调用）
-    showExampleOnWrongAnswer() {
+    // 在错误按钮下方显示原词（上浮动画）
+    showOriginalWord(button, originalWord) {
+        // 移除之前可能存在的原词标签
+        const existingLabel = button.querySelector('.original-word-label');
+        if (existingLabel) {
+            existingLabel.remove();
+        }
+        
+        // 创建原词标签
+        const label = document.createElement('div');
+        label.className = 'original-word-label';
+        label.textContent = originalWord;
+        
+        // 添加到按钮中
+        button.appendChild(label);
+        
+        // 触发动画（稍微延迟以确保CSS已应用）
+        setTimeout(() => {
+            label.classList.add('show');
+        }, 100);
+    }
+
+    // 显示例句并朗读（答错/不知道时调用）
+    showExampleOnWrongAnswer(type = 'wrong') {
         const currentWord = this.sessionWords[this.currentWordIndex];
         if (!currentWord) return;
 
@@ -920,16 +972,23 @@ class WordMemoryApp {
         const example = def?.example || '';
 
         if (example) {
-            // 显示例句（不隐藏单词，直接显示完整例句）
-            exampleText.textContent = example;
+            // 高亮显示当前单词的例句，根据类型应用不同样式
+            const highlightedExample = this.highlightWordInExample(example, currentWord.word, type);
+            exampleText.innerHTML = highlightedExample;
+            
+            // 移除之前的类型类，添加新的类型类
+            exampleContainer.classList.remove('example-wrong', 'example-unknown');
+            exampleContainer.classList.add(`example-${type}`);
             exampleContainer.classList.add('show');
 
             // 朗读例句
-            console.log('🔊 答错时朗读例句:', example);
+            console.log(`🔊 ${type === 'wrong' ? '答错' : '不知道'}时朗读例句:`, example);
             this.speak(example);
         } else {
             // 如果没有例句，只显示单词
             exampleText.textContent = '（该单词暂无例句）';
+            exampleContainer.classList.remove('example-wrong', 'example-unknown');
+            exampleContainer.classList.add(`example-${type}`);
             exampleContainer.classList.add('show');
         }
     }
@@ -962,16 +1021,33 @@ class WordMemoryApp {
                 this.wordFirstResults[this.currentWordIndex] = 'correct';
                 this.sessionResults.correct++;
                 
+                // 更新单词统计（答对）
+                this.updateWordStats(this.sessionWords[this.currentWordIndex], true);
+                
+                // 如果是复习模式，从错题列表中移除该单词
+                if (this.isReviewMode) {
+                    this.removeCorrectWordFromWrongList(this.sessionWords[this.currentWordIndex]);
+                }
+                
                 // 首次作答，更新词书进度和今日统计
                 this.updateBookProgress();
                 this.updateStatsRealtime();
             }
             
             this.wordResults[this.currentWordIndex] = 'correct';
-            this.playAnimation(true);
             
-            // 播放答对音效
-            this.playCorrectSound();
+            // 如果之前不是"不知道"状态，播放动画和音效
+            const wasUnknown = this.wordResults[this.currentWordIndex - 1] === 'unknown' && 
+                              this.currentWordIndex === this.currentWordIndex; // 同一题
+            
+            if (this.wordFirstResults[this.currentWordIndex] !== 'unknown') {
+                // 首次答对，播放动画和音效
+                this.playAnimation(true);
+                this.playCorrectSound();
+            } else {
+                // 点击"不知道"后再点正确答案，只播放音效，不播放动画
+                this.playCorrectSound();
+            }
             
             // 答对才允许切换
             if (this.settings.autoNext) {
@@ -986,13 +1062,15 @@ class WordMemoryApp {
                 document.getElementById('nextBtn').disabled = false;
             }
         } else if (isUnknown) {
-            // 不知道，禁用所有按钮
+            // 不知道，显示正确答案但不禁用所有按钮
             buttons.forEach(btn => {
-                btn.disabled = true;
-                // 使用dataset.option准确匹配，避免textContent的换行符问题
                 const btnOption = btn.dataset.option;
                 if (btnOption === correct) {
-                    btn.classList.add('correct');
+                    // 正确答案显示橙色，但不禁用，允许点击
+                    btn.classList.add('correct-unknown');
+                } else {
+                    // 其他选项禁用
+                    btn.disabled = true;
                 }
             });
             
@@ -1000,6 +1078,10 @@ class WordMemoryApp {
             if (!this.wordFirstResults[this.currentWordIndex]) {
                 this.wordFirstResults[this.currentWordIndex] = 'unknown';
                 this.sessionResults.unknown++;
+                
+                // ✅ 先更新统计（答错）
+                this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
+                
                 // 实时更新错题到词书并更新待复习数量
                 this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
                 
@@ -1013,26 +1095,26 @@ class WordMemoryApp {
             // 播放答错音效（不知道也算错）
             this.playWrongSound();
             
-            // "不知道"也允许切换
-            if (this.settings.autoNext) {
-                document.getElementById('nextBtn').disabled = false;
-                const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
-                if (autoNextTime > 0) {
-                    this.autoNextTimer = setTimeout(() => {
-                        this.nextWord();
-                    }, autoNextTime * 1000);
-                }
-            } else {
-                document.getElementById('nextBtn').disabled = false;
+            // 显示例句并朗读（不知道样式）
+            this.showExampleOnWrongAnswer('unknown');
+            
+            // ❌ 不知道后不允许直接切换，必须点击正确答案才能切换
+            document.getElementById('nextBtn').disabled = true;
+            // 清除自动切换计时器
+            if (this.autoNextTimer) {
+                clearTimeout(this.autoNextTimer);
+                this.autoNextTimer = null;
             }
         } else {
             // 答错了，只标记错误选项，其他选项可以继续选择
+            let wrongButton = null;
             buttons.forEach(btn => {
                 // 使用dataset.option准确匹配，避免textContent的换行符问题
                 const btnOption = btn.dataset.option;
                 if (btnOption === selected) {
                     btn.classList.add('wrong');
                     btn.disabled = true; // 只禁用错误的选项
+                    wrongButton = btn;
                 }
             });
             
@@ -1040,6 +1122,10 @@ class WordMemoryApp {
             if (!this.wordFirstResults[this.currentWordIndex]) {
                 this.wordFirstResults[this.currentWordIndex] = 'wrong';
                 this.sessionResults.wrong++;
+                
+                // ✅ 先更新统计（答错）
+                this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
+                
                 // 实时更新错题到词书并更新待复习数量
                 this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
                 
@@ -1058,6 +1144,11 @@ class WordMemoryApp {
             
             // 显示例句并朗读
             this.showExampleOnWrongAnswer();
+            
+            // 在错误答案下方显示原词（上浮动画）
+            if (wrongButton && this.meaningToWordMap && this.meaningToWordMap[selected]) {
+                this.showOriginalWord(wrongButton, this.meaningToWordMap[selected]);
+            }
             
             // ❌ 答错不允许切换，禁用"下一题"按钮
             document.getElementById('nextBtn').disabled = true;
@@ -1144,6 +1235,9 @@ class WordMemoryApp {
     showSpellMode(word) {
         document.getElementById('modeSelectMeaning').classList.add('hidden');
         document.getElementById('modeSpellWord').classList.remove('hidden');
+        
+        // 显示"下一个"按钮（拼写模式需要）
+        document.getElementById('nextBtn').style.display = '';
 
         const def = word.definitions[0];
         
@@ -1273,6 +1367,10 @@ class WordMemoryApp {
                     this.wordFirstResults[this.currentWordIndex] = 'wrong';
                     this.sessionResults.wrong++;
                     this.playWrongSound(); // 首次答错时播放音效
+                    
+                    // ✅ 先更新统计（答错）
+                    this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
+                    
                     // 实时更新错题到词书并更新待复习数量
                     this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
                     
@@ -1325,6 +1423,10 @@ class WordMemoryApp {
                 if (!this.wordFirstResults[this.currentWordIndex]) {
                     this.wordFirstResults[this.currentWordIndex] = 'unknown';
                     this.sessionResults.unknown++;
+                    
+                    // ✅ 先更新统计（答错）
+                    this.updateWordStats(word, false);
+                    
                     // 实时更新错题到词书并更新待复习数量
                     this.updateWrongWordToBook(word);
                     
@@ -1339,6 +1441,9 @@ class WordMemoryApp {
                 if (!this.wordFirstResults[this.currentWordIndex]) {
                     this.wordFirstResults[this.currentWordIndex] = 'correct';
                     this.sessionResults.correct++;
+                    
+                    // 更新单词统计（答对）
+                    this.updateWordStats(word, true);
                     
                     // 首次作答，更新词书进度和今日统计
                     this.updateBookProgress();
@@ -1399,6 +1504,10 @@ class WordMemoryApp {
         if (!this.wordFirstResults[this.currentWordIndex]) {
             this.wordFirstResults[this.currentWordIndex] = 'unknown';
             this.sessionResults.unknown++;
+            
+            // ✅ 先更新统计（答错）
+            this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
+            
             // 实时更新错题到词书并更新待复习数量
             this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
             
@@ -1498,6 +1607,10 @@ class WordMemoryApp {
         if (!this.wordFirstResults[this.currentWordIndex]) {
             this.wordFirstResults[this.currentWordIndex] = 'unknown';
             this.sessionResults.unknown++;
+            
+            // ✅ 先更新统计（答错）
+            this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
+            
             // 实时更新错题到词书并更新待复习数量
             this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
             
@@ -1574,6 +1687,12 @@ class WordMemoryApp {
     // 实时更新词书进度（每答完一题后调用）
     updateBookProgress() {
         if (this.currentBook) {
+            // ⚠️ 复习模式下不更新currentIndex，只在学习模式下更新
+            if (this.isReviewMode) {
+                console.log('📝 [复习模式] 跳过currentIndex更新');
+                return;
+            }
+            
             // 实时进度 = 本次开始索引 + 当前已答题数（包含答对和答错）
             // 这样用户可以实时看到学习进度
             const newIndex = this.sessionStartIndex + this.currentWordIndex + 1;
@@ -1581,14 +1700,129 @@ class WordMemoryApp {
             Storage.updateBookProgress(this.currentBook.id, { 
                 currentIndex: newIndex 
             });
+            
+            console.log(`📊 [学习模式] 更新进度: currentIndex → ${newIndex}`);
+            
             // 重新渲染词书列表以显示更新
             this.loadBooks();
         }
     }
 
+    // 更新单词统计显示（显示错误率/练习次数）
+    updateWordStatsDisplay(word) {
+        const statsElement = document.getElementById('wordStats');
+        if (!statsElement) return;
+        
+        const totalAttempts = word.totalAttempts || 0;
+        const wrongTimes = word.wrongTimes || 0;
+        
+        // 如果有统计数据（练习次数>0），则显示
+        if (totalAttempts > 0) {
+            const errorRate = Math.round((wrongTimes / totalAttempts) * 100);
+            const modeLabel = this.isReviewMode ? '复习中' : ''; 
+            statsElement.innerHTML = `<span class="stats-label">错误率</span> <span class="stats-value">${errorRate}%</span> <span class="stats-detail">(${wrongTimes}/${totalAttempts})${modeLabel}</span>`;
+            statsElement.style.display = 'inline-flex';
+            console.log(`📊 显示统计: "${word.word}" - ${errorRate}% (${wrongTimes}/${totalAttempts})`);
+        } else {
+            statsElement.style.display = 'none';
+        }
+    }
+
+    // 更新单词练习次数统计（答对或答错都会调用）
+    updateWordStats(word, isCorrect) {
+        if (!word) {
+            console.error(`❌ updateWordStats 失败: word 为空`);
+            return;
+        }
+
+        // 优先使用 word._bookId，否则使用 currentBook
+        const bookId = word._bookId || this.currentBook?.id;
+        if (!bookId) {
+            console.error(`❌ updateWordStats 失败: 无法确定词书ID`);
+            return;
+        }
+
+        const book = Storage.getBook(bookId);
+        if (!book) {
+            console.error(`❌ updateWordStats 失败: 找不到词书 ${bookId}`);
+            return;
+        }
+
+        // 优先使用 word._wordIndex，否则通过单词文本查找
+        let wordIndex = word._wordIndex;
+        if (wordIndex === undefined) {
+            wordIndex = book.words.findIndex(w => w.word === word.word);
+        }
+        
+        if (wordIndex < 0 || wordIndex >= book.words.length) {
+            console.error(`❌ updateWordStats 失败: 找不到单词 "${word.word}" (索引: ${wordIndex})`);
+            return;
+        }
+
+        // 直接更新词书中的单词对象
+        const wordInBook = book.words[wordIndex];
+        
+        // 记录更新前的状态
+        const beforeAttempts = wordInBook.totalAttempts || 0;
+        const beforeWrong = wordInBook.wrongTimes || 0;
+        
+        // 初始化统计字段
+        if (!wordInBook.totalAttempts) wordInBook.totalAttempts = 0;
+        if (!wordInBook.wrongTimes) wordInBook.wrongTimes = 0;
+        
+        // 更新总练习次数
+        wordInBook.totalAttempts += 1;
+        
+        // 如果答错，更新错误次数和最后错误时间
+        if (!isCorrect) {
+            wordInBook.wrongTimes += 1;
+            wordInBook.lastWrongDate = Date.now();
+        }
+        
+        // 记录更新后的状态
+        const afterAttempts = wordInBook.totalAttempts;
+        const afterWrong = wordInBook.wrongTimes;
+        
+        // 计算错误率
+        const errorRate = Math.round((wordInBook.wrongTimes / wordInBook.totalAttempts) * 100);
+        
+        const mode = this.isReviewMode ? '复习' : '学习';
+        console.log(`📊 [${mode}] "${word.word}" 统计更新:`);
+        console.log(`   ${isCorrect ? '✓答对' : '✗答错'} | 练习 ${beforeAttempts}→${afterAttempts}次 | 错误 ${beforeWrong}→${afterWrong}次 | 错误率${errorRate}%`);
+        
+        // 🔥 关键修复：正确调用 Storage.updateBook
+        // updateBook 的签名是 (bookId, updates)
+        const updatedBook = Storage.updateBook(bookId, book);
+        if (updatedBook) {
+            console.log(`✅ 词书已保存 (bookId: ${bookId})`);
+            
+            // 验证保存是否成功 - 重新从storage读取
+            const verifyBook = Storage.getBook(bookId);
+            const verifyWord = verifyBook.words[wordIndex];
+            console.log(`🔍 验证: 练习${verifyWord.totalAttempts || 0}次 | 错误${verifyWord.wrongTimes || 0}次`);
+            
+            if (verifyWord.totalAttempts !== afterAttempts) {
+                console.error(`❌ 验证失败！期望${afterAttempts}次，实际${verifyWord.totalAttempts || 0}次`);
+            }
+        } else {
+            console.error(`❌ 词书保存失败！bookId: ${bookId}`);
+        }
+        
+        // 同步更新当前单词对象的统计（用于显示）
+        word.totalAttempts = wordInBook.totalAttempts;
+        word.wrongTimes = wordInBook.wrongTimes;
+        word.lastWrongDate = wordInBook.lastWrongDate;
+        
+        // 实时更新显示
+        this.updateWordStatsDisplay(word);
+    }
+
     // 实时更新错题到词书（答错时立即调用）
     updateWrongWordToBook(word) {
         if (!this.currentBook || !word) return;
+
+        // ⚠️ 注意：统计更新已在 selectOption 中完成，这里不需要重复调用
+        // this.updateWordStats(word, false); // ❌ 已移除，避免重复统计
 
         const book = Storage.getBook(this.currentBook.id);
         if (!book) return;
@@ -1598,10 +1832,15 @@ class WordMemoryApp {
         // 检查是否已存在
         const existingIndex = existingWrong.findIndex(w => w.word === word.word);
         
+        // 从词书中获取最新的单词数据（包含更新后的统计）
+        const wordIndex = book.words.findIndex(w => w.word === word.word);
+        const updatedWord = wordIndex >= 0 ? book.words[wordIndex] : word;
+        
         if (existingIndex >= 0) {
             // 更新已存在的错题
             existingWrong[existingIndex] = {
                 ...existingWrong[existingIndex],
+                ...updatedWord,  // 包含最新的 wrongTimes, totalAttempts 等
                 wrongAt: new Date().toISOString(),
                 reviewCount: (existingWrong[existingIndex].reviewCount || 0)
             };
@@ -1609,7 +1848,7 @@ class WordMemoryApp {
         } else {
             // 添加新错题
             existingWrong.push({
-                ...word,
+                ...updatedWord,  // 包含最新的 wrongTimes, totalAttempts 等
                 wrongAt: new Date().toISOString(),
                 reviewCount: 0
             });
@@ -1629,6 +1868,46 @@ class WordMemoryApp {
         const reviewBtn = document.getElementById('reviewWrongBtn');
         if (reviewBtn && existingWrong.length > 0) {
             reviewBtn.textContent = `复习错题 (${existingWrong.length})`;
+        }
+    }
+
+    // 从错题列表中移除已答对的单词（复习模式答对时调用）
+    removeCorrectWordFromWrongList(word) {
+        if (!this.currentBook || !word) return;
+
+        const book = Storage.getBook(this.currentBook.id);
+        if (!book) return;
+
+        const existingWrong = book.progress.wrong || [];
+        
+        // 查找该单词在错题列表中的索引
+        const existingIndex = existingWrong.findIndex(w => w.word === word.word);
+        
+        if (existingIndex >= 0) {
+            // 从错题列表中移除
+            existingWrong.splice(existingIndex, 1);
+            console.log(`✅ 答对单词 "${word.word}"，已从错题列表移除，剩余错题: ${existingWrong.length}`);
+            
+            // 保存更新后的错题列表
+            Storage.updateBookProgress(this.currentBook.id, { wrong: existingWrong });
+            
+            // 重新加载词书数据（确保checkReview能获取最新数据）
+            this.books = Storage.loadBooks();
+            
+            // 实时更新右侧待复习单词数量
+            this.checkReview();
+            
+            // 实时更新完成页面的复习按钮
+            const reviewBtn = document.getElementById('reviewWrongBtn');
+            if (reviewBtn) {
+                if (existingWrong.length > 0) {
+                    reviewBtn.textContent = `复习错题 (${existingWrong.length})`;
+                } else {
+                    reviewBtn.textContent = '复习错题';
+                }
+            }
+        } else {
+            console.log(`ℹ️ 单词 "${word.word}" 不在错题列表中，无需移除`);
         }
     }
 
@@ -3035,8 +3314,29 @@ class WordMemoryApp {
         this.currentBook = book;
         Storage.saveCurrentBook(book.id);
         
-        // 使用该词书的错题开始学习（错题已经包含 originalIndex）
-        this.sessionWords = wrongWords;
+        // 🔥 关键修复：从词书的 words 数组中获取最新的单词对象（包含累积的统计信息）
+        // 而不是直接使用 book.progress.wrong 中的快照副本
+        const reviewWords = wrongWords.map(wrongWord => {
+            // 在词书中查找该单词的最新版本及其索引
+            const wordIndex = book.words.findIndex(w => w.word === wrongWord.word);
+            if (wordIndex >= 0) {
+                const latestWord = book.words[wordIndex];
+                console.log(`📝 [复习模式] 准备复习 "${wrongWord.word}" [索引${wordIndex}]: 总${latestWord.totalAttempts || 0}次 | 错${latestWord.wrongTimes || 0}次`);
+                // 返回带有必要索引信息的单词对象
+                return {
+                    ...latestWord,
+                    originalIndex: wordIndex,  // ✅ 保留 originalIndex 用于收藏功能
+                    _bookId: book.id,  // 记录词书ID
+                    _wordIndex: wordIndex  // 记录在词书中的索引
+                };
+            } else {
+                console.warn(`⚠️ 在词书中找不到单词 "${wrongWord.word}"，使用错题列表中的版本`);
+                return wrongWord;
+            }
+        });
+        
+        // 使用包含最新统计信息的单词对象
+        this.sessionWords = reviewWords;
         this.currentWordIndex = 0;
         this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
         this.wordResults = [];
@@ -3053,10 +3353,9 @@ class WordMemoryApp {
         
         console.log(`🔄 开始复习 - 词书 "${book.name}" 有 ${wrongWords.length} 个错题`);
         
-        // 清空错题（复习完会重新统计）
-        Storage.updateBookProgress(book.id, { wrong: [] });
-        
-        console.log(`🗑️ 已清空错题列表，准备重新统计`);
+        // ✅ 不再清空错题列表，而是在答对时逐个移除
+        // 这样即使中途退出，未复习的单词仍保留在错题列表中
+        console.log(`📝 保持错题列表，答对时将逐个移除`);
         
         // 重新加载词书数据并更新待复习数量
         this.books = Storage.loadBooks();
@@ -3336,10 +3635,30 @@ class WordMemoryApp {
         }
 
         // 根据进度获取当前学习位置
-        const startIndex = book.progress.currentIndex || 0;
+        let startIndex = book.progress.currentIndex || 0;
+        
+        // 🔧 修复：如果 currentIndex >= sequence.length，说明已学完，显示"开启新一轮"提示
+        if (startIndex >= sequence.length) {
+            const confirmNewRound = confirm(
+                `词书已学完一轮！\n\n` +
+                `📊 词书：${book.name}\n` +
+                `📝 单词数：${book.words.length}\n` +
+                `🔄 当前轮次：Round ${book.round || 1}\n\n` +
+                `点击"确定"开启新一轮学习（Round ${(book.round || 1) + 1}）\n` +
+                `点击"取消"返回词书列表`
+            );
+            
+            if (confirmNewRound) {
+                this.startNewRound();
+            } else {
+                this.showScreen('mainScreen');
+            }
+            return;
+        }
+        
         const wordsPerSession = parseInt(this.settings.wordsPerSession);
         
-        // 根据顺序表获取单词
+        // 根据顺序表获取单词（保持引用，不创建副本）
         this.sessionWords = [];
         const endIndex = wordsPerSession === -1 
             ? sequence.length  // 无限模式：学习所有剩余单词
@@ -3347,10 +3666,18 @@ class WordMemoryApp {
             
         for (let i = startIndex; i < endIndex; i++) {
             const wordIndex = sequence[i];
-            const word = { ...book.words[wordIndex] };  // 创建副本
-            word.originalIndex = wordIndex;  // 保存原始索引
-            this.sessionWords.push(word);
+            // ✅ 直接引用词书中的单词，并添加 originalIndex
+            const word = book.words[wordIndex];
+            // 使用一个包装对象，保持对原始单词的引用
+            this.sessionWords.push({
+                ...word,  // 展开所有属性
+                originalIndex: wordIndex,  // 添加索引
+                _bookId: book.id,  // 记录词书ID，用于统计更新
+                _wordIndex: wordIndex  // 记录在词书中的索引
+            });
         }
+        
+        console.log(`📚 [学习模式] 准备学习 ${this.sessionWords.length} 个单词 (${startIndex}→${endIndex}/${sequence.length})`);
 
         if (this.sessionWords.length === 0) {
             alert('词书已学完！');
@@ -3708,17 +4035,49 @@ class WordMemoryApp {
     }
 
     // 高亮例句中的单词
-    highlightWordInExample(example, word) {
+    highlightWordInExample(example, word, type = 'wrong') {
         if (!example || !word) return this.escapeHtml(example || '');
         
         // 转义HTML
         const escapedExample = this.escapeHtml(example);
         
-        // 创建正则表达式，匹配单词（不区分大小写，考虑单词边界）
-        const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+        // 获取目标单词的词干
+        const targetStem = this.getWordStem(word.toLowerCase());
         
-        // 替换为加粗样式
-        return escapedExample.replace(regex, '<strong class="word-list-highlight">$1</strong>');
+        // 根据类型选择样式类
+        const highlightClass = type === 'unknown' ? 'word-highlight-unknown' : 'word-list-highlight';
+        
+        // 使用正则表达式分词，保留标点和空格
+        const tokens = escapedExample.split(/(\b[\w']+\b)/g);
+        
+        // 遍历所有token，高亮匹配的单词
+        const result = tokens.map(token => {
+            // 跳过非单词token（空格、标点等）
+            if (!/\b[\w']+\b/.test(token)) return token;
+            
+            const tokenLower = token.toLowerCase();
+            const tokenStem = this.getWordStem(tokenLower);
+            
+            // 1. 精确匹配
+            if (tokenLower === word.toLowerCase()) {
+                return `<strong class="${highlightClass}">${token}</strong>`;
+            }
+            
+            // 2. 词干匹配（处理词形变化）
+            if (tokenStem === targetStem && targetStem.length >= 3) {
+                return `<strong class="${highlightClass}">${token}</strong>`;
+            }
+            
+            // 3. 相似度匹配（>85%）- 防止误判，提高阈值
+            const similarity = this.calculateSimilarity(word.toLowerCase(), tokenLower);
+            if (similarity > 0.85 && tokenLower.length >= 3) {
+                return `<strong class="${highlightClass}">${token}</strong>`;
+            }
+            
+            return token;
+        });
+        
+        return result.join('');
     }
 
     // HTML转义函数
@@ -4392,11 +4751,15 @@ class WordMemoryApp {
         document.getElementById('workshopAppsGrid').classList.add('hidden');
         
         if (appName === 'reading') {
+            console.log('📖 打开阅读联想记忆应用');
             document.getElementById('readingAppContainer').classList.remove('hidden');
         // 加载词单列表
         this.loadBookSelector();
         // 加载收藏单词
         this.loadFavoriteKeywords();
+        // 加载待复习单词
+        console.log('🔄 准备加载待复习单词...');
+        this.loadReviewKeywords();
             // 重置关键词列表
         this.selectedKeywords = [];
         this.selectedBooks = [];
@@ -5344,6 +5707,114 @@ class WordMemoryApp {
         console.log(`📚 加载了 ${uniqueFavorites.length} 个收藏单词`);
     }
 
+    // 加载待复习单词（错题和不知道的）
+    loadReviewKeywords() {
+        console.log('🔍 ===== 开始加载待复习单词 =====');
+        
+        const reviewKeywordList = document.getElementById('reviewKeywordList');
+        const reviewKeywordEmpty = document.getElementById('reviewKeywordEmpty');
+        
+        console.log('🔍 DOM元素:', {
+            reviewKeywordList: reviewKeywordList ? '✓' : '✗',
+            reviewKeywordEmpty: reviewKeywordEmpty ? '✓' : '✗'
+        });
+        
+        reviewKeywordList.innerHTML = '';
+
+        // 获取所有词书中待复习的单词（与右侧待复习区逻辑一致）
+        const reviewWords = [];
+        const books = Storage.loadBooks();
+        
+        console.log(`🔍 加载了 ${books.length} 个词书`);
+        
+        books.forEach((book, bookIndex) => {
+            // book.progress.wrong 数组中存储的是完整的单词对象，不是索引
+            const wrongWords = book.progress?.wrong || [];
+            
+            console.log(`🔍 词书 ${bookIndex + 1} [${book.name}]:`, {
+                totalWords: book.words?.length || 0,
+                wrongWordsCount: wrongWords.length,
+                wrongWordsType: wrongWords.length > 0 ? typeof wrongWords[0] : 'N/A',
+                firstWrongWord: wrongWords.length > 0 ? wrongWords[0]?.word : 'N/A',
+                hasProgress: !!book.progress,
+                progressKeys: book.progress ? Object.keys(book.progress) : []
+            });
+            
+            // wrongWords 数组中的每个元素就是一个单词对象
+            wrongWords.forEach((wordObj, i) => {
+                if (i < 3) {  // 只打印前3个单词详情
+                    console.log(`  📝 错词 ${i + 1}:`, {
+                        exists: !!wordObj,
+                        word: wordObj?.word,
+                        wrongAt: wordObj?.wrongAt,
+                        reviewCount: wordObj?.reviewCount,
+                        wrongTimes: wordObj?.wrongTimes
+                    });
+                }
+                
+                // wordObj 就是单词对象
+                if (wordObj && wordObj.word) {
+                    reviewWords.push({
+                        word: wordObj.word.toLowerCase(),
+                        wrongTimes: wordObj.wrongTimes || wordObj.reviewCount || 1,
+                        lastWrongDate: wordObj.wrongAt ? new Date(wordObj.wrongAt).getTime() : 0
+                    });
+                }
+            });
+        });
+
+        console.log(`🔍 收集到 ${reviewWords.length} 个待复习单词（去重前）`);
+
+        if (reviewWords.length === 0) {
+            console.log('⚠️ 没有待复习单词，显示空状态');
+            reviewKeywordEmpty.classList.remove('hidden');
+            reviewKeywordList.classList.add('hidden');
+        } else {
+            console.log('✅ 有待复习单词，开始处理');
+            reviewKeywordEmpty.classList.add('hidden');
+            reviewKeywordList.classList.remove('hidden');
+
+            // 按最近错误时间排序，最近的在前
+            reviewWords.sort((a, b) => b.lastWrongDate - a.lastWrongDate);
+
+            // 去重（保留最近的记录）
+            const uniqueReviewWords = [];
+            const seenWords = new Set();
+            reviewWords.forEach(item => {
+                if (!seenWords.has(item.word)) {
+                    seenWords.add(item.word);
+                    uniqueReviewWords.push(item);
+                }
+            });
+
+            console.log(`🔍 去重后 ${uniqueReviewWords.length} 个单词`);
+            console.log('🔍 前10个单词:', uniqueReviewWords.slice(0, 10).map(w => w.word));
+
+            // 渲染待复习单词
+            uniqueReviewWords.forEach((item, index) => {
+                const keyword = document.createElement('button');
+                keyword.className = 'keyword-item review-keyword-item';
+                keyword.innerHTML = `
+                    <span class="review-keyword-word">${item.word}</span>
+                    <span class="review-keyword-badge">×${item.wrongTimes}</span>
+                `;
+                keyword.dataset.word = item.word;
+                keyword.addEventListener('click', () => {
+                    this.toggleKeywordSelection(item.word, keyword);
+                });
+                reviewKeywordList.appendChild(keyword);
+                
+                if (index < 3) {
+                    console.log(`  ✓ 渲染单词 ${index + 1}: ${item.word} (×${item.wrongTimes})`);
+                }
+            });
+
+            console.log(`✅ 成功加载 ${uniqueReviewWords.length} 个待复习单词到列表`);
+        }
+        
+        console.log('🔍 ===== 加载待复习单词完成 =====');
+    }
+
     // 切换关键词选择
     toggleKeywordSelection(word, element) {
         const index = this.selectedKeywords.indexOf(word);
@@ -5615,6 +6086,8 @@ class WordMemoryApp {
             document.getElementById('panelBooks').classList.add('active');
         } else if (mode === 'favorites') {
             document.getElementById('panelFavorites').classList.add('active');
+        } else if (mode === 'review') {
+            document.getElementById('panelReview').classList.add('active');
         } else if (mode === 'input') {
             document.getElementById('panelInput').classList.add('active');
             // 自动聚焦输入框
@@ -5624,15 +6097,103 @@ class WordMemoryApp {
         }
     }
 
+    // 更新主题选项（根据题材）
+    updateThemeOptions(genre) {
+        const themeSelect = document.getElementById('storyTheme');
+        
+        const themeOptions = {
+            '外文刊物': [
+                { value: '随机', label: '🔄 随机选择' },
+                { value: '科技未来', label: '🚀 科技未来' },
+                { value: '环境与能源', label: '🌍 环境与能源' },
+                { value: '法律与犯罪', label: '⚖️ 法律与犯罪' },
+                { value: '教育社科', label: '🎓 教育社科' },
+                { value: '经济与发展', label: '💰 经济与发展' },
+                { value: '文化传媒', label: '🎭 文化传媒' },
+                { value: '农业与食品', label: '🍎 农业与食品' },
+                { value: '商业职场', label: '💼 商业职场' },
+                { value: '社会问题', label: '🔍 社会问题' },
+                { value: '政府政策', label: '🏛️ 政府政策' },
+                { value: '健康与生活', label: '❤️ 健康与生活' },
+                { value: '全球化', label: '✈️ 全球化' }
+            ],
+            '生动故事': [
+                { value: '随机', label: '🔄 随机选择' },
+                { value: '科技', label: '🚀 科技未来' },
+                { value: '玄幻', label: '🔮 玄幻修仙' },
+                { value: '悬疑', label: '🔍 悬疑推理' },
+                { value: '恋爱', label: '💕 浪漫爱情' },
+                { value: '冒险', label: '🗺️ 冒险探险' },
+                { value: '历史', label: '📜 历史穿越' },
+                { value: '奇幻', label: '🦄 奇幻魔法' },
+                { value: '商业', label: '💼 商业职场' }
+            ],
+            '文献报告': [
+                { value: '随机', label: '🔄 随机选择' },
+                { value: '计算机', label: '💻 计算机科学' },
+                { value: '商业金融', label: '💰 商业金融' },
+                { value: '机械电气', label: '⚙️ 机械电气' },
+                { value: '宗教文学', label: '📖 宗教文学' },
+                { value: '社科心理', label: '🧠 社科心理' },
+                { value: '医学生物', label: '🧬 医学生物' },
+                { value: '物理化学', label: '⚗️ 物理化学' },
+                { value: '数学统计', label: '📊 数学统计' },
+                { value: '法律政治', label: '⚖️ 法律政治' },
+                { value: '教育学', label: '🎓 教育学' },
+                { value: '建筑工程', label: '🏗️ 建筑工程' },
+                { value: '艺术设计', label: '🎨 艺术设计' }
+            ],
+            '海外工作生活': [
+                { value: '随机', label: '🔄 随机选择' },
+                { value: '招聘广告', label: '📢 招聘广告' },
+                { value: '职场制度', label: '📋 职场制度' },
+                { value: '政策文件', label: '📄 政策文件' },
+                { value: '社区公告', label: '📮 社区公告' },
+                { value: '产品说明书', label: '📱 产品说明书' },
+                { value: '就诊流程', label: '🏥 就诊流程' },
+                { value: '旅行住宿', label: '✈️ 旅行住宿' },
+                { value: '租房合同', label: '🏠 租房合同' },
+                { value: '银行服务', label: '🏦 银行服务' },
+                { value: '交通指南', label: '🚇 交通指南' }
+            ]
+        };
+        
+        const options = themeOptions[genre] || themeOptions['外文刊物'];
+        
+        // 清空现有选项
+        themeSelect.innerHTML = '';
+        
+        // 添加新选项
+        options.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option.value;
+            optionElement.textContent = option.label;
+            if (option.value === '随机') {
+                optionElement.selected = true;
+            }
+            themeSelect.appendChild(optionElement);
+        });
+    }
+    
     // 生成故事
     async generateStory() {
-        const theme = document.getElementById('storyTheme').value;
+        const genre = document.getElementById('storyGenre').value;
+        let theme = document.getElementById('storyTheme').value;
         const difficulty = document.getElementById('storyDifficulty').value;
         const aiModel = document.getElementById('aiModel').value;
 
         if (this.selectedKeywords.length < 3) {
             alert('请至少选择3个关键词');
             return;
+        }
+        
+        // 如果选择了"随机"，则从当前题材的主题中随机选一个
+        if (theme === '随机') {
+            const themeSelect = document.getElementById('storyTheme');
+            const options = Array.from(themeSelect.options).filter(opt => opt.value !== '随机');
+            if (options.length > 0) {
+                theme = options[Math.floor(Math.random() * options.length)].value;
+            }
         }
 
         // 显示加载状态
@@ -5643,7 +6204,7 @@ class WordMemoryApp {
 
         try {
             // 调用AI API
-            const story = await this.callStoryGenerationAPI(theme, this.selectedKeywords, difficulty, aiModel);
+            const story = await this.callStoryGenerationAPI(genre, theme, this.selectedKeywords, difficulty, aiModel);
             
             this.currentStory = story;
 
@@ -5751,14 +6312,32 @@ But little did she know, this was just the beginning of an extraordinary journey
     }
 
     // 调用故事生成API
-    async callStoryGenerationAPI(theme, keywords, difficulty, aiModel = 'Qwen/Qwen3-30B-A3B') {
+    async callStoryGenerationAPI(genre, theme, keywords, difficulty, aiModel = 'Qwen/Qwen3-30B-A3B') {
         const keywordsStr = keywords.join(', ');
         
-        const systemPrompt = `你是一个英语刊物主编，擅长根据给出的若干单词，生成吸引人的各种题材的英语外刊。请严格按照以下JSON格式返回：
+        // 根据题材定义角色和风格
+        const genreRoles = {
+            '外文刊物': '你是一个英语刊物主编，擅长根据给出的若干单词，生成吸引人的各种题材的英语外刊',
+            '生动故事': '你是一个创意故事作家，擅长根据给出的若干单词，创作引人入胜的英语故事',
+            '文献报告': '你是一个学术研究员，擅长根据给出的若干单词，撰写严谨的英语学术文献和研究报告',
+            '海外工作生活': '你是一个海外生活顾问，擅长根据给出的若干单词，编写实用的海外工作生活相关的英语文档'
+        };
+        
+        const genreContentType = {
+            '外文刊物': '外刊',
+            '生动故事': '故事',
+            '文献报告': '学术文献',
+            '海外工作生活': '实用文档'
+        };
+        
+        const roleDesc = genreRoles[genre] || genreRoles['外文刊物'];
+        const contentType = genreContentType[genre] || '外刊';
+        
+        const systemPrompt = `${roleDesc}。请严格按照以下JSON格式返回：
 
 {
-    "title": "外刊标题（英文）",
-    "story": "外刊正文（英文，500-800词）",
+    "title": "${contentType}标题（英文）",
+    "story": "${contentType}正文（英文）",
     "questions": [
         {
             "type": "choice",
@@ -5782,21 +6361,22 @@ But little did she know, this was just the beginning of an extraordinary journey
 - 填空题的question中必须用____（4个下划线）标记填空位置
 
 要求：
-1. 外刊必须自然地使用所有关键词
+1. ${contentType}必须自然地使用所有关键词
 2. 难度等级为 ${difficulty}
 3. 生成3-5个阅读理解题，其中至少1个填空题、1个选择题
 4. 题目要有一定难度，可以包含英语阅读题常用的同义替换、熟词生义等陷阱
 5. 填空题的答案应该是从文章提取的单个单词
 6. 确保JSON格式正确，可被解析`;
 
-        const userPrompt = `请根据以下信息生成一个英文外刊：
+        const userPrompt = `请根据以下信息生成一个英文${contentType}：
 
+题材：${genre}
 主题：${theme}
 关键词：${keywordsStr}
 难度等级：${difficulty}
-字数：500-800字
+词数：500-800单词
 
-请生成一个完整的外刊文章，并附带4-5个阅读理解题目。`;
+请生成一个完整的${contentType}内容，并附带4-5个阅读理解题目。`;
 
         const requestData = {
             model: aiModel,
@@ -6042,20 +6622,48 @@ But little did she know, this was just the beginning of an extraordinary journey
     }
     
     // 初始化文本选择功能
-    initTextSelection() {
-        const storyContent = document.getElementById('storyContent');
+    initTextSelection(containerIds = ['storyContent', 'questionsList', 'resultsDetails']) {
         const toolbar = document.getElementById('textSelectionToolbar');
         const translateBtn = document.getElementById('translateBtn');
         const highlightBtn = document.getElementById('highlightBtn');
         
-        if (!storyContent) return;
+        if (!toolbar) return;
         
-        // 移除旧的事件监听器（如果存在）
-        const oldMouseUpHandler = storyContent._textSelectionMouseUpHandler;
-        if (oldMouseUpHandler) {
-            storyContent.removeEventListener('mouseup', oldMouseUpHandler);
-        }
+        let selectedText = '';
+        let selectedRange = null;
         
+        // 为每个容器添加文本选择功能
+        containerIds.forEach(containerId => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // 移除旧的事件监听器（如果存在）
+            const oldMouseUpHandler = container._textSelectionMouseUpHandler;
+            if (oldMouseUpHandler) {
+                container.removeEventListener('mouseup', oldMouseUpHandler);
+            }
+            
+            // 监听文本选择
+            const mouseUpHandler = (e) => {
+                setTimeout(() => {
+                    const selection = window.getSelection();
+                    selectedText = selection.toString().trim();
+                    
+                    if (selectedText.length > 0) {
+                        selectedRange = selection.getRangeAt(0);
+                        
+                        // 显示工具栏
+                        this.showSelectionToolbar(e.pageX, e.pageY);
+                    } else {
+                        toolbar.classList.add('hidden');
+                    }
+                }, 10);
+            };
+            container.addEventListener('mouseup', mouseUpHandler);
+            container._textSelectionMouseUpHandler = mouseUpHandler;
+        });
+        
+        // 移除旧的按钮事件监听器
         const oldTranslateHandler = translateBtn._translateClickHandler;
         if (oldTranslateHandler) {
             translateBtn.removeEventListener('click', oldTranslateHandler);
@@ -6070,28 +6678,6 @@ But little did she know, this was just the beginning of an extraordinary journey
         if (oldDocClickHandler) {
             document.removeEventListener('click', oldDocClickHandler);
         }
-        
-        let selectedText = '';
-        let selectedRange = null;
-        
-        // 监听文本选择
-        const mouseUpHandler = (e) => {
-            setTimeout(() => {
-                const selection = window.getSelection();
-                selectedText = selection.toString().trim();
-                
-                if (selectedText.length > 0) {
-                    selectedRange = selection.getRangeAt(0);
-                    
-                    // 显示工具栏
-                    this.showSelectionToolbar(e.pageX, e.pageY);
-                } else {
-                    toolbar.classList.add('hidden');
-                }
-            }, 10);
-        };
-        storyContent.addEventListener('mouseup', mouseUpHandler);
-        storyContent._textSelectionMouseUpHandler = mouseUpHandler;
         
         // 翻译功能
         const translateHandler = () => {
@@ -6118,8 +6704,16 @@ But little did she know, this was just the beginning of an extraordinary journey
         
         // 点击其他地方隐藏工具栏
         const docClickHandler = (e) => {
-            if (!toolbar.contains(e.target) && !storyContent.contains(e.target)) {
-                toolbar.classList.add('hidden');
+            if (!toolbar.contains(e.target)) {
+                // 检查是否点击在任何容器内
+                const clickedInContainer = containerIds.some(id => {
+                    const container = document.getElementById(id);
+                    return container && container.contains(e.target);
+                });
+                
+                if (!clickedInContainer) {
+                    toolbar.classList.add('hidden');
+                }
             }
         };
         document.addEventListener('click', docClickHandler);
@@ -6196,9 +6790,64 @@ But little did she know, this was just the beginning of an extraordinary journey
         // 渲染题目
         this.renderQuestions();
 
-        // 隐藏故事，显示题目
-        document.getElementById('aiStoryDisplay').classList.add('hidden');
-        document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+        // 检查是否在双页展示模式
+        const isDualView = document.body.classList.contains('dual-view-mode');
+        
+        if (!isDualView) {
+            // 普通模式：隐藏故事，显示题目
+            document.getElementById('aiStoryDisplay').classList.add('hidden');
+            document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+        } else {
+            // 双页模式：两者都显示
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+            document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+        }
+    }
+    
+    // 切换双页展示模式
+    toggleDualView() {
+        const isDualView = document.body.classList.contains('dual-view-mode');
+        const toggleBtn = document.getElementById('toggleDualViewBtn');
+        
+        // 检测设备宽度，移动端禁用
+        if (window.innerWidth < 1024) {
+            alert('双页展示功能需要更大的屏幕空间，请在PC端使用');
+            return;
+        }
+        
+        if (!isDualView) {
+            // 检查是否有题目
+            if (!this.currentStory || !this.currentStory.questions || this.currentStory.questions.length === 0) {
+                alert('请先生成题目后再使用双页展示');
+                return;
+            }
+            
+            // 开启双页展示
+            document.body.classList.add('dual-view-mode');
+            toggleBtn.classList.add('active');
+            toggleBtn.querySelector('span').textContent = '退出双页';
+            
+            // 渲染题目（如果还没渲染）
+            this.renderQuestions();
+            
+            // 确保两个区域都显示
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+            document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+            
+            // 隐藏表单区域
+            document.getElementById('aiStoryForm').classList.add('hidden');
+            document.getElementById('aiResultsDisplay').classList.add('hidden');
+            
+        } else {
+            // 退出双页展示
+            document.body.classList.remove('dual-view-mode');
+            toggleBtn.classList.remove('active');
+            toggleBtn.querySelector('span').textContent = '双页展示';
+            
+            // 恢复到普通模式，只显示故事
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+            document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        }
     }
 
     // 渲染题目
@@ -6281,6 +6930,11 @@ But little did she know, this was just the beginning of an extraordinary journey
 
             questionsList.appendChild(questionDiv);
         });
+        
+        // 初始化文本选择功能（包括题目区域）
+        setTimeout(() => {
+            this.initTextSelection(['storyContent', 'questionsList', 'resultsDetails']);
+        }, 100);
     }
 
     // 返回故事（保存当前答案）
@@ -6288,8 +6942,14 @@ But little did she know, this was just the beginning of an extraordinary journey
         // 保存当前答案
         this.saveCurrentAnswers();
         
-        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
-        document.getElementById('aiStoryDisplay').classList.remove('hidden');
+        const isDualView = document.body.classList.contains('dual-view-mode');
+        
+        if (!isDualView) {
+            // 普通模式：隐藏题目，显示故事
+            document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+        }
+        // 双页模式：不做操作，保持两者都显示
     }
     
     // 保存当前答案
@@ -6422,18 +7082,42 @@ But little did she know, this was just the beginning of an extraordinary journey
             resultsDetails.appendChild(resultItem);
         });
 
-        // 隐藏题目，显示结果
-        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
-        document.getElementById('aiResultsDisplay').classList.remove('hidden');
+        // 初始化文本选择功能（包括结果区域）
+        setTimeout(() => {
+            this.initTextSelection(['storyContent', 'questionsList', 'resultsDetails']);
+        }, 100);
+
+        // 检查是否在双页模式
+        const isDualView = document.body.classList.contains('dual-view-mode');
         
-        // 滚动到顶部
-        document.querySelector('.main-content').scrollTop = 0;
+        if (isDualView) {
+            // 双页模式：题目区域变为结果区域
+            document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+            document.getElementById('aiResultsDisplay').classList.remove('hidden');
+            // 保持故事区域显示
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+        } else {
+            // 普通模式：隐藏题目和故事，只显示结果
+            document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+            document.getElementById('aiStoryDisplay').classList.add('hidden');
+            document.getElementById('aiResultsDisplay').classList.remove('hidden');
+            
+            // 滚动到顶部
+            document.querySelector('.main-content').scrollTop = 0;
+        }
     }
 
     // 查看解析（返回题目页面并标注）
     reviewQuestions() {
+        const isDualView = document.body.classList.contains('dual-view-mode');
+        
         document.getElementById('aiResultsDisplay').classList.add('hidden');
         document.getElementById('aiQuestionsDisplay').classList.remove('hidden');
+        
+        if (isDualView) {
+            // 双页模式：保持故事区域显示
+            document.getElementById('aiStoryDisplay').classList.remove('hidden');
+        }
 
         // 标注正确/错误答案
         setTimeout(() => {
@@ -6469,6 +7153,9 @@ But little did she know, this was just the beginning of an extraordinary journey
                     }
                 }
             });
+            
+            // 重新初始化文本选择功能
+            this.initTextSelection(['storyContent', 'questionsList', 'resultsDetails']);
         }, 100);
         
         // 滚动到顶部
@@ -6477,6 +7164,11 @@ But little did she know, this was just the beginning of an extraordinary journey
 
     // 生成新故事
     newStory() {
+        // 退出双页模式（如果正在使用）
+        if (document.body.classList.contains('dual-view-mode')) {
+            this.toggleDualView();
+        }
+
         // 重置状态
         this.currentStory = null;
         this.currentQuestions = [];
@@ -6497,6 +7189,11 @@ But little did she know, this was just the beginning of an extraordinary journey
         const confirmed = confirm('确定要结束考试吗？当前进度将不会保存。');
         
         if (!confirmed) return;
+
+        // 退出双页模式（如果正在使用）
+        if (document.body.classList.contains('dual-view-mode')) {
+            this.toggleDualView();
+        }
 
         // 重置所有状态
         this.currentStory = null;
