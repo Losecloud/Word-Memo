@@ -3141,6 +3141,43 @@ body {
     margin: 0;
 }
 
+/* 双页模式：调整header布局 */
+.dual-view-mode .header {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(8px);
+}
+
+.dual-view-mode .header-container {
+    padding: 0 var(--spacing-xl);
+    justify-content: space-between;
+    max-width: 100%;
+}
+
+.dual-view-mode .header-center {
+    display: none;
+}
+
+.dual-view-mode .logo {
+    margin-right: auto;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.dual-view-mode .logo-icon {
+    width: 32px;
+    height: 32px;
+}
+
+.dual-view-mode .header-actions {
+    margin-left: auto;
+    gap: var(--spacing-md);
+}
+
+.dual-view-mode .btn-icon {
+    width: 40px;
+    height: 40px;
+}
+
 .dual-view-mode .sidebar,
 .dual-view-mode .stats-panel {
     display: none !important;
@@ -5457,7 +5494,8 @@ body {
     z-index: 10000;
     border: 1px solid var(--border-color);
     animation: popIn 0.2s ease-out;
-    max-width: 400px;
+    max-width: min(800px, 80vw);
+    max-height: 70vh;
 }
 
 .toolbar-buttons {
@@ -5516,7 +5554,9 @@ body {
     background: var(--background);
     border-radius: var(--radius-md);
     min-width: 250px;
-    max-width: 350px;
+    max-width: 100%;
+    overflow-y: auto;
+    max-height: calc(70vh - 60px);
 }
 
 .translation-header {
@@ -5563,6 +5603,8 @@ body {
     color: var(--text-secondary);
     line-height: 1.5;
     font-style: italic;
+    word-wrap: break-word;
+    word-break: break-word;
 }
 
 .translation-divider {
@@ -5576,6 +5618,9 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 40px;
+    word-wrap: break-word;
+    word-break: break-word;
+    white-space: pre-wrap;
 }
 
 .translation-loading {
@@ -5596,6 +5641,25 @@ body {
     50% {
         opacity: 0.5;
     }
+}
+
+/* 翻译结果滚动条美化 */
+.toolbar-translation-result::-webkit-scrollbar {
+    width: 6px;
+}
+
+.toolbar-translation-result::-webkit-scrollbar-track {
+    background: var(--background);
+    border-radius: var(--radius-sm);
+}
+
+.toolbar-translation-result::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.toolbar-translation-result::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
 }
 
 /* ============================================
@@ -5868,7 +5932,8 @@ body {
     /* 翻译结果移动端优化 */
     .toolbar-translation-result {
         min-width: 200px;
-        max-width: 85vw;
+        max-width: 100%;
+        max-height: calc(60vh - 40px);
     }
     
     .translation-original {
@@ -5877,6 +5942,11 @@ body {
     
     .translation-text {
         font-size: 0.9rem;
+    }
+    
+    .text-selection-toolbar {
+        max-width: 95vw;
+        max-height: 60vh;
     }
     
     /* 关键词工具栏移动端优化 */

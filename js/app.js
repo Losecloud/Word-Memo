@@ -5317,20 +5317,6 @@ class WordMemoryApp {
         startBtn.disabled = this.synonymData.length === 0;
     }
     
-    // 格式化日期
-    formatDate(dateStr) {
-        const date = new Date(dateStr);
-        const now = new Date();
-        const diff = now - date;
-        
-        if (diff < 60000) return '刚刚';
-        if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-        if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
-        if (diff < 604800000) return Math.floor(diff / 86400000) + '天前';
-        
-        return date.toLocaleDateString('zh-CN');
-    }
-    
     // 解析Excel文件
     async parseSynonymExcel(file) {
         return new Promise((resolve, reject) => {
@@ -7768,8 +7754,18 @@ But little did she know, this was just the beginning of an extraordinary journey
         });
     }
 
-    // 格式化日期
+    // 格式化日期（支持字符串和Date对象）
     formatDate(date) {
+        // 如果是字符串，转换为Date对象
+        if (typeof date === 'string') {
+            date = new Date(date);
+        }
+        
+        // 如果不是有效的Date对象，返回默认值
+        if (!(date instanceof Date) || isNaN(date)) {
+            return '未知时间';
+        }
+        
         const now = new Date();
         const diffTime = now - date;
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
