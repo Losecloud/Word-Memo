@@ -81,6 +81,7 @@ class WordMemoryApp {
         this.initEventListeners();
         this.loadCEFRData(); // 加载CEFR数据
         this.migrateOldData(); // 迁移旧数据
+        this.fixHistoryData(); // 修复历史统计数据
         this.loadBooks(); // 加载词书列表
         this.updateStats();
         this.checkReview();
@@ -582,6 +583,53 @@ class WordMemoryApp {
         document.getElementById('wrongAnswerExample').addEventListener('click', () => {
             this.replayExample();
         });
+
+        // 缓存设置相关事件
+        document.getElementById('exportTodayStatsBtn').addEventListener('click', () => {
+            this.exportTodayStats();
+        });
+
+        document.getElementById('exportAllStatsBtn').addEventListener('click', () => {
+            this.exportAllStats();
+        });
+
+        document.getElementById('importStatsBtn').addEventListener('click', () => {
+            document.getElementById('importStatsFile').click();
+        });
+
+        document.getElementById('importStatsFile').addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                this.importStats(e.target.files[0]);
+                e.target.value = ''; // 重置以允许导入相同文件
+            }
+        });
+
+        document.getElementById('clearStatsHistoryBtn').addEventListener('click', () => {
+            this.clearStatsHistory();
+        });
+
+        document.getElementById('autoSaveStats').addEventListener('change', (e) => {
+            this.toggleAutoSaveStats(e.target.checked);
+        });
+
+        // 历史统计图表相关事件
+        document.getElementById('openStatsChartBtn').addEventListener('click', () => {
+            this.openStatsChart();
+        });
+
+        document.getElementById('closeStatsChartBtn').addEventListener('click', () => {
+            this.closeStatsChart();
+        });
+
+        // 时间范围切换
+        document.querySelectorAll('.time-range-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const range = parseInt(btn.dataset.range);
+                this.updateCharts(range);
+            });
+        });
     }
 
     // 处理文件上传
@@ -807,6 +855,15 @@ class WordMemoryApp {
     // 生成选项
     generateOptions(word) {
         const container = document.getElementById('optionsContainer');
+        
+        // 清除所有旧按钮的focus状态和样式类（iOS修复）
+        const oldButtons = container.querySelectorAll('.option-btn');
+        oldButtons.forEach(btn => {
+            btn.blur(); // 移除focus状态
+            btn.classList.remove('correct', 'correct-unknown', 'wrong', 'selected');
+            btn.disabled = false;
+        });
+        
         container.innerHTML = '';
 
         const correctAnswer = word.definitions[0].meaning;
@@ -1601,6 +1658,16 @@ class WordMemoryApp {
         if (this.autoNextTimer) {
             clearTimeout(this.autoNextTimer);
             this.autoNextTimer = null;
+        }
+        
+        // 清除当前所有按钮的focus状态（iOS修复）
+        document.querySelectorAll('.option-btn').forEach(btn => {
+            btn.blur();
+        });
+        
+        // 移除任何活动元素的focus
+        if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
         }
 
         // 保存当前单词信息作为上一题记录（使用首次答题结果）
@@ -2873,6 +2940,9 @@ class WordMemoryApp {
         // 加载AI API密钥
         document.getElementById('aiApiKey').value = this.settings.aiApiKey || '';
 
+        // 加载自动保存统计数据设置
+        document.getElementById('autoSaveStats').checked = this.settings.autoSaveStats !== false; // 默认开启
+
         // 填充声优列表
         this.populateVoiceList();
 
@@ -3015,6 +3085,11 @@ class WordMemoryApp {
             case 'ai':
                 contentId = 'aiSettings';
                 break;
+            case 'cache':
+                contentId = 'cacheSettings';
+                // 加载缓存设置数据
+                this.loadCacheSettings();
+                break;
             case 'other':
                 contentId = 'otherSettings';
                 break;
@@ -3054,6 +3129,7 @@ class WordMemoryApp {
             animationLevel: document.getElementById('animationLevel').value,
             autoNext: document.getElementById('autoNext').checked,
             autoNextTime: parseFloat(document.getElementById('autoNextTime').value),
+            autoSaveStats: document.getElementById('autoSaveStats').checked, // 保存自动缓存设置
             aiApiKey: document.getElementById('aiApiKey').value.trim() || '', // 保存AI API密钥
             hotkeys: {
                 option1: document.getElementById('hotkey1').value,
@@ -3515,6 +3591,16 @@ class WordMemoryApp {
         if (updated) {
             Storage.saveBooks(books);
             console.log('✨ 已为旧词书添加默认图标和轮数');
+        }
+    }
+
+    // 修复历史统计数据（修复掌握率计算错误）
+    fixHistoryData() {
+        const fixed = Storage.fixHistoryMastery();
+        if (fixed) {
+            console.log('✅ 已修复历史数据中的掌握率计算');
+            // 重新更新今日统计显示
+            this.updateStats();
         }
     }
 
@@ -4062,43 +4148,113 @@ class WordMemoryApp {
         // 转义HTML
         const escapedExample = this.escapeHtml(example);
         
-        // 获取目标单词的词干
-        const targetStem = this.getWordStem(word.toLowerCase());
-        
         // 根据类型选择样式类
         const highlightClass = type === 'unknown' ? 'word-highlight-unknown' : 'word-list-highlight';
         
-        // 使用正则表达式分词，保留标点和空格
-        const tokens = escapedExample.split(/(\b[\w']+\b)/g);
+        // 检测是否为词组（包含空格）
+        const isPhrase = word.includes(' ');
         
-        // 遍历所有token，高亮匹配的单词
-        const result = tokens.map(token => {
-            // 跳过非单词token（空格、标点等）
-            if (!/\b[\w']+\b/.test(token)) return token;
+        if (isPhrase) {
+            // 处理词组的情况
+            let result = escapedExample;
             
-            const tokenLower = token.toLowerCase();
-            const tokenStem = this.getWordStem(tokenLower);
+            // 处理包含括号的可选部分，如 "know better (than)"
+            // 生成多个可能的匹配模式
+            const phraseVariants = this.generatePhraseVariants(word);
             
-            // 1. 精确匹配
-            if (tokenLower === word.toLowerCase()) {
-                return `<strong class="${highlightClass}">${token}</strong>`;
+            // 尝试匹配每个变体（从最长到最短，避免短的先匹配导致长的无法匹配）
+            phraseVariants.sort((a, b) => b.length - a.length);
+            
+            for (const variant of phraseVariants) {
+                // 使用单词边界进行匹配，支持大小写不敏感
+                const regex = new RegExp(`\\b${this.escapeRegex(variant)}\\b`, 'gi');
+                
+                // 检查是否有匹配
+                if (regex.test(result)) {
+                    // 重置 regex（因为 test 会改变 lastIndex）
+                    regex.lastIndex = 0;
+                    
+                    // 替换匹配的词组
+                    result = result.replace(regex, (match) => {
+                        return `<strong class="${highlightClass}">${match}</strong>`;
+                    });
+                    
+                    // 找到匹配后就停止，避免重复高亮
+                    break;
+                }
             }
             
-            // 2. 词干匹配（处理词形变化）
-            if (tokenStem === targetStem && targetStem.length >= 3) {
-                return `<strong class="${highlightClass}">${token}</strong>`;
-            }
+            return result;
+        } else {
+            // 单个单词的情况（保持原有逻辑）
+            // 获取目标单词的词干
+            const targetStem = this.getWordStem(word.toLowerCase());
             
-            // 3. 相似度匹配（>85%）- 防止误判，提高阈值
-            const similarity = this.calculateSimilarity(word.toLowerCase(), tokenLower);
-            if (similarity > 0.85 && tokenLower.length >= 3) {
-                return `<strong class="${highlightClass}">${token}</strong>`;
-            }
+            // 使用正则表达式分词，保留标点和空格
+            const tokens = escapedExample.split(/(\b[\w']+\b)/g);
             
-            return token;
-        });
+            // 遍历所有token，高亮匹配的单词
+            const result = tokens.map(token => {
+                // 跳过非单词token（空格、标点等）
+                if (!/\b[\w']+\b/.test(token)) return token;
+                
+                const tokenLower = token.toLowerCase();
+                const tokenStem = this.getWordStem(tokenLower);
+                
+                // 1. 精确匹配
+                if (tokenLower === word.toLowerCase()) {
+                    return `<strong class="${highlightClass}">${token}</strong>`;
+                }
+                
+                // 2. 词干匹配（处理词形变化）
+                if (tokenStem === targetStem && targetStem.length >= 3) {
+                    return `<strong class="${highlightClass}">${token}</strong>`;
+                }
+                
+                // 3. 相似度匹配（>85%）- 防止误判，提高阈值
+                const similarity = this.calculateSimilarity(word.toLowerCase(), tokenLower);
+                if (similarity > 0.85 && tokenLower.length >= 3) {
+                    return `<strong class="${highlightClass}">${token}</strong>`;
+                }
+                
+                return token;
+            });
+            
+            return result.join('');
+        }
+    }
+    
+    // 生成词组的变体（处理括号中的可选部分）
+    generatePhraseVariants(phrase) {
+        const variants = [];
         
-        return result.join('');
+        // 检查是否包含括号
+        const bracketRegex = /\s*\([^)]*\)\s*/g;
+        
+        if (bracketRegex.test(phrase)) {
+            // 包含括号的情况
+            // 1. 完整版本（去掉括号但保留内容）
+            const fullVersion = phrase.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+            variants.push(fullVersion);
+            
+            // 2. 不包含括号内容的版本
+            const withoutBrackets = phrase.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+            variants.push(withoutBrackets);
+            
+            // 3. 原始版本（保留括号）
+            variants.push(phrase.trim());
+        } else {
+            // 不包含括号，直接使用原词组
+            variants.push(phrase.trim());
+        }
+        
+        // 去重
+        return [...new Set(variants)];
+    }
+    
+    // 转义正则表达式特殊字符
+    escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     // HTML转义函数
@@ -4756,8 +4912,26 @@ class WordMemoryApp {
     closeAiWorkshop() {
         this.showScreen('welcomeScreen');
         
+        // 清除缓存的故事和题目数据
+        this.currentStory = null;
+        this.currentQuestions = [];
+        this.userAnswers = {};
+        
+        // 重置阅读联想记忆的UI状态
+        document.getElementById('aiStoryForm').classList.remove('hidden');
+        document.getElementById('aiStoryDisplay').classList.add('hidden');
+        document.getElementById('aiQuestionsDisplay').classList.add('hidden');
+        document.getElementById('aiResultsDisplay').classList.add('hidden');
+        
+        // 退出双页模式（如果正在使用）
+        if (document.body.classList.contains('dual-view-mode')) {
+            this.toggleDualView();
+        }
+        
         // 重置工坊状态
         this.showWorkshopHome();
+        
+        console.log('✅ AI工坊已关闭，缓存已清除');
     }
     
     // 显示工坊主页
@@ -6535,6 +6709,9 @@ But little did she know, this was just the beginning of an extraordinary journey
         
         // 初始化文本选择功能
         this.initTextSelection();
+        
+        // 初始化关键词点击功能
+        this.initKeywordHighlightClick();
     }
     
     // 渲染单词列表
@@ -6642,6 +6819,246 @@ But little did she know, this was just the beginning of an extraordinary journey
         });
     }
     
+    // 初始化关键词高亮点击功能
+    initKeywordHighlightClick() {
+        const storyContent = document.getElementById('storyContent');
+        if (!storyContent) return;
+        
+        // 获取所有的 keyword-highlight 元素
+        const keywordElements = storyContent.querySelectorAll('.keyword-highlight');
+        
+        keywordElements.forEach(element => {
+            element.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const word = element.textContent.trim();
+                this.showKeywordToolbar(element, word);
+            });
+        });
+        
+        // 点击其他地方隐藏toolbar
+        document.addEventListener('click', (e) => {
+            const toolbar = document.getElementById('keywordHighlightToolbar');
+            if (toolbar && !toolbar.contains(e.target) && !e.target.classList.contains('keyword-highlight')) {
+                toolbar.classList.add('hidden');
+            }
+        });
+    }
+    
+    // 显示关键词工具栏
+    showKeywordToolbar(element, word) {
+        const toolbar = document.getElementById('keywordHighlightToolbar');
+        if (!toolbar) return;
+        
+        // 获取单词信息
+        const wordInfo = this.getWordInfo(word);
+        
+        // 更新toolbar内容
+        document.getElementById('keywordToolbarWord').textContent = word;
+        document.getElementById('keywordToolbarPhonetic').textContent = wordInfo.phonetic || '';
+        document.getElementById('keywordToolbarMeaning').textContent = wordInfo.meaning || '暂无释义';
+        
+        // 设置toolbar位置（在元素右上角附近）
+        const rect = element.getBoundingClientRect();
+        const toolbarWidth = 300; // 预估toolbar宽度
+        const toolbarHeight = 100; // 预估toolbar高度
+        
+        // 计算位置：优先在元素右上方，如果空间不够则调整
+        let left = rect.right + 10;
+        let top = rect.top - toolbarHeight / 2;
+        
+        // 边界检查
+        if (left + toolbarWidth > window.innerWidth) {
+            // 如果右边空间不够，显示在左边
+            left = rect.left - toolbarWidth - 10;
+        }
+        
+        if (left < 0) {
+            // 如果左边也不够，显示在元素上方居中
+            left = rect.left + (rect.width / 2) - (toolbarWidth / 2);
+            top = rect.top - toolbarHeight - 10;
+        }
+        
+        if (top < 0) {
+            // 如果上方空间不够，显示在下方
+            top = rect.bottom + 10;
+        }
+        
+        toolbar.style.left = `${left}px`;
+        toolbar.style.top = `${top}px`;
+        
+        // 显示toolbar
+        toolbar.classList.remove('hidden');
+        
+        // 播放发音（随机美式/英式）
+        const accents = ['en-US', 'en-GB'];
+        const randomAccent = accents[Math.floor(Math.random() * accents.length)];
+        this.speakWithAccent(word, randomAccent);
+        
+        // 绑定发音按钮点击事件
+        const soundBtn = document.getElementById('keywordToolbarSoundBtn');
+        const newSoundBtn = soundBtn.cloneNode(true); // 克隆节点以移除旧的事件监听器
+        soundBtn.parentNode.replaceChild(newSoundBtn, soundBtn);
+        
+        newSoundBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // 再次随机播放发音
+            const randomAccent = accents[Math.floor(Math.random() * accents.length)];
+            this.speakWithAccent(word, randomAccent);
+        });
+    }
+    
+    // 获取单词信息（音标和释义）
+    getWordInfo(word) {
+        // 获取所有词书的单词数据
+        let allWords = [];
+        this.books.forEach(book => {
+            if (book.words) {
+                allWords = allWords.concat(book.words);
+            }
+        });
+        
+        // 在所有词书中查找单词信息
+        let wordData = allWords.find(w => w.word.toLowerCase() === word.toLowerCase());
+        
+        // 如果没找到，尝试从 DictionaryAPI 获取
+        if (!wordData && typeof DictionaryAPI !== 'undefined') {
+            const fallbackData = DictionaryAPI.fallbackData[word.toLowerCase()];
+            if (fallbackData) {
+                const firstDef = fallbackData.definitions[0];
+                wordData = {
+                    word: word,
+                    phonetic: fallbackData.phonetic,
+                    definitions: [firstDef]
+                };
+            }
+        }
+        
+        // 从definitions中获取释义
+        let phonetic = '';
+        let meaning = '';
+        let pos = '';
+        
+        if (wordData) {
+            phonetic = wordData.phonetic || '';
+            const def = wordData.definitions && wordData.definitions[0] ? wordData.definitions[0] : {};
+            meaning = def.meaning || '';
+            pos = def.pos || '';
+            
+            // 组合词性和释义
+            if (pos && meaning) {
+                meaning = `${pos} ${meaning}`;
+            }
+        }
+        
+        return {
+            phonetic: phonetic,
+            meaning: meaning
+        };
+    }
+    
+    // 使用指定口音播放发音
+    speakWithAccent(word, accent) {
+        if (!word) return;
+        
+        try {
+            // 清除之前的定时器
+            if (this.speakTimeout) {
+                clearTimeout(this.speakTimeout);
+                this.speakTimeout = null;
+            }
+            
+            // 取消正在播放的语音
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+            
+            // 延迟播放，避免快速切换导致的中断
+            this.speakTimeout = setTimeout(() => {
+                try {
+                    if (speechSynthesis.speaking) {
+                        speechSynthesis.cancel();
+                    }
+                    
+                    const utterance = new SpeechSynthesisUtterance(word);
+                    utterance.lang = accent;
+                    utterance.rate = this.settings.voiceRate || 1.0;
+                    utterance.pitch = 1.0;
+                    utterance.volume = 1.0;
+                    
+                    // 如果用户选择了特定声优
+                    if (this.settings.voiceModel) {
+                        const voices = speechSynthesis.getVoices();
+                        const selectedVoice = voices.find(v => v.name === this.settings.voiceModel);
+                        if (selectedVoice) {
+                            utterance.voice = selectedVoice;
+                        }
+                    }
+                    
+                    speechSynthesis.speak(utterance);
+                    
+                    console.log(`🔊 播放发音: ${word} (${accent})`);
+                } catch (innerError) {
+                    console.error('发音失败:', innerError);
+                }
+            }, 50);
+        } catch (error) {
+            console.error('发音失败:', error);
+        }
+    }
+    
+    // AI翻译方法
+    async translateText(text) {
+        // 检查用户是否配置了API密钥
+        const apiKey = this.settings.aiApiKey || '';
+        if (!apiKey) {
+            throw new Error('请先在设置中配置AI API密钥');
+        }
+        
+        console.log('🌐 开始翻译:', text);
+        
+        // 使用轻量级模型进行快速翻译
+        const requestData = {
+            model: 'Qwen/Qwen2.5-7B-Instruct',  // 使用快速的小模型
+            messages: [
+                {
+                    role: 'system',
+                    content: '你是一个专业的英译中翻译助手。请将用户提供的英文文本翻译成简洁准确的中文，只返回翻译结果，不要添加任何解释或额外内容。'
+                },
+                {
+                    role: 'user',
+                    content: text
+                }
+            ],
+            temperature: 0.3,
+            max_tokens: 500
+        };
+        
+        try {
+            const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error?.message || `API请求失败: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const translation = data.choices[0].message.content.trim();
+            
+            console.log('✅ 翻译完成:', translation);
+            return translation;
+        } catch (error) {
+            console.error('❌ 翻译失败:', error);
+            throw error;
+        }
+    }
+    
     // 初始化文本选择功能
     initTextSelection(containerIds = ['storyContent', 'questionsList', 'resultsDetails']) {
         const toolbar = document.getElementById('textSelectionToolbar');
@@ -6701,16 +7118,54 @@ But little did she know, this was just the beginning of an extraordinary journey
         }
         
         // 翻译功能
-        const translateHandler = () => {
+        const translateHandler = async () => {
             if (selectedText) {
-                // 使用Google翻译
-                const translateUrl = `https://translate.google.com/?sl=en&tl=zh-CN&text=${encodeURIComponent(selectedText)}&op=translate`;
-                window.open(translateUrl, '_blank');
+                // 显示翻译结果区域
+                const translationResult = document.getElementById('toolbarTranslationResult');
+                const translationOriginal = document.getElementById('translationOriginal');
+                const translationText = document.getElementById('translationText');
+                const toolbarButtons = document.getElementById('toolbarButtons');
+                
+                // 隐藏按钮，显示翻译区域
+                toolbarButtons.classList.add('hidden');
+                translationResult.classList.remove('hidden');
+                
+                // 设置原文
+                translationOriginal.textContent = selectedText;
+                
+                // 显示加载状态
+                translationText.innerHTML = '<span class="translation-loading">翻译中...</span>';
+                
+                try {
+                    // 调用AI翻译
+                    const translation = await this.translateText(selectedText);
+                    translationText.textContent = translation;
+                } catch (error) {
+                    console.error('翻译失败:', error);
+                    translationText.innerHTML = `<span class="translation-error">翻译失败: ${error.message}</span>`;
+                }
             }
-            toolbar.classList.add('hidden');
         };
         translateBtn.addEventListener('click', translateHandler);
         translateBtn._translateClickHandler = translateHandler;
+        
+        // 翻译结果关闭按钮
+        const translationCloseBtn = document.getElementById('translationCloseBtn');
+        const oldTranslationCloseHandler = translationCloseBtn._translationCloseClickHandler;
+        if (oldTranslationCloseHandler) {
+            translationCloseBtn.removeEventListener('click', oldTranslationCloseHandler);
+        }
+        
+        const translationCloseHandler = () => {
+            const translationResult = document.getElementById('toolbarTranslationResult');
+            const toolbarButtons = document.getElementById('toolbarButtons');
+            
+            // 隐藏翻译区域，显示按钮
+            translationResult.classList.add('hidden');
+            toolbarButtons.classList.remove('hidden');
+        };
+        translationCloseBtn.addEventListener('click', translationCloseHandler);
+        translationCloseBtn._translationCloseClickHandler = translationCloseHandler;
         
         // 高亮功能
         const highlightHandler = () => {
@@ -6734,6 +7189,13 @@ But little did she know, this was just the beginning of an extraordinary journey
                 
                 if (!clickedInContainer) {
                     toolbar.classList.add('hidden');
+                    // 重置翻译区域
+                    const translationResult = document.getElementById('toolbarTranslationResult');
+                    const toolbarButtons = document.getElementById('toolbarButtons');
+                    if (translationResult && !translationResult.classList.contains('hidden')) {
+                        translationResult.classList.add('hidden');
+                        toolbarButtons.classList.remove('hidden');
+                    }
                 }
             }
         };
@@ -6744,6 +7206,14 @@ But little did she know, this was just the beginning of an extraordinary journey
     // 显示选择工具栏
     showSelectionToolbar(x, y) {
         const toolbar = document.getElementById('textSelectionToolbar');
+        
+        // 重置翻译区域状态（隐藏翻译结果，显示按钮）
+        const translationResult = document.getElementById('toolbarTranslationResult');
+        const toolbarButtons = document.getElementById('toolbarButtons');
+        if (translationResult && toolbarButtons) {
+            translationResult.classList.add('hidden');
+            toolbarButtons.classList.remove('hidden');
+        }
         
         // 显示工具栏
         toolbar.classList.remove('hidden');
@@ -7231,6 +7701,399 @@ But little did she know, this was just the beginning of an extraordinary journey
         document.querySelector('.main-content').scrollTop = 0;
 
         console.log('✅ 已退出考试，返回AI工坊首页');
+    }
+
+    // ============================================
+    // 缓存设置相关方法
+    // ============================================
+
+    // 加载缓存设置页面
+    loadCacheSettings() {
+        const stats = Storage.loadStats();
+        
+        // 显示今日统计数据
+        const totalMinutes = stats.time || 0;
+        const minutes = Math.floor(totalMinutes);
+        const seconds = Math.round((totalMinutes - minutes) * 60);
+        const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        document.getElementById('cacheTodayTime').textContent = timeStr;
+        document.getElementById('cacheTodayWords').textContent = stats.words || 0;
+        document.getElementById('cacheTodayMastery').textContent = `${stats.mastery || 0}%`;
+        
+        // 显示历史统计记录
+        this.loadStatsHistory();
+    }
+
+    // 加载历史统计记录
+    loadStatsHistory() {
+        const history = Storage.getRecentStats(30); // 最近30天
+        const listContainer = document.getElementById('statsHistoryList');
+        
+        if (history.length === 0) {
+            listContainer.innerHTML = '<div class="stats-history-empty">暂无历史记录</div>';
+            return;
+        }
+        
+        listContainer.innerHTML = '';
+        history.forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'stats-history-item';
+            
+            // 格式化日期
+            const date = new Date(item.date);
+            const isToday = item.date === new Date().toDateString();
+            const dateStr = isToday ? '今天' : this.formatDate(date);
+            
+            // 格式化时间
+            const totalMinutes = item.time || 0;
+            const minutes = Math.floor(totalMinutes);
+            const timeStr = `${minutes}分钟`;
+            
+            itemDiv.innerHTML = `
+                <div>
+                    <div class="stats-history-date">${dateStr}</div>
+                    <div class="stats-history-data">
+                        <span>⏱️ ${timeStr}</span>
+                        <span>📖 ${item.words}词</span>
+                        <span>✅ ${item.mastery}%</span>
+                    </div>
+                </div>
+                <div class="stats-history-actions">
+                    ${!isToday ? `<button class="btn-history-action" onclick="app.deleteStatsHistoryItem('${item.date}')">删除</button>` : ''}
+                </div>
+            `;
+            
+            listContainer.appendChild(itemDiv);
+        });
+    }
+
+    // 格式化日期
+    formatDate(date) {
+        const now = new Date();
+        const diffTime = now - date;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 0) {
+            return '今天';
+        } else if (diffDays === 1) {
+            return '昨天';
+        } else if (diffDays < 7) {
+            return `${diffDays}天前`;
+        } else {
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            return `${month}月${day}日`;
+        }
+    }
+
+    // 导出今日统计数据
+    exportTodayStats() {
+        const jsonData = Storage.exportStatsAsJSON(false); // 只导出今日数据
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().split('T')[0];
+        a.href = url;
+        a.download = `词忆-今日统计-${today}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        console.log('✅ 今日统计数据已导出');
+    }
+
+    // 导出所有历史统计数据
+    exportAllStats() {
+        const jsonData = Storage.exportStatsAsJSON(true); // 包含所有历史
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().split('T')[0];
+        a.href = url;
+        a.download = `词忆-统计数据-${today}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        console.log('✅ 所有统计数据已导出');
+    }
+
+    // 导入统计数据
+    async importStats(file) {
+        try {
+            const text = await file.text();
+            const result = Storage.importStatsFromJSON(text);
+            
+            if (result.success) {
+                alert('✅ 数据导入成功！');
+                // 刷新显示
+                this.loadCacheSettings();
+                this.updateStats();
+            } else {
+                alert(`❌ 导入失败：${result.message}`);
+            }
+        } catch (e) {
+            console.error('导入统计数据失败:', e);
+            alert('❌ 导入失败，请检查文件格式');
+        }
+    }
+
+    // 删除历史统计记录项
+    deleteStatsHistoryItem(date) {
+        if (confirm(`确定要删除 ${this.formatDate(new Date(date))} 的统计数据吗？`)) {
+            Storage.deleteStatsHistoryItem(date);
+            this.loadStatsHistory();
+            console.log(`✅ 已删除 ${date} 的统计数据`);
+        }
+    }
+
+    // 清空历史统计数据
+    clearStatsHistory() {
+        if (confirm('⚠️ 确定要清空所有历史统计数据吗？\n\n此操作将删除所有历史记录（不包括今日数据），且不可恢复！')) {
+            if (confirm('请再次确认：真的要清空所有历史数据吗？')) {
+                Storage.clearStatsHistory();
+                this.loadStatsHistory();
+                alert('✅ 历史统计数据已清空');
+                console.log('✅ 历史统计数据已清空');
+            }
+        }
+    }
+
+    // 切换自动保存统计数据
+    toggleAutoSaveStats(enabled) {
+        this.settings.autoSaveStats = enabled;
+        Storage.saveSettings(this.settings);
+        console.log(`✅ 自动保存统计数据已${enabled ? '开启' : '关闭'}`);
+    }
+
+    // ============================================
+    // 历史统计图表相关方法
+    // ============================================
+
+    // 打开历史统计图表页面
+    openStatsChart() {
+        // 隐藏其他页面
+        document.querySelectorAll('.main-content > div').forEach(div => {
+            if (!div.classList.contains('loading-overlay')) {
+                div.classList.add('hidden');
+            }
+        });
+
+        // 显示图表页面
+        document.getElementById('statsChartScreen').classList.remove('hidden');
+
+        // 默认显示最近7天数据
+        this.currentChartRange = 7;
+        this.updateCharts(7);
+
+        // 添加窗口大小变化监听器
+        if (!this.chartResizeListener) {
+            this.chartResizeListener = () => {
+                if (!document.getElementById('statsChartScreen').classList.contains('hidden')) {
+                    this.updateCharts(this.currentChartRange || 7);
+                }
+            };
+            window.addEventListener('resize', this.chartResizeListener);
+        }
+
+        console.log('✅ 打开历史统计图表');
+    }
+
+    // 关闭历史统计图表页面
+    closeStatsChart() {
+        document.getElementById('statsChartScreen').classList.add('hidden');
+        
+        // 返回欢迎页面
+        document.getElementById('welcomeScreen').classList.remove('hidden');
+
+        console.log('✅ 关闭历史统计图表');
+    }
+
+    // 更新图表数据
+    updateCharts(days) {
+        this.currentChartRange = days;
+        const history = Storage.getRecentStats(days);
+        
+        if (history.length === 0) {
+            // 如果没有数据，显示提示
+            ['timeChart', 'wordsChart', 'errorChart'].forEach(id => {
+                const canvas = document.getElementById(id);
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-tertiary');
+                ctx.font = '14px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无数据', canvas.width / 2, canvas.height / 2);
+            });
+            
+            // 清空摘要
+            document.getElementById('summaryTotalDays').textContent = '0';
+            document.getElementById('summaryTotalTime').textContent = '0';
+            document.getElementById('summaryTotalWords').textContent = '0';
+            document.getElementById('summaryAvgMastery').textContent = '0%';
+            return;
+        }
+
+        // 反转数组，使日期从旧到新
+        const sortedHistory = [...history].reverse();
+
+        // 准备数据
+        const dates = sortedHistory.map(item => {
+            const date = new Date(item.date);
+            return `${date.getMonth() + 1}/${date.getDate()}`;
+        });
+
+        const timeData = sortedHistory.map(item => Math.floor(item.time || 0));
+        const wordsData = sortedHistory.map(item => item.words || 0);
+        const errorData = sortedHistory.map(item => {
+            const total = (item.correct || 0) + (item.wrong || 0);
+            return total > 0 ? Math.round((item.wrong || 0) / total * 100) : 0;
+        });
+
+        // 绘制三个图表
+        this.drawLineChart('timeChart', dates, timeData, '#667eea', '分钟');
+        this.drawLineChart('wordsChart', dates, wordsData, '#10b981', '个');
+        this.drawLineChart('errorChart', dates, errorData, '#ef4444', '%');
+
+        // 更新统计摘要
+        const summary = Storage.getStatsSummary(days);
+        document.getElementById('summaryTotalDays').textContent = summary.totalDays;
+        document.getElementById('summaryTotalTime').textContent = Math.floor(summary.totalTime);
+        document.getElementById('summaryTotalWords').textContent = summary.totalWords;
+        document.getElementById('summaryAvgMastery').textContent = `${summary.avgMastery}%`;
+    }
+
+    // 绘制折线图
+    drawLineChart(canvasId, labels, data, color, unit) {
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+        
+        // 设置高DPI显示
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const width = rect.width;
+        const height = rect.height;
+        
+        // 清空画布
+        ctx.clearRect(0, 0, width, height);
+
+        // 计算图表区域
+        const padding = { top: 20, right: 30, bottom: 40, left: 50 };
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+
+        // 找到最大值
+        const maxValue = Math.max(...data, 1);
+        const minValue = Math.min(...data, 0);
+        const valueRange = maxValue - minValue || 1;
+
+        // 获取CSS变量颜色
+        const styles = getComputedStyle(document.documentElement);
+        const textColor = styles.getPropertyValue('--text-secondary').trim();
+        const gridColor = styles.getPropertyValue('--border-color').trim();
+
+        // 绘制网格线和Y轴标签
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 1;
+        ctx.font = '11px Inter';
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'right';
+
+        const gridLines = 5;
+        for (let i = 0; i <= gridLines; i++) {
+            const y = padding.top + (chartHeight / gridLines) * i;
+            const value = Math.round(maxValue - (valueRange / gridLines) * i);
+            
+            // 绘制网格线
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+
+            // 绘制Y轴标签
+            ctx.fillText(value.toString(), padding.left - 10, y + 4);
+        }
+
+        // 绘制X轴标签
+        ctx.textAlign = 'center';
+        const labelStep = Math.ceil(labels.length / 7); // 最多显示7个标签
+        labels.forEach((label, index) => {
+            if (index % labelStep === 0 || index === labels.length - 1) {
+                const x = padding.left + (chartWidth / (labels.length - 1 || 1)) * index;
+                ctx.fillText(label, x, height - 10);
+            }
+        });
+
+        // 绘制折线和点
+        if (data.length > 0) {
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            // 绘制渐变填充区域
+            const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+            gradient.addColorStop(0, color + '30');
+            gradient.addColorStop(1, color + '00');
+
+            ctx.beginPath();
+            data.forEach((value, index) => {
+                const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+
+            // 填充区域
+            const lastX = padding.left + chartWidth;
+            const baseY = padding.top + chartHeight;
+            ctx.lineTo(lastX, baseY);
+            ctx.lineTo(padding.left, baseY);
+            ctx.closePath();
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            // 绘制折线
+            ctx.beginPath();
+            data.forEach((value, index) => {
+                const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+            ctx.strokeStyle = color;
+            ctx.stroke();
+
+            // 绘制数据点
+            data.forEach((value, index) => {
+                const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                
+                // 外圈
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                
+                // 内圈
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = styles.getPropertyValue('--surface').trim();
+                ctx.fill();
+            });
+        }
     }
 }
 

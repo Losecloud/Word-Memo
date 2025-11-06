@@ -870,6 +870,113 @@
                 </div>
             </div>
 
+            <!-- 历史统计图表页面 -->
+            <div class="stats-chart-screen hidden" id="statsChartScreen">
+                <div class="stats-chart-header">
+                    <h2 class="stats-chart-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="20" x2="18" y2="10"/>
+                            <line x1="12" y1="20" x2="12" y2="4"/>
+                            <line x1="6" y1="20" x2="6" y2="14"/>
+                        </svg>
+                        <span>历史统计</span>
+                    </h2>
+                    <button class="btn-close-chart" id="closeStatsChartBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                        关闭
+                    </button>
+                </div>
+
+                <!-- 时间范围选择 -->
+                <div class="stats-chart-controls">
+                    <div class="time-range-buttons">
+                        <button class="time-range-btn active" data-range="7">最近7天</button>
+                        <button class="time-range-btn" data-range="14">最近14天</button>
+                        <button class="time-range-btn" data-range="30">最近30天</button>
+                    </div>
+                </div>
+
+                <!-- 图表容器 -->
+                <div class="stats-charts-container">
+                    <!-- 学习时长图表 -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <h3 class="chart-title">
+                                <span class="chart-icon">⏱️</span>
+                                学习时长
+                            </h3>
+                            <span class="chart-unit">分钟</span>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="timeChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 学习单词图表 -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <h3 class="chart-title">
+                                <span class="chart-icon">📖</span>
+                                学习单词
+                            </h3>
+                            <span class="chart-unit">个</span>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="wordsChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 错误率图表 -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <h3 class="chart-title">
+                                <span class="chart-icon">❌</span>
+                                错误率
+                            </h3>
+                            <span class="chart-unit">%</span>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="errorChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 统计摘要 -->
+                <div class="stats-summary-cards">
+                    <div class="summary-card">
+                        <div class="summary-icon">📊</div>
+                        <div class="summary-content">
+                            <div class="summary-value" id="summaryTotalDays">0</div>
+                            <div class="summary-label">学习天数</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon">⏱️</div>
+                        <div class="summary-content">
+                            <div class="summary-value" id="summaryTotalTime">0</div>
+                            <div class="summary-label">累计时长(分)</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon">📖</div>
+                        <div class="summary-content">
+                            <div class="summary-value" id="summaryTotalWords">0</div>
+                            <div class="summary-label">累计单词</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon">✅</div>
+                        <div class="summary-content">
+                            <div class="summary-value" id="summaryAvgMastery">0%</div>
+                            <div class="summary-label">平均正确率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 加载遮罩 -->
             <div class="loading-overlay hidden" id="loadingOverlay">
                 <div class="loading-content">
@@ -886,6 +993,13 @@
         <aside class="stats-panel" id="statsPanel">
             <div class="stats-header">
                 <h3>今日统计</h3>
+                <button class="btn-stats-chart" id="openStatsChartBtn" title="查看历史统计">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                </button>
             </div>
             <div class="stats-content">
                 <div class="stat-card">
@@ -906,7 +1020,7 @@
                     <div class="stat-icon">✅</div>
                     <div class="stat-info">
                         <div class="stat-number" id="todayMastery">0%</div>
-                        <div class="stat-name">掌握率</div>
+                        <div class="stat-name">正确率</div>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -957,13 +1071,13 @@
                     </svg>
                     <span>AI工坊设置</span>
                 </button>
-                <button class="settings-tab" data-tab="other">
+                <button class="settings-tab" data-tab="cache">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                        <line x1="12" y1="22.08" x2="12" y2="12"/>
                     </svg>
-                    <span>其他设置</span>
+                    <span>缓存设置</span>
                 </button>
             </div>
             
@@ -1146,15 +1260,104 @@
                 </div>
                 <!-- AI工坊设置选项卡结束 -->
                 
-                <!-- 其他设置选项卡 -->
-                <div class="settings-tab-content" id="otherSettings">
+                <!-- 缓存设置选项卡 -->
+                <div class="settings-tab-content" id="cacheSettings">
                     <div class="setting-group">
-                        <p style="text-align: center; color: var(--text-secondary); padding: 2rem;">
-                            暂无其他设置项
-                        </p>
+                        <label class="setting-label">统计数据缓存</label>
+                        <div class="setting-hint" style="margin-bottom: 1rem;">
+                            💡 系统会自动记录每日学习统计，你可以导出备份或从备份中恢复数据
+                        </div>
+                    </div>
+
+                    <!-- 当前统计数据 -->
+                    <div class="setting-group">
+                        <label class="setting-label">今日统计数据</label>
+                        <div class="stats-cache-summary">
+                            <div class="cache-stat-item">
+                                <span class="cache-stat-label">学习时长:</span>
+                                <span class="cache-stat-value" id="cacheTodayTime">--</span>
+                            </div>
+                            <div class="cache-stat-item">
+                                <span class="cache-stat-label">学习单词:</span>
+                                <span class="cache-stat-value" id="cacheTodayWords">--</span>
+                            </div>
+                            <div class="cache-stat-item">
+                                <span class="cache-stat-label">正确率:</span>
+                                <span class="cache-stat-value" id="cacheTodayMastery">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 导出/导入操作 -->
+                    <div class="setting-group">
+                        <label class="setting-label">数据管理</label>
+                        <div class="cache-actions">
+                            <button class="btn-cache-action" id="exportTodayStatsBtn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                导出今日数据
+                            </button>
+                            <button class="btn-cache-action" id="exportAllStatsBtn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                导出所有历史
+                            </button>
+                            <button class="btn-cache-action" id="importStatsBtn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                导入数据
+                            </button>
+                        </div>
+                        <input type="file" id="importStatsFile" accept=".json" hidden>
+                    </div>
+
+                    <!-- 历史统计记录 -->
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            历史统计记录
+                            <span class="setting-hint">（最近30天）</span>
+                        </label>
+                        <div class="stats-history-list" id="statsHistoryList">
+                            <div class="stats-history-empty">暂无历史记录</div>
+                        </div>
+                    </div>
+
+                    <!-- 自动缓存设置 -->
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <span>自动保存历史数据</span>
+                            <input type="checkbox" class="setting-checkbox" id="autoSaveStats" checked>
+                        </label>
+                        <div class="setting-hint">
+                            开启后，系统会自动保存每日的统计数据到浏览器本地存储
+                        </div>
+                    </div>
+
+                    <!-- 数据清理 -->
+                    <div class="setting-group">
+                        <label class="setting-label">数据清理</label>
+                        <button class="btn-danger" id="clearStatsHistoryBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                            清空历史数据
+                        </button>
+                        <div class="setting-hint" style="color: var(--danger-color);">
+                            ⚠️ 此操作将删除所有历史统计记录（不包括今日数据），且不可恢复
+                        </div>
                     </div>
                 </div>
-                <!-- 其他设置选项卡结束 -->
+                <!-- 缓存设置选项卡结束 -->
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="resetSettingsBtn">恢复默认</button>
@@ -1288,18 +1491,52 @@
     
     <!-- 文本选择浮动工具栏 -->
     <div class="text-selection-toolbar hidden" id="textSelectionToolbar">
-        <button class="toolbar-btn" id="translateBtn" title="翻译">
+        <div class="toolbar-buttons" id="toolbarButtons">
+            <button class="toolbar-btn" id="translateBtn" title="翻译">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>
+                    <path d="m12 14-2 4m0 0-2 4m2-4 2 4m-2-4h4"/>
+                </svg>
+                翻译
+            </button>
+            <button class="toolbar-btn" id="highlightBtn" title="高亮">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M12 3v18m0-18 4 4m-4-4-4 4"/>
+                </svg>
+                高亮
+            </button>
+        </div>
+        <!-- 翻译结果显示区域 -->
+        <div class="toolbar-translation-result hidden" id="toolbarTranslationResult">
+            <div class="translation-header">
+                <span class="translation-title">翻译结果</span>
+                <button class="translation-close-btn" id="translationCloseBtn" title="关闭">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="translation-original" id="translationOriginal"></div>
+            <div class="translation-divider"></div>
+            <div class="translation-text" id="translationText">
+                <span class="translation-loading">翻译中...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 关键词点击浮动工具栏 -->
+    <div class="keyword-highlight-toolbar hidden" id="keywordHighlightToolbar">
+        <div class="keyword-toolbar-content">
+            <div class="keyword-toolbar-word" id="keywordToolbarWord"></div>
+            <div class="keyword-toolbar-phonetic" id="keywordToolbarPhonetic"></div>
+            <div class="keyword-toolbar-meaning" id="keywordToolbarMeaning"></div>
+        </div>
+        <button class="keyword-toolbar-sound-btn" id="keywordToolbarSoundBtn" title="发音">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>
-                <path d="m12 14-2 4m0 0-2 4m2-4 2 4m-2-4h4"/>
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
             </svg>
-            翻译
-        </button>
-        <button class="toolbar-btn" id="highlightBtn" title="高亮">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M12 3v18m0-18 4 4m-4-4-4 4"/>
-            </svg>
-            高亮
         </button>
     </div>
 

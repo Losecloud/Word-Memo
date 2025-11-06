@@ -11,6 +11,7 @@ const Storage = {
         PROGRESS: 'wordMemory_progress',
         SETTINGS: 'wordMemory_settings',
         STATS: 'wordMemory_stats',
+        STATS_HISTORY: 'wordMemory_stats_history', // 新：历史统计数据
         REVIEW: 'wordMemory_review',
         THEME: 'wordMemory_theme'
     },
@@ -108,6 +109,7 @@ const Storage = {
             animationLevel: 'medium',
             autoNext: true,
             autoNextTime: 3, // 自动切换时间（秒）
+            autoSaveStats: true, // 自动保存历史统计数据
             hotkeys: {
                 option1: '1',
                 option2: '2',
@@ -149,13 +151,256 @@ const Storage = {
         const stats = this.loadStats();
         const newStats = { ...stats, ...updates };
         
-        // 计算掌握率
-        if (newStats.words > 0) {
-            newStats.mastery = Math.round((newStats.correct / newStats.words) * 100);
+        // 计算掌握率（正确率）
+        // 掌握率 = 正确次数 / (正确次数 + 错误次数) × 100
+        const totalAttempts = (newStats.correct || 0) + (newStats.wrong || 0);
+        if (totalAttempts > 0) {
+            newStats.mastery = Math.round((newStats.correct / totalAttempts) * 100);
+        } else {
+            newStats.mastery = 0;
         }
         
+        // 确保掌握率在 0-100 之间
+        newStats.mastery = Math.max(0, Math.min(100, newStats.mastery));
+        
         this.saveStats(newStats);
+        
+        // 自动保存到历史记录（如果开启了自动保存）
+        const settings = this.loadSettings();
+        if (settings.autoSaveStats !== false) { // 默认开启
+            this.saveStatsToHistory(newStats);
+        }
+        
         return newStats;
+    },
+
+    // ============================================
+    // 统计数据历史记录管理
+    // ============================================
+
+    // 保存统计数据到历史记录
+    saveStatsToHistory(stats) {
+        const history = this.loadStatsHistory();
+        const date = stats.date || new Date().toDateString();
+        
+        // 查找是否已存在该日期的记录
+        const existingIndex = history.findIndex(item => item.date === date);
+        
+        // 重新计算掌握率，确保正确
+        const totalAttempts = (stats.correct || 0) + (stats.wrong || 0);
+        let mastery = 0;
+        if (totalAttempts > 0) {
+            mastery = Math.round((stats.correct / totalAttempts) * 100);
+            mastery = Math.max(0, Math.min(100, mastery)); // 确保在0-100之间
+        }
+        
+        const historyItem = {
+            date: date,
+            time: stats.time || 0,
+            words: stats.words || 0,
+            correct: stats.correct || 0,
+            wrong: stats.wrong || 0,
+            mastery: mastery,
+            timestamp: new Date().toISOString()
+        };
+        
+        if (existingIndex >= 0) {
+            // 更新现有记录
+            history[existingIndex] = historyItem;
+        } else {
+            // 添加新记录
+            history.push(historyItem);
+        }
+        
+        // 按日期降序排序
+        history.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // 只保留最近90天的记录
+        const limitedHistory = history.slice(0, 90);
+        
+        this.save(this.KEYS.STATS_HISTORY, limitedHistory);
+        return limitedHistory;
+    },
+
+    // 读取统计数据历史记录
+    loadStatsHistory() {
+        return this.load(this.KEYS.STATS_HISTORY, []);
+    },
+
+    // 获取指定日期范围的统计数据
+    getStatsInRange(startDate, endDate) {
+        const history = this.loadStatsHistory();
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        
+        return history.filter(item => {
+            const itemDate = new Date(item.date);
+            return itemDate >= start && itemDate <= end;
+        });
+    },
+
+    // 获取最近N天的统计数据
+    getRecentStats(days = 30) {
+        const history = this.loadStatsHistory();
+        return history.slice(0, days);
+    },
+
+    // 删除指定日期的统计数据
+    deleteStatsHistoryItem(date) {
+        const history = this.loadStatsHistory();
+        const filtered = history.filter(item => item.date !== date);
+        this.save(this.KEYS.STATS_HISTORY, filtered);
+        return filtered;
+    },
+
+    // 清空历史统计数据（保留今日数据）
+    clearStatsHistory() {
+        const today = new Date().toDateString();
+        const history = this.loadStatsHistory();
+        const todayStats = history.find(item => item.date === today);
+        
+        // 只保留今日数据
+        const newHistory = todayStats ? [todayStats] : [];
+        this.save(this.KEYS.STATS_HISTORY, newHistory);
+        return newHistory;
+    },
+
+    // 修复历史数据中的掌握率（用于修复旧数据）
+    fixHistoryMastery() {
+        const history = this.loadStatsHistory();
+        let fixed = false;
+        
+        history.forEach(item => {
+            const totalAttempts = (item.correct || 0) + (item.wrong || 0);
+            let correctMastery = 0;
+            
+            if (totalAttempts > 0) {
+                correctMastery = Math.round((item.correct / totalAttempts) * 100);
+                correctMastery = Math.max(0, Math.min(100, correctMastery));
+            }
+            
+            // 如果掌握率不正确，修复它
+            if (item.mastery !== correctMastery) {
+                item.mastery = correctMastery;
+                fixed = true;
+            }
+        });
+        
+        if (fixed) {
+            this.save(this.KEYS.STATS_HISTORY, history);
+            console.log('✅ 已修复历史数据中的掌握率');
+        }
+        
+        return fixed;
+    },
+
+    // 导出统计数据为JSON
+    exportStatsAsJSON(includeHistory = true) {
+        const today = this.loadStats();
+        const data = {
+            version: '1.0',
+            exportDate: new Date().toISOString(),
+            todayStats: today
+        };
+        
+        if (includeHistory) {
+            data.history = this.loadStatsHistory();
+        }
+        
+        return JSON.stringify(data, null, 2);
+    },
+
+    // 从JSON导入统计数据
+    importStatsFromJSON(jsonString) {
+        try {
+            const data = JSON.parse(jsonString);
+            
+            if (!data.version || !data.todayStats) {
+                throw new Error('无效的统计数据格式');
+            }
+            
+            // 导入今日统计
+            const today = new Date().toDateString();
+            if (data.todayStats.date === today) {
+                this.saveStats(data.todayStats);
+            }
+            
+            // 导入历史记录
+            if (data.history && Array.isArray(data.history)) {
+                const currentHistory = this.loadStatsHistory();
+                
+                // 合并历史记录，避免重复
+                const dateMap = new Map();
+                
+                // 先添加当前记录
+                currentHistory.forEach(item => {
+                    dateMap.set(item.date, item);
+                });
+                
+                // 添加/更新导入的记录
+                data.history.forEach(item => {
+                    // 如果导入的记录更新，则覆盖
+                    const existing = dateMap.get(item.date);
+                    if (!existing || new Date(item.timestamp) > new Date(existing.timestamp)) {
+                        dateMap.set(item.date, item);
+                    }
+                });
+                
+                // 转换为数组并排序
+                const mergedHistory = Array.from(dateMap.values())
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 90); // 只保留最近90天
+                
+                this.save(this.KEYS.STATS_HISTORY, mergedHistory);
+            }
+            
+            return {
+                success: true,
+                message: '导入成功'
+            };
+        } catch (e) {
+            console.error('导入失败:', e);
+            return {
+                success: false,
+                message: e.message || '导入失败'
+            };
+        }
+    },
+
+    // 获取统计摘要
+    getStatsSummary(days = 7) {
+        const history = this.getRecentStats(days);
+        
+        if (history.length === 0) {
+            return {
+                totalDays: 0,
+                totalTime: 0,
+                totalWords: 0,
+                totalCorrect: 0,
+                totalWrong: 0,
+                avgMastery: 0
+            };
+        }
+        
+        const summary = history.reduce((acc, item) => {
+            acc.totalTime += item.time || 0;
+            acc.totalWords += item.words || 0;
+            acc.totalCorrect += item.correct || 0;
+            acc.totalWrong += item.wrong || 0;
+            return acc;
+        }, {
+            totalDays: history.length,
+            totalTime: 0,
+            totalWords: 0,
+            totalCorrect: 0,
+            totalWrong: 0
+        });
+        
+        // 计算平均掌握率
+        const masterySum = history.reduce((sum, item) => sum + (item.mastery || 0), 0);
+        summary.avgMastery = history.length > 0 ? Math.round(masterySum / history.length) : 0;
+        
+        return summary;
     },
 
     // 保存复习列表
