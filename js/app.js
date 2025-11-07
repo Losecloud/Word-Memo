@@ -102,7 +102,8 @@ class WordMemoryApp {
             'learningScreen',
             'completionScreen',
             'aiWorkshopScreen',
-            'wordListScreen'
+            'wordListScreen',
+            'statsChartScreen'  // 历史统计页面
         ];
         
         screens.forEach(screenId => {
@@ -2539,16 +2540,10 @@ ${example ? `- 例句：${example}` : ''}
             return;
         }
         
-        // 立即移除所有按钮的焦点（移动端修复）
-        const buttons = document.querySelectorAll('.option-btn');
-        buttons.forEach(btn => {
-            btn.blur();
-        });
+        // 立即转移焦点到隐藏元素（移动端修复）
+        this.clearFocus();
         
-        // 移除当前活动元素的焦点
-        if (document.activeElement && document.activeElement.blur) {
-            document.activeElement.blur();
-        }
+        const buttons = document.querySelectorAll('.option-btn');
         
         const isCorrect = selected === correct;
         const isUnknown = selected === '不知道';
@@ -2726,13 +2721,20 @@ ${example ? `- 例句：${example}` : ''}
             }
         }
         
-        // 最后再次确保移除所有焦点（移动端修复）
+        // 最后再次确保转移焦点（移动端修复）
         setTimeout(() => {
-            buttons.forEach(btn => btn.blur());
-            if (document.activeElement && document.activeElement.blur) {
-                document.activeElement.blur();
-            }
+            this.clearFocus();
         }, 50);
+    }
+    
+    // 清除焦点：将焦点转移到隐藏元素（移动端修复）
+    clearFocus() {
+        const focusTrap = document.getElementById('focusTrap');
+        if (focusTrap) {
+            focusTrap.focus();
+            // 立即再blur，确保没有任何元素有焦点
+            setTimeout(() => focusTrap.blur(), 10);
+        }
     }
 
     // 计算两个字符串的相似度（0-1之间）
@@ -3157,15 +3159,8 @@ ${example ? `- 例句：${example}` : ''}
             this.autoNextTimer = null;
         }
         
-        // 清除当前所有按钮的focus状态（iOS修复）
-        document.querySelectorAll('.option-btn').forEach(btn => {
-            btn.blur();
-        });
-        
-        // 移除任何活动元素的focus
-        if (document.activeElement && document.activeElement.blur) {
-            document.activeElement.blur();
-        }
+        // 转移焦点（移动端修复）
+        this.clearFocus();
 
         // 保存当前单词信息作为上一题记录（使用首次答题结果）
         if (this.sessionWords[this.currentWordIndex]) {
@@ -5979,10 +5974,8 @@ ${example ? `- 例句：${example}` : ''}
             favoriteBtn.title = word.favorite ? '取消收藏' : '收藏';
         }
         
-        // 移除焦点，避免移动端星标旋转残留（移动端修复）
-        if (document.activeElement && document.activeElement.blur) {
-            document.activeElement.blur();
-        }
+        // 转移焦点，避免移动端星标旋转残留（移动端修复）
+        this.clearFocus();
         
         console.log(`${word.favorite ? '收藏' : '取消收藏'}单词: ${word.word}`);
     }
@@ -6054,10 +6047,8 @@ ${example ? `- 例句：${example}` : ''}
         // 更新显示
         this.updateFavoriteDisplay(word.favorite);
         
-        // 移除焦点，避免移动端星标旋转残留（移动端修复）
-        if (document.activeElement && document.activeElement.blur) {
-            document.activeElement.blur();
-        }
+        // 转移焦点，避免移动端星标旋转残留（移动端修复）
+        this.clearFocus();
         
         console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}单词: ${word.word}`);
     }
@@ -6106,10 +6097,8 @@ ${example ? `- 例句：${example}` : ''}
         // 保存到存储
         Storage.updateBook(this.currentBook.id, book);
         
-        // 移除焦点，避免移动端星标旋转残留（移动端修复）
-        if (document.activeElement && document.activeElement.blur) {
-            document.activeElement.blur();
-        }
+        // 转移焦点，避免移动端星标旋转残留（移动端修复）
+        this.clearFocus();
         
         // 重新显示badge以更新星星状态
         const badge1 = document.getElementById('lastWordBadge1');

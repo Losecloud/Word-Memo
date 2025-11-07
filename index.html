@@ -38,6 +38,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- 隐藏的焦点接收器（移动端修复焦点残留问题） -->
+    <div id="focusTrap" tabindex="-1" style="position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; overflow: hidden;"></div>
+    
     <!-- 顶部导航栏 -->
     <header class="header">
         <div class="header-container">
