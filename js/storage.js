@@ -545,8 +545,24 @@ const Storage = {
         const books = this.loadBooks();
         const index = books.findIndex(b => b.id === bookId);
         if (index >= 0) {
-            books[index] = { ...books[index], ...updates };
+            const oldBook = books[index];
+            
+            // 深度合并更新：先保留所有原有字段，再用新数据覆盖
+            // 但对于 words 数组，需要完整替换（不是浅拷贝合并）
+            books[index] = {
+                // 第1层：保留原有所有字段
+                ...oldBook,
+                // 第2层：应用更新的字段
+                ...updates,
+                // 第3层：确保关键字段不变
+                id: bookId,
+                createdAt: oldBook.createdAt,
+                // 如果 updates 没有提供 words，保留原来的 words
+                words: updates.words !== undefined ? updates.words : oldBook.words
+            };
+            
             this.saveBooks(books);
+            console.log(`💾 Storage.updateBook: 已保存词书 "${books[index].name}"，包含 ${books[index].words?.length || 0} 个单词`);
             return books[index];
         }
         return null;

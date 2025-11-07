@@ -45,12 +45,38 @@ const AIService = {
         // 如果单词数量少，直接处理
         if (totalWords <= batchSize) {
             console.log(`📝 处理 ${totalWords} 个单词（无需分批）`);
+            
+            // 更新进度
+            if (progressCallback) {
+                progressCallback(0, 1, 0, '正在处理单词...');
+            }
+            
             const prompt = this.buildEnrichmentPrompt(words);
             try {
                 const result = await this.callModel(this.MODELS.LIGHT, prompt);
-                return this.parseEnrichmentResponse(result, words);
+                const enrichedWords = this.parseEnrichmentResponse(result, words);
+                
+                // 🔥 关键修复：即使不分批也要调用回调，让数据能被保存！
+                if (batchCompleteCallback) {
+                    console.log('📞 调用批次完成回调（单批处理）');
+                    batchCompleteCallback(enrichedWords, 1, 1);
+                }
+                
+                // 完成进度
+                if (progressCallback) {
+                    progressCallback(1, 1, 100, '处理完成！');
+                }
+                
+                return enrichedWords;
             } catch (error) {
                 console.error('轻量模型调用失败:', error);
+                
+                // 失败时也调用回调，传递原始数据
+                if (batchCompleteCallback) {
+                    console.log('📞 调用批次完成回调（处理失败，返回原始数据）');
+                    batchCompleteCallback(words, 1, 1);
+                }
+                
                 throw error;
             }
         }
@@ -346,27 +372,32 @@ const AIService = {
     buildEnrichmentPrompt(words) {
         const wordList = words.map(w => w.word).join(', ');
         
-        return `You are a professional English dictionary assistant. Please provide phonetic transcription (IPA), Chinese meaning, and an example sentence for each word below.
+        return `You are a professional English dictionary assistant. For each word provided, you must return its phonetic transcription (IPA), Chinese meaning, and an example sentence.
 
-Words: ${wordList}
+Words to process: ${wordList}
 
-Please return the result in JSON format, following this structure:
+IMPORTANT: You MUST return a valid JSON array with this EXACT structure for each word:
 [
     {
         "word": "example",
         "phonetic": "/ɪɡˈzæmpl/",
-        "meaning": "n. 例子；榜样 v. 举例说明",
+        "meaning": "n. 例子；榜样 v. 举例说明; adj. 榜样性的 adv. 作为例证...",
         "example": "Can you give me an example of what you mean?"
     }
 ]
 
-Requirements:
-1. Keep the phonetic in IPA format
-2. Include all part-of-speech tags in the meaning (n./v./adj./adv. etc.), similar meaning no more than 3 words in each part-of-speech, be simplified.
-3. Example sentences should be natural and commonly used
-4. Return ONLY the JSON array, no other text
+Critical Requirements:
+1. Return ONLY the JSON array, no markdown code blocks, no explanations, no other text
+2. Each word MUST have "word", "phonetic", "meaning", and "example" fields
+3. Phonetic MUST be in IPA format with forward slashes, e.g., "/wɜːrd/"
+4. Meaning MUST include all part-of-speech tags (n./v./adj./adv. etc.) , but no more than 3 similar meanings for one tag.
+5. Example MUST be a natural, commonly used English sentence
+6. Process ALL ${words.length} words in the list above
+7. The JSON must be properly formatted and parseable
 
-JSON:`;
+Start your response with [ and end with ]. Do not include any text before or after the JSON array.
+
+[`;
     },
     
     /**
@@ -410,6 +441,9 @@ JSON:`;
      */
     parseEnrichmentResponse(response, originalWords) {
         try {
+            console.log('🔍 开始解析AI响应...');
+            console.log('📥 AI原始响应（前500字符）:', response.substring(0, 500));
+            
             // 尝试提取JSON部分
             let jsonStr = response.trim();
             
@@ -420,9 +454,22 @@ JSON:`;
             const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
                 jsonStr = jsonMatch[0];
+                console.log('✅ 找到JSON数组');
+            } else {
+                console.warn('⚠️ 未找到JSON数组格式，尝试直接解析');
             }
             
+            console.log('📝 准备解析的JSON（前300字符）:', jsonStr.substring(0, 300));
             const enrichedData = JSON.parse(jsonStr);
+            console.log(`✅ JSON解析成功，获得 ${enrichedData.length} 个单词数据`);
+            
+            // 打印前3个解析结果
+            if (enrichedData.length > 0) {
+                console.log('📋 AI返回的前3个单词数据:');
+                enrichedData.slice(0, 3).forEach((item, i) => {
+                    console.log(`  ${i}: word="${item.word}" phonetic="${item.phonetic}" meaning="${item.meaning?.substring(0, 30)}..."`);
+                });
+            }
             
             // 合并原始数据和补充数据
             const result = originalWords.map((word, index) => {
@@ -430,7 +477,7 @@ JSON:`;
                     e.word.toLowerCase() === word.word.toLowerCase()
                 ) || enrichedData[index] || {};
                 
-                return {
+                const merged = {
                     word: word.word,
                     phonetic: enriched.phonetic || word.phonetic || '',
                     definitions: [{
@@ -439,11 +486,23 @@ JSON:`;
                         example: enriched.example || word.definitions?.[0]?.example || ''
                     }]
                 };
+                
+                // 调试：打印第一个合并结果
+                if (index === 0) {
+                    console.log('🔀 合并示例（第1个单词）:');
+                    console.log(`  原始: word="${word.word}" phonetic="${word.phonetic || '空'}"`);
+                    console.log(`  AI补充: phonetic="${enriched.phonetic || '空'}" meaning="${enriched.meaning?.substring(0, 30) || '空'}..."`);
+                    console.log(`  合并后: phonetic="${merged.phonetic}" meaning="${merged.definitions[0].meaning?.substring(0, 30)}..."`);
+                }
+                
+                return merged;
             });
             
+            console.log(`✅ 补充数据合并完成，返回 ${result.length} 个单词`);
             return result;
         } catch (error) {
-            console.error('解析补充响应失败:', error, response);
+            console.error('❌ 解析补充响应失败:', error);
+            console.error('📄 失败的响应内容（前1000字符）:', response.substring(0, 1000));
             // 返回原始数据
             return originalWords;
         }

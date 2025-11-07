@@ -1316,14 +1316,22 @@ class WordMemoryApp {
                             const oldWord = currentBook.words[originalIndex];
                             console.log(`  📥 更新前: 音标="${oldWord.phonetic||'空'}" 释义="${oldWord.definitions?.[0]?.meaning?.substring(0,20)||'空'}..."`);
                             
+                            // 保留原单词的其他属性（如收藏状态、学习统计等）
+                            const updatedWord = {
+                                ...oldWord,  // 保留原有属性
+                                word: enrichedWord.word,
+                                phonetic: enrichedWord.phonetic || oldWord.phonetic || '',
+                                definitions: enrichedWord.definitions || oldWord.definitions || []
+                            };
+                            
                             // 更新原词书中的数据
-                            currentBook.words[originalIndex] = enrichedWord;
+                            currentBook.words[originalIndex] = updatedWord;
                             
                             // 打印更新后的数据
-                            console.log(`  📤 更新后: 音标="${enrichedWord.phonetic||'空'}" 释义="${enrichedWord.definitions?.[0]?.meaning?.substring(0,20)||'空'}..."`);
+                            console.log(`  📤 更新后: 音标="${updatedWord.phonetic||'空'}" 释义="${updatedWord.definitions?.[0]?.meaning?.substring(0,20)||'空'}..."`);
 
                             // 直接更新表格单元格
-                            this.updateSingleWordInTable(enrichedWord, originalIndex);
+                            this.updateSingleWordInTable(updatedWord, originalIndex);
                         } else {
                             console.warn(`⚠️ 未找到单词 "${enrichedWord.word}"`);
                         }
@@ -1333,6 +1341,13 @@ class WordMemoryApp {
                     if (!this.tempSmartImportBook) {
                         console.log(`💾 准备保存第 ${batchIndex} 批数据到localStorage...`);
                         console.log(`  词书ID: ${currentBook.id}`);
+                        
+                        // 保存前验证 currentBook 中的数据
+                        if (enrichedBatch.length > 0) {
+                            const testWord = enrichedBatch[0];
+                            const wordInCurrentBook = currentBook.words.find(w => w.word === testWord.word);
+                            console.log(`  📤 保存前验证 currentBook 中 "${testWord.word}": 音标="${wordInCurrentBook?.phonetic}" 释义="${wordInCurrentBook?.definitions?.[0]?.meaning?.substring(0, 20)}..."`);
+                        }
                         
                         Storage.updateBook(currentBook.id, currentBook);
                         
@@ -1345,7 +1360,9 @@ class WordMemoryApp {
                             const testWord = enrichedBatch[0];
                             const savedWord = savedBook.words.find(w => w.word === testWord.word);
                             if (savedWord) {
-                                console.log(`  ✓ 验证单词 "${testWord.word}": 音标="${savedWord.phonetic}" 已保存`);
+                                console.log(`  📥 保存后验证 "${testWord.word}": 音标="${savedWord.phonetic}" 释义="${savedWord.definitions?.[0]?.meaning?.substring(0, 20)}..."`);
+                            } else {
+                                console.error(`  ❌ 保存后未找到单词 "${testWord.word}"`);
                             }
                         }
                     }
@@ -2522,12 +2539,16 @@ ${example ? `- 例句：${example}` : ''}
             return;
         }
         
-        // 移除焦点，避免移动端出现绿色边框
-        if (document.activeElement) {
+        // 立即移除所有按钮的焦点（移动端修复）
+        const buttons = document.querySelectorAll('.option-btn');
+        buttons.forEach(btn => {
+            btn.blur();
+        });
+        
+        // 移除当前活动元素的焦点
+        if (document.activeElement && document.activeElement.blur) {
             document.activeElement.blur();
         }
-        
-        const buttons = document.querySelectorAll('.option-btn');
         
         const isCorrect = selected === correct;
         const isUnknown = selected === '不知道';
@@ -2704,6 +2725,14 @@ ${example ? `- 例句：${example}` : ''}
                 this.autoNextTimer = null;
             }
         }
+        
+        // 最后再次确保移除所有焦点（移动端修复）
+        setTimeout(() => {
+            buttons.forEach(btn => btn.blur());
+            if (document.activeElement && document.activeElement.blur) {
+                document.activeElement.blur();
+            }
+        }, 50);
     }
 
     // 计算两个字符串的相似度（0-1之间）
@@ -5095,7 +5124,24 @@ ${example ? `- 例句：${example}` : ''}
 
     // 加载词书列表
     loadBooks() {
-        this.books = Storage.loadBooks();
+        const allBooks = Storage.loadBooks();
+        
+        // 过滤掉损坏的词书数据（没有words数组或words不是数组）
+        const validBooks = allBooks.filter(book => {
+            if (!book.words || !Array.isArray(book.words)) {
+                console.warn(`⚠️ 检测到损坏的词书数据，已自动跳过: "${book.name || '未命名'}" (ID: ${book.id || '未知'})`);
+                return false;
+            }
+            return true;
+        });
+        
+        // 如果有损坏的词书，更新Storage（移除损坏的数据）
+        if (validBooks.length < allBooks.length) {
+            console.log(`🔧 已清理 ${allBooks.length - validBooks.length} 个损坏的词书`);
+            Storage.saveBooks(validBooks);
+        }
+        
+        this.books = validBooks;
         this.renderBookList();
         
         // 尝试加载上次选中的词书
@@ -5129,6 +5175,11 @@ ${example ? `- 例句：${example}` : ''}
         });
 
         sortedBooks.forEach(book => {
+            // 防御性检查（正常情况下不应该到这里，因为loadBooks已经过滤了）
+            if (!book.words || !Array.isArray(book.words)) {
+                return;
+            }
+            
             const item = document.createElement('div');
             item.className = 'book-item';
             if (this.currentBook && this.currentBook.id === book.id) {
@@ -5928,6 +5979,11 @@ ${example ? `- 例句：${example}` : ''}
             favoriteBtn.title = word.favorite ? '取消收藏' : '收藏';
         }
         
+        // 移除焦点，避免移动端星标旋转残留（移动端修复）
+        if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+        }
+        
         console.log(`${word.favorite ? '收藏' : '取消收藏'}单词: ${word.word}`);
     }
 
@@ -5998,6 +6054,11 @@ ${example ? `- 例句：${example}` : ''}
         // 更新显示
         this.updateFavoriteDisplay(word.favorite);
         
+        // 移除焦点，避免移动端星标旋转残留（移动端修复）
+        if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+        }
+        
         console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}单词: ${word.word}`);
     }
 
@@ -6044,6 +6105,11 @@ ${example ? `- 例句：${example}` : ''}
         
         // 保存到存储
         Storage.updateBook(this.currentBook.id, book);
+        
+        // 移除焦点，避免移动端星标旋转残留（移动端修复）
+        if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+        }
         
         // 重新显示badge以更新星星状态
         const badge1 = document.getElementById('lastWordBadge1');

@@ -130,7 +130,7 @@
                         <p class="upload-text">拖拽文件到此处或点击上传</p>
                         <p class="upload-hint">支持 TXT、CSV、DOCX、Excel 格式 | AI智能识别</p>
                         <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.xls,.docx" hidden>
-                        <button class="btn-primary" id="uploadBtn">🧠 智能导入</button>
+                        <button class="btn-primary" id="uploadBtn">立即导入</button>
                     </div>
 
                     <div class="or-divider">
@@ -1284,7 +1284,7 @@
                 <!-- AI工坊设置选项卡 -->
                 <div class="settings-tab-content" id="aiSettings">
                     <div class="setting-group">
-                        <label class="setting-label">硅基流动 API密钥（AI工坊）</label>
+                        <label class="setting-label">硅基流动 API密钥 (默认)</label>
                         <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxx">
                         <div class="setting-hint" style="margin-top: 8px;">
                             <div style="margin-bottom: 4px;">💡 <strong>如何获取免费API密钥：</strong></div>
@@ -1301,7 +1301,7 @@
                     </div>
                     
                     <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e0e0e0;">
-                        <label class="setting-label">🧠 智能导入 API配置</label>
+                        <label class="setting-label">Hugging face API配置 (备选)</label>
                         <div class="setting-hint" style="margin-top: 8px; margin-bottom: 16px;">
                             <div style="padding: 12px; background: #e8f5e9; border-radius: 6px; font-size: 13px;">
                                 ℹ️ <strong>智能导入说明：</strong><br>
@@ -1584,9 +1584,9 @@
     <div class="text-selection-toolbar hidden" id="textSelectionToolbar">
         <div class="toolbar-buttons" id="toolbarButtons">
             <button class="toolbar-btn" id="translateBtn" title="翻译">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>
-                    <path d="m12 14-2 4m0 0-2 4m2-4 2 4m-2-4h4"/>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 8v8m-4-4h8"/>
                 </svg>
                 翻译
             </button>

@@ -1250,6 +1250,16 @@ body {
 
 }
 
+/* 移动端修复：触摸时不显示焦点样式 */
+.btn-favorite-badge:focus {
+    outline: none;
+}
+
+.btn-favorite-badge:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
 .btn-favorite-badge:hover {
     transform: scale(1.15);
 }
@@ -1467,9 +1477,14 @@ body {
     box-shadow: var(--shadow-md);
 }
 
+/* 移动端修复：使用 focus-visible 替代 focus，触摸时不显示焦点样式 */
 .option-btn:focus {
     outline: none;
-    border-color: var(--border-color);
+}
+
+.option-btn:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
 }
 
 /* iOS修复：禁用带有状态类的按钮的focus效果，保持原有颜色 */
@@ -1481,17 +1496,20 @@ body {
     border-color: inherit; /* 继承当前状态的边框颜色 */
 }
 
-/* iOS修复：确保正确答案的绿色边框不会被focus状态覆盖 */
-.option-btn.correct:focus {
-    border-color: var(--success) !important;
+/* 键盘导航时的焦点样式（保持答题状态的边框颜色）*/
+.option-btn.correct:focus-visible {
+    outline: 2px solid var(--success);
+    outline-offset: 2px;
 }
 
-.option-btn.correct-unknown:focus {
-    border-color: #ffa502 !important;
+.option-btn.correct-unknown:focus-visible {
+    outline: 2px solid #ffa502;
+    outline-offset: 2px;
 }
 
-.option-btn.wrong:focus {
-    border-color: var(--error) !important;
+.option-btn.wrong:focus-visible {
+    outline: 2px solid var(--error);
+    outline-offset: 2px;
 }
 
 .option-btn:active {
@@ -2749,6 +2767,16 @@ body {
     transition: all var(--transition-fast);
     border-radius: var(--radius-sm);
     line-height: 1;
+}
+
+/* 移动端修复：触摸时不显示焦点样式 */
+.btn-favorite:focus {
+    outline: none;
+}
+
+.btn-favorite:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
 }
 
 .btn-favorite:hover {
@@ -6824,7 +6852,7 @@ body {
 
 .time-range-btn.active {
     background: var(--primary);
-    color: white;
+    color: var(--text-primary);
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
