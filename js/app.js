@@ -385,6 +385,11 @@ class WordMemoryApp {
             this.exportBook();
         });
 
+        // 补缺按钮
+        document.getElementById('fillMissingBtn').addEventListener('click', () => {
+            this.fillMissingFields();
+        });
+
         // 切换单词表编辑模式
         document.getElementById('toggleEditModeBtn').addEventListener('click', () => {
             this.toggleWordListEditMode();
@@ -559,7 +564,7 @@ class WordMemoryApp {
         // 移动端底部导航栏
         const mobileToggleSidebar = document.getElementById('mobileToggleSidebar');
         const mobileToggleStats = document.getElementById('mobileToggleStats');
-        const mobileOpenWorkshop = document.getElementById('mobileOpenWorkshop');
+        const mobileGoHome = document.getElementById('mobileGoHome');
         
         if (mobileToggleSidebar) {
             mobileToggleSidebar.addEventListener('click', () => {
@@ -573,9 +578,9 @@ class WordMemoryApp {
             });
         }
         
-        if (mobileOpenWorkshop) {
-            mobileOpenWorkshop.addEventListener('click', () => {
-                this.openAiWorkshop();
+        if (mobileGoHome) {
+            mobileGoHome.addEventListener('click', () => {
+                this.backToHome();
             });
         }
 
@@ -583,6 +588,27 @@ class WordMemoryApp {
         document.getElementById('wrongAnswerExample').addEventListener('click', () => {
             this.replayExample();
         });
+
+        // 记忆方法卡片关闭按钮
+        document.getElementById('closeMemoryAidBtn').addEventListener('click', () => {
+            this.closeMemoryAid();
+        });
+
+        // 移动端记忆方法弹窗关闭按钮
+        document.getElementById('closeMemoryAidModalBtn').addEventListener('click', () => {
+            this.closeMemoryAid();
+        });
+
+        // 点击蒙版也可以关闭
+        const memoryModal = document.getElementById('memoryAidModal');
+        if (memoryModal) {
+            const overlay = memoryModal.querySelector('.memory-aid-modal-overlay');
+            if (overlay) {
+                overlay.addEventListener('click', () => {
+                    this.closeMemoryAid();
+                });
+            }
+        }
 
         // 缓存设置相关事件
         document.getElementById('exportTodayStatsBtn').addEventListener('click', () => {
@@ -634,31 +660,77 @@ class WordMemoryApp {
 
     // 处理文件上传
     async handleFileUpload(file) {
-        this.showLoading('正在解析文档...');
+        this.showLoading('🧠 智能分析中...');
 
         try {
-            // 模拟进度
-            this.updateLoadingProgress(30);
-
-            const result = await WordParser.parse(file);
+            // 第一步：智能解析文件
+            this.updateLoadingProgress(20);
+            const result = await WordParser.parse(file, { smartImport: true });
             let words = result.words;
+            const analysis = result.analysis;
 
-            this.updateLoadingProgress(60);
+            console.log('📋 智能分析结果:', analysis);
 
-            // 如果需要补充信息
-            if (result.needsEnrichment) {
-                this.updateLoadingText('正在补充单词信息...');
-                words = await DictionaryAPI.enrichWords(words);
-            }
+            this.updateLoadingProgress(40);
 
+            // 第二步：根据分析结果决定处理策略
+            if (analysis.status === 'CONFORMS_TO_TEMPLATE') {
+                // 情况1：符合模板格式，直接导入
+                console.log('✅ 文件符合模板格式，准备直接导入');
             this.updateLoadingProgress(100);
-
-            // 提示输入词书名称
-            const bookName = prompt('请输入词书名称：', file.name.replace(/\.\w+$/, ''));
-            if (!bookName) {
                 this.hideLoading();
+                
+                // 直接导入
+                await this.directImportWords(words, file.name);
+                
+            } else if (analysis.status === 'MISSING_SECONDARY_FIELDS' || analysis.status === 'NO_MAIN_FIELD') {
+                // 情况2&3：先用正则提取所有英文单词，立即显示，然后后台AI补充
+                console.log('🔧 先提取所有英文单词，然后后台AI补充');
+                
+                this.hideLoading();
+                
+                // 第一步：用正则提取所有英文单词
+                let extractedWords = WordParser.extractEnglishWords(result.rawContent);
+                
+                if (extractedWords.length === 0) {
+                    alert('未能从文件中提取到有效的英文单词\n\n请检查文件内容是否包含英语单词');
                 return;
             }
+                
+                console.log(`📖 提取到 ${extractedWords.length} 个单词，准备显示`);
+                
+                // 第二步：过滤A1级基础词汇（可选）
+                const filteredWords = await this.filterBasicWords(extractedWords);
+                
+                if (filteredWords.length === 0) {
+                    alert('所有单词都被过滤了，没有单词需要导入');
+                    return;
+                }
+                
+                console.log(`✅ 过滤后剩余 ${filteredWords.length} 个单词`);
+                
+                // 第三步：立即创建临时词书并显示
+                await this.showWordListForSmartImport(filteredWords, '未命名词单');
+                await this.fillWordListTable(filteredWords);
+                
+                // 第四步：后台AI补充（不阻塞页面）
+                this.startBackgroundAIEnrichment(filteredWords, analysis);
+                
+            }
+
+        } catch (error) {
+            console.error('文件处理失败:', error);
+            this.hideLoading();
+            alert(`文件解析失败：${error.message}\n\n支持格式：TXT、CSV、XLSX、DOCX`);
+        }
+    }
+
+    /**
+     * 直接导入单词（符合模板格式时）
+     */
+    async directImportWords(words, fileName) {
+        const bookName = prompt('请输入词书名称：', fileName.replace(/\.\w+$/, ''));
+        if (!bookName) return;
 
             // 添加为新词书
             const newBook = Storage.addBook({
@@ -670,17 +742,918 @@ class WordMemoryApp {
             this.currentBook = newBook;
             Storage.saveCurrentBook(newBook.id);
 
-            setTimeout(() => {
-                this.hideLoading();
                 this.loadBooks(); // 刷新词书列表
-                alert(`词书"${bookName}"已添加成功！\n共${words.length}个单词`);
-            }, 500);
+        alert(`✅ 词书"${bookName}"已成功导入！\n共 ${words.length} 个单词`);
+    }
+
+    /**
+     * 显示单词列表用于智能导入（临时词书）
+     */
+    async showWordListForSmartImport(words, bookName = '未命名词单') {
+        // 创建临时词书（不保存到Storage）
+        const tempBook = {
+            id: 'temp_smart_import',
+            name: bookName,
+            words: words,
+            icon: '📝',
+            createdAt: Date.now(),
+            isTemporary: true  // 标记为临时词书
+        };
+
+        // 保存当前浏览的词书ID
+        this.currentWordListBookId = tempBook.id;
+        this.tempSmartImportBook = tempBook;  // 临时保存
+
+        // 显示单词表页面
+        this.showScreen('wordListScreen');
+
+        // 设置标题和图标
+        document.getElementById('wordListIcon').textContent = tempBook.icon;
+        document.getElementById('wordListBookName').textContent = tempBook.name;
+        document.getElementById('wordListTotalCount').textContent = tempBook.words.length;
+
+        // 渲染单词表格
+        this.renderWordListTable(tempBook);
+    }
+
+    /**
+     * 填充单词列表表格（逐个填充，按顺序）
+     */
+    async fillWordListTable(words) {
+        if (!this.tempSmartImportBook) return;
+
+        // 更新临时词书的单词
+        this.tempSmartImportBook.words = words;
+
+        // 重新渲染表格
+        this.renderWordListTable(this.tempSmartImportBook);
+
+        // 更新总数
+        document.getElementById('wordListTotalCount').textContent = words.length;
+    }
+
+    /**
+     * 更新表格中的单个单词
+     * @param {Object} word - 单词对象
+     * @param {number} wordIndex - 单词在词书中的索引
+     */
+    updateSingleWordInTable(word, wordIndex) {
+        console.log(`  🔧 开始更新表格: 单词="${word.word}" 索引=${wordIndex}`);
+        
+        const tbody = document.querySelector('#wordListTable tbody');
+        if (!tbody) {
+            console.error('  ❌ 未找到表格tbody');
+            console.log('  🔍 DOM检查: #wordListTable存在?', !!document.getElementById('wordListTable'));
+            return;
+        }
+        console.log(`  ✓ 找到tbody，包含 ${tbody.children.length} 行`);
+
+        // 查找对应的表格行
+        const row = tbody.querySelector(`tr[data-word-index="${wordIndex}"]`);
+        
+        if (!row) {
+            console.error(`  ❌ 未找到索引为 ${wordIndex} 的表格行`);
+            console.log(`  🔍 表格行数: ${tbody.children.length}`);
+            console.log(`  🔍 前5行的data-word-index:`, 
+                Array.from(tbody.children).slice(0, 5).map(r => r.getAttribute('data-word-index')));
+            return;
+        }
+        console.log(`  ✓ 找到目标行`);
+
+        const cells = row.querySelectorAll('td');
+        console.log(`  ✓ 行有 ${cells.length} 个单元格`);
+        
+        // 打印当前单元格内容
+        if (cells.length >= 6) {
+            console.log(`  📋 更新前单元格内容:`);
+            console.log(`    序号: "${cells[1].textContent}"`);
+            console.log(`    单词: "${cells[2].textContent}"`);
+            console.log(`    音标: "${cells[3].textContent}"`);
+            console.log(`    释义: "${cells[4].textContent.substring(0,20)}..."`);
+            console.log(`    例句: "${cells[5].textContent.substring(0,20)}..."`);
+        }
+        
+        // 表格结构：[编辑列(隐藏), 序号, 单词, 音标, 释义, 例句]
+        // 索引：      0           1     2     3    4    5
+        if (cells.length >= 6) {
+            // 更新音标
+            const oldPhonetic = cells[3].textContent;
+            cells[3].textContent = word.phonetic || '-';
+            console.log(`  ✓ 音标更新: "${oldPhonetic}" → "${cells[3].textContent}"`);
+            
+            // 更新释义
+            const meaning = word.definitions && word.definitions[0] ? 
+                word.definitions[0].meaning : '-';
+            const oldMeaning = cells[4].textContent;
+            cells[4].textContent = meaning;
+            cells[4].title = meaning;
+            console.log(`  ✓ 释义更新: "${oldMeaning.substring(0,15)}..." → "${meaning.substring(0, 15)}..."`);
+            
+            // 更新例句
+            const example = word.definitions && word.definitions[0] ? 
+                word.definitions[0].example : '-';
+            const oldExample = cells[5].textContent;
+            cells[5].textContent = example;
+            cells[5].title = example;
+            console.log(`  ✓ 例句更新: "${oldExample.substring(0,15)}..." → "${example.substring(0, 15)}..."`);
+            
+            // 添加闪烁效果
+            row.style.transition = 'background-color 0.3s ease';
+            row.style.backgroundColor = '#e8f5e9';
+            console.log(`  ✨ 已添加绿色闪烁效果`);
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 800);
+        } else {
+            console.error(`  ❌ 表格列数不足: ${cells.length}`);
+        }
+    }
+
+    /**
+     * 批量更新词单表格（增量更新，不重新渲染整个表格）
+     * @param {Array} enrichedBatch - 本批次补充完成的单词
+     * @param {number} startIndex - 本批次在总列表中的起始索引
+     */
+    async updateWordListTableBatch(enrichedBatch, startIndex) {
+        const tbody = document.querySelector('#wordListTable tbody');
+        if (!tbody) return;
+
+        // 更新词书中对应的单词数据（临时词书或正常词书）
+        if (this.tempSmartImportBook) {
+            // 智能导入的临时词书
+            for (let i = 0; i < enrichedBatch.length; i++) {
+                const globalIndex = startIndex + i;
+                if (globalIndex < this.tempSmartImportBook.words.length) {
+                    this.tempSmartImportBook.words[globalIndex] = enrichedBatch[i];
+                }
+            }
+        }
+        // 注意：正常词书的数据已在调用此函数前更新，这里只负责更新表格显示
+
+        // 增量更新表格的对应行
+        for (let i = 0; i < enrichedBatch.length; i++) {
+            const globalIndex = startIndex + i;
+            const word = enrichedBatch[i];
+            
+            // 查找对应的表格行（+1 因为索引从0开始，但显示序号从1开始）
+            const row = tbody.querySelector(`tr[data-word-index="${globalIndex}"]`);
+            
+            if (row) {
+                const cells = row.querySelectorAll('td');
+                
+                // 表格结构：[编辑列(隐藏), 序号, 单词, 音标, 释义, 例句]
+                // 索引：      0           1     2     3    4    5
+                if (cells.length >= 6) {
+                    // cells[2] 是单词列，不更新
+                    
+                    // cells[3] 是音标列
+                    cells[3].textContent = word.phonetic || '-';
+                    
+                    // cells[4] 是释义列
+                    const meaning = word.definitions && word.definitions[0] ? 
+                        word.definitions[0].meaning : '-';
+                    cells[4].textContent = meaning;
+                    cells[4].title = meaning; // 更新title用于悬停显示
+                    
+                    // cells[5] 是例句列
+                    const example = word.definitions && word.definitions[0] ? 
+                        word.definitions[0].example : '-';
+                    cells[5].textContent = example;
+                    cells[5].title = example; // 更新title用于悬停显示
+                    
+                    // 添加闪烁效果提示用户该行已更新
+                    row.style.transition = 'background-color 0.3s ease';
+                    row.style.backgroundColor = '#e8f5e9'; // 淡绿色
+                    setTimeout(() => {
+                        row.style.backgroundColor = '';
+                    }, 800);
+                }
+            }
+        }
+
+        console.log(`📊 已更新表格：第 ${startIndex + 1}-${startIndex + enrichedBatch.length} 行`);
+    }
+
+    /**
+     * 过滤A1级基础词汇
+     * @param {Array} words - 单词列表
+     * @returns {Promise<Array>} - 过滤后的单词列表
+     */
+    async filterBasicWords(words) {
+        // A1级基础词汇列表（约200个最常用词）
+        const a1BasicWords = new Set([
+            // 冠词、代词
+            'a', 'an', 'the', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+            'my', 'your', 'his', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+            'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
+            // 介词
+            'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'after',
+            'over', 'between', 'out', 'against', 'during', 'without', 'before', 'under', 'around', 'among',
+            // 连词
+            'and', 'or', 'but', 'because', 'if', 'when', 'than', 'so', 'as', 'while', 'until', 'unless',
+            // 助动词
+            'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+            'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+            // 常用动词
+            'go', 'get', 'make', 'know', 'think', 'take', 'see', 'come', 'want', 'use', 'find', 'give', 'tell',
+            'ask', 'work', 'seem', 'feel', 'try', 'leave', 'call', 'keep', 'let', 'begin', 'help', 'talk', 'turn',
+            'start', 'show', 'hear', 'play', 'run', 'move', 'like', 'live', 'believe', 'hold', 'bring', 'happen',
+            'write', 'provide', 'sit', 'stand', 'lose', 'pay', 'meet', 'include', 'continue', 'set', 'learn',
+            'change', 'lead', 'understand', 'watch', 'follow', 'stop', 'create', 'speak', 'read', 'allow', 'add',
+            // 常用名词
+            'time', 'year', 'way', 'day', 'man', 'thing', 'woman', 'life', 'child', 'world', 'school', 'state',
+            'family', 'student', 'group', 'country', 'problem', 'hand', 'part', 'place', 'case', 'week', 'company',
+            'system', 'program', 'question', 'work', 'number', 'night', 'point', 'home', 'water', 'room', 'mother',
+            'area', 'money', 'story', 'fact', 'month', 'lot', 'right', 'study', 'book', 'eye', 'job', 'word', 'side',
+            'kind', 'head', 'house', 'service', 'friend', 'father', 'power', 'hour', 'game', 'line', 'end', 'member',
+            'law', 'car', 'city', 'name', 'team', 'minute', 'idea', 'body', 'information', 'back', 'parent', 'face',
+            'others', 'level', 'office', 'door', 'health', 'person', 'art', 'war', 'history', 'party', 'result',
+            // 常用形容词
+            'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other', 'old', 'right', 'big', 'high',
+            'different', 'small', 'large', 'next', 'early', 'young', 'important', 'few', 'public', 'bad', 'same',
+            'able', 'full', 'sure', 'better', 'free', 'less', 'ready', 'easy', 'hard', 'real', 'best', 'nice',
+            // 常用副词
+            'not', 'so', 'then', 'now', 'just', 'very', 'there', 'how', 'too', 'also', 'well', 'only', 'even', 'back',
+            'still', 'where', 'why', 'really', 'again', 'here', 'always', 'never', 'today', 'together', 'yesterday',
+            // 数字
+            'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+            // 其他常用词
+            'yes', 'no', 'ok', 'please', 'thanks', 'sorry', 'hello', 'hi', 'bye', 'goodbye', "sb", "sth", "black", 
+            "white", "red", "green", "pink", "yellow", "blue", "orange", "purple", "brown", "gray", 
+        ]);
+
+        // 检查哪些单词是A1级
+        const basicWordsFound = [];
+        const nonBasicWords = [];
+
+        for (const wordObj of words) {
+            const word = wordObj.word.toLowerCase();
+            if (a1BasicWords.has(word)) {
+                basicWordsFound.push(wordObj);
+            } else {
+                nonBasicWords.push(wordObj);
+            }
+        }
+
+        // 如果没有A1词汇，直接返回全部
+        if (basicWordsFound.length === 0) {
+            console.log('✓ 未检测到A1级基础词汇');
+            return words;
+        }
+
+        console.log(`📋 检测到 ${basicWordsFound.length} 个A1级基础词汇`);
+
+        // 显示多选对话框
+        const selectedBasicWords = await this.showBasicWordsDialog(basicWordsFound);
+
+        // 合并非基础词和用户选择的基础词
+        return [...nonBasicWords, ...selectedBasicWords];
+    }
+
+    /**
+     * 显示A1词汇选择对话框
+     * @param {Array} basicWords - A1级词汇列表
+     * @returns {Promise<Array>} - 用户选择的词汇
+     */
+    async showBasicWordsDialog(basicWords) {
+        return new Promise((resolve) => {
+            // 创建对话框
+            const dialog = document.createElement('div');
+            dialog.className = 'basic-words-dialog';
+            dialog.innerHTML = `
+                <div class="basic-words-overlay"></div>
+                <div class="basic-words-content">
+                    <h3>🔍 检测到A1级基础词汇</h3>
+                    <p class="basic-words-hint">
+                        检测到 <strong>${basicWords.length}</strong> 个A1级简单词汇（如 the, in, of 等）。<br>
+                        这些词汇通常已掌握，默认<strong>不导入</strong>。您可以选择需要的词汇：
+                    </p>
+                    <div class="basic-words-actions">
+                        <button class="btn-text" id="selectAllBasicWords">全选</button>
+                        <button class="btn-text" id="deselectAllBasicWords">全不选</button>
+                    </div>
+                    <div class="basic-words-list">
+                        ${basicWords.map((wordObj, index) => `
+                            <label class="basic-word-item">
+                                <input type="checkbox" value="${index}" class="basic-word-checkbox">
+                                <span class="basic-word-text">${wordObj.word}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                    <div class="basic-words-buttons">
+                        <button class="btn-secondary" id="cancelBasicWords">取消所有导入</button>
+                        <button class="btn-primary" id="confirmBasicWords">确认导入以上（0）个</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(dialog);
+
+            // 获取确认按钮
+            const confirmBtn = document.getElementById('confirmBasicWords');
+            
+            // 更新按钮文本的函数
+            const updateConfirmButtonText = () => {
+                const checkedCount = dialog.querySelectorAll('.basic-word-checkbox:checked').length;
+                confirmBtn.textContent = `确认导入以上（${checkedCount}）个`;
+            };
+            
+            // 监听所有复选框的变化
+            dialog.querySelectorAll('.basic-word-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', updateConfirmButtonText);
+            });
+
+            // 全选/全不选
+            document.getElementById('selectAllBasicWords').addEventListener('click', () => {
+                dialog.querySelectorAll('.basic-word-checkbox').forEach(cb => cb.checked = true);
+                updateConfirmButtonText();
+            });
+
+            document.getElementById('deselectAllBasicWords').addEventListener('click', () => {
+                dialog.querySelectorAll('.basic-word-checkbox').forEach(cb => cb.checked = false);
+                updateConfirmButtonText();
+            });
+
+            // 取消
+            document.getElementById('cancelBasicWords').addEventListener('click', () => {
+                document.body.removeChild(dialog);
+                resolve([]); // 返回空数组表示不导入任何基础词
+            });
+
+            // 确认
+            document.getElementById('confirmBasicWords').addEventListener('click', () => {
+                const checkboxes = dialog.querySelectorAll('.basic-word-checkbox:checked');
+                const selectedWords = Array.from(checkboxes).map(cb => basicWords[parseInt(cb.value)]);
+                
+                console.log(`✓ 用户选择了 ${selectedWords.length} 个A1词汇`);
+                
+                document.body.removeChild(dialog);
+                resolve(selectedWords);
+            });
+        });
+    }
+
+    /**
+     * 开始后台AI补充
+     */
+    async startBackgroundAIEnrichment(words, analysis) {
+        console.log('🚀 开始后台AI补充...');
+        
+        // 显示进度条
+        this.showAIProgress();
+        
+        // 记录已处理的单词索引（用于增量更新）
+        let processedCount = 0;
+        
+        // 🕐 时间跟踪
+        let timePerWord = 1; // 默认每个单词1秒
+        let remainingWords = words.length;
+        let batchStartTime = Date.now();
+        
+        // 启动倒计时
+        this.startAIProgressCountdown(remainingWords * timePerWord);
+        
+        try {
+            // 使用轻量AI模型补充
+            const enrichedWords = await AIService.enrichWordsWithLight(
+                words,
+                // 进度回调
+                (current, total, percentage, message) => {
+                    this.updateAIProgress(current, total, percentage, message);
+                },
+                // 🔥 每批完成回调 - 实时更新表格
+                async (enrichedBatch, batchIndex, totalBatches) => {
+                    console.log(`✅ 第 ${batchIndex}/${totalBatches} 批完成，立即更新表格`);
+                    
+                    // 实时更新这批单词到表格
+                    await this.updateWordListTableBatch(enrichedBatch, processedCount);
+                    processedCount += enrichedBatch.length;
+                    
+                    // 🕐 智能调整时间预估
+                    const batchEndTime = Date.now();
+                    const batchDuration = (batchEndTime - batchStartTime) / 1000; // 秒
+                    const actualTimePerWord = batchDuration / enrichedBatch.length;
+                    
+                    // 更新时间预估（加权平均，新数据权重更高）
+                    timePerWord = timePerWord * 0.3 + actualTimePerWord * 0.7;
+                    
+                    // 更新剩余时间
+                    remainingWords -= enrichedBatch.length;
+                    const estimatedRemaining = Math.ceil(remainingWords * timePerWord);
+                    this.updateAIProgressTime(estimatedRemaining);
+                    
+                    console.log(`⏱️ 本批耗时: ${batchDuration.toFixed(1)}秒, 每词: ${actualTimePerWord.toFixed(2)}秒, 预估剩余: ${estimatedRemaining}秒`);
+                    
+                    // 重新开始下一批的计时
+                    batchStartTime = Date.now();
+                }
+            );
+            
+            // 隐藏进度条
+            this.hideAIProgress();
+            
+            // 🔥 检查并补充遗漏的数据
+            const missingWords = this.findMissingFields(enrichedWords);
+            
+            if (missingWords.length > 0) {
+                console.log(`⚠️ 检测到 ${missingWords.length} 个单词的字段不完整，准备补充`);
+                
+                // 显示补充进度
+                this.showAIProgress(`正在补充 ${missingWords.length} 个遗漏单词...`);
+                
+                // 启动补充倒计时（使用已学习的timePerWord）
+                this.startAIProgressCountdown(Math.ceil(missingWords.length * timePerWord));
+                
+                try {
+                    // 再次使用AI补充遗漏的单词
+                    const reEnrichedWords = await AIService.enrichWordsWithLight(
+                        missingWords,
+                        (current, total, percentage, message) => {
+                            this.updateAIProgress(current, total, percentage, `补充遗漏：${message}`);
+                        },
+                        async (enrichedBatch, batchIndex, totalBatches) => {
+                            console.log(`✅ 补充批次 ${batchIndex}/${totalBatches} 完成`);
+                            
+                            // 找到这些单词在原列表中的位置并更新
+                            for (const reEnrichedWord of enrichedBatch) {
+                                const originalIndex = enrichedWords.findIndex(
+                                    w => w.word.toLowerCase() === reEnrichedWord.word.toLowerCase()
+                                );
+                                
+                                if (originalIndex !== -1) {
+                                    // 更新原列表中的数据
+                                    enrichedWords[originalIndex] = reEnrichedWord;
+                                    
+                                    // 实时更新表格
+                                    await this.updateWordListTableBatch([reEnrichedWord], originalIndex);
+                                }
+                            }
+                        }
+                    );
+                    
+                    console.log(`✅ 遗漏数据补充完成`);
 
         } catch (error) {
-            console.error('文件处理失败:', error);
-            this.hideLoading();
-            alert('文件解析失败，请检查格式是否正确。支持格式：TXT、CSV、XLSX、DOCX');
+                    console.error('补充遗漏数据失败:', error);
+                }
+                
+                this.hideAIProgress();
+            } else {
+                console.log(`✓ 所有单词数据完整`);
+            }
+            
+            // 显示补充完成的提示
+            await this.showSmartImportCompleteDialog(enrichedWords, analysis);
+            
+        } catch (aiError) {
+            console.error('AI补充失败:', aiError);
+            this.hideAIProgress();
+            
+            // 降级处理：询问是否使用传统词典API补充
+            if (confirm(`AI服务暂时不可用（${aiError.message}）\n\n是否使用传统词典API补充？（可能较慢）`)) {
+                this.showAIProgress('正在使用词典API补充...');
+                try {
+                    const enrichedWords = await DictionaryAPI.enrichWords(words);
+                    await this.fillWordListTable(enrichedWords);
+                    this.hideAIProgress();
+                    await this.showSmartImportCompleteDialog(enrichedWords, analysis);
+                } catch (dictError) {
+                    console.error('词典API补充失败:', dictError);
+                    this.hideAIProgress();
+                    alert('词典API也无法使用，建议检查网络连接');
+                }
+            }
         }
+    }
+
+    /**
+     * 补缺功能 - 补全词单中缺失的字段
+     */
+    async fillMissingFields() {
+        // 检查是否在浏览词单模式（通过检查是否有浏览中的词书ID或临时词书）
+        const currentBook = this.tempSmartImportBook || 
+                          (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null);
+        
+        if (!currentBook || !currentBook.words || currentBook.words.length === 0) {
+            alert('请先浏览词单再使用补缺功能');
+            return;
+        }
+
+        console.log('🔍 开始检查词单缺失字段...');
+        console.log(`📚 当前词书ID: ${currentBook.id}`);
+        console.log(`📚 当前词书名称: ${currentBook.name}`);
+        console.log(`📚 当前词书单词数: ${currentBook.words.length}`);
+        
+        // 打印前5个单词的状态
+        console.log('📝 词书前5个单词状态:');
+        currentBook.words.slice(0, 5).forEach((w, i) => {
+            console.log(`  ${i}: ${w.word} - 音标:${w.phonetic||'缺'} 释义:${w.definitions?.[0]?.meaning?'有':'缺'} 例句:${w.definitions?.[0]?.example?'有':'缺'}`);
+        });
+
+        // 查找缺失字段的单词
+        const missingWords = this.findMissingFields(currentBook.words);
+
+        console.log(`🔍 检测到 ${missingWords.length} 个单词需要补缺`);
+        if (missingWords.length > 0) {
+            console.log('📋 需要补缺的单词列表:', missingWords.map(w => w.word).join(', '));
+        }
+
+        if (missingWords.length === 0) {
+            alert('✅ 词单数据完整，无需补缺');
+            return;
+        }
+
+        // 确认补缺
+        const confirmed = confirm(
+            `🔍 检测到 ${missingWords.length} 个单词的字段不完整\n\n` +
+            `将使用AI自动补全音标、释义和例句\n\n` +
+            `是否继续？`
+        );
+
+        if (!confirmed) return;
+
+        console.log(`📝 开始补缺 ${missingWords.length} 个单词`);
+
+        // 显示进度
+        this.showAIProgress(`正在补全 ${missingWords.length} 个单词的缺失字段...`);
+
+        // 时间跟踪
+        let timePerWord = 1;
+        let batchStartTime = Date.now();
+
+        // 启动倒计时
+        this.startAIProgressCountdown(missingWords.length * timePerWord);
+
+        try {
+            // 使用AI补全
+            const enrichedWords = await AIService.enrichWordsWithLight(
+                missingWords,
+                (current, total, percentage, message) => {
+                    this.updateAIProgress(current, total, percentage, message);
+                },
+                async (enrichedBatch, batchIndex, totalBatches) => {
+                    console.log(`✅ 补缺批次 ${batchIndex}/${totalBatches} 完成，收到 ${enrichedBatch.length} 个单词`);
+                    
+                    // 调试：打印前3个补全的单词
+                    if (enrichedBatch.length > 0) {
+                        console.log('📝 补全数据示例:', enrichedBatch.slice(0, 3).map(w => ({
+                            word: w.word,
+                            phonetic: w.phonetic,
+                            meaning: w.definitions?.[0]?.meaning?.substring(0, 30) + '...'
+                        })));
+                    }
+
+                    // 找到这些单词在原词书中的位置并更新
+                    for (const enrichedWord of enrichedBatch) {
+                        const originalIndex = currentBook.words.findIndex(
+                            w => w.word.toLowerCase() === enrichedWord.word.toLowerCase()
+                        );
+
+                        if (originalIndex !== -1) {
+                            console.log(`🔄 更新单词 "${enrichedWord.word}" (索引 ${originalIndex})`);
+                            
+                            // 打印更新前的数据
+                            const oldWord = currentBook.words[originalIndex];
+                            console.log(`  📥 更新前: 音标="${oldWord.phonetic||'空'}" 释义="${oldWord.definitions?.[0]?.meaning?.substring(0,20)||'空'}..."`);
+                            
+                            // 更新原词书中的数据
+                            currentBook.words[originalIndex] = enrichedWord;
+                            
+                            // 打印更新后的数据
+                            console.log(`  📤 更新后: 音标="${enrichedWord.phonetic||'空'}" 释义="${enrichedWord.definitions?.[0]?.meaning?.substring(0,20)||'空'}..."`);
+
+                            // 直接更新表格单元格
+                            this.updateSingleWordInTable(enrichedWord, originalIndex);
+                        } else {
+                            console.warn(`⚠️ 未找到单词 "${enrichedWord.word}"`);
+                        }
+                    }
+                    
+                    // 每批完成后立即保存到localStorage（如果不是临时词书）
+                    if (!this.tempSmartImportBook) {
+                        console.log(`💾 准备保存第 ${batchIndex} 批数据到localStorage...`);
+                        console.log(`  词书ID: ${currentBook.id}`);
+                        
+                        Storage.updateBook(currentBook.id, currentBook);
+                        
+                        // 验证保存
+                        const savedBook = Storage.getBook(currentBook.id);
+                        console.log(`  ✓ 保存验证: 词书有 ${savedBook.words.length} 个单词`);
+                        
+                        // 验证第一个更新的单词是否保存成功
+                        if (enrichedBatch.length > 0) {
+                            const testWord = enrichedBatch[0];
+                            const savedWord = savedBook.words.find(w => w.word === testWord.word);
+                            if (savedWord) {
+                                console.log(`  ✓ 验证单词 "${testWord.word}": 音标="${savedWord.phonetic}" 已保存`);
+                            }
+                        }
+                    }
+
+                    // 智能调整时间预估
+                    const batchEndTime = Date.now();
+                    const batchDuration = (batchEndTime - batchStartTime) / 1000;
+                    const actualTimePerWord = batchDuration / enrichedBatch.length;
+                    timePerWord = timePerWord * 0.3 + actualTimePerWord * 0.7;
+
+                    const remainingWords = missingWords.length - batchIndex * enrichedBatch.length;
+                    const estimatedRemaining = Math.ceil(remainingWords * timePerWord);
+                    this.updateAIProgressTime(estimatedRemaining);
+
+                    batchStartTime = Date.now();
+                }
+            );
+
+            console.log('🎉 所有批次处理完成');
+            console.log(`📊 补全统计: ${missingWords.length} 个单词`);
+            
+            // 保存更新后的词书（如果不是临时词书）
+            if (!this.tempSmartImportBook) {
+                console.log('📦 准备最终验证和刷新...');
+                
+                // 从localStorage重新读取最新数据，确保同步
+                const freshBook = Storage.getBook(currentBook.id);
+                console.log(`  ✓ 从localStorage读取词书: ${freshBook.name}`);
+                console.log(`  ✓ 词书包含 ${freshBook.words.length} 个单词`);
+                
+                // 详细验证前5个单词的数据
+                console.log('📝 验证前5个单词数据:');
+                freshBook.words.slice(0, 5).forEach((w, i) => {
+                    console.log(`  ${i}: ${w.word} - 音标:"${w.phonetic||'缺'}" 释义:"${w.definitions?.[0]?.meaning?.substring(0,20)||'缺'}..."`);
+                });
+                
+                // 统计完整数据
+                const updatedCount = freshBook.words.filter(w => 
+                    w.phonetic && w.phonetic !== '-' && 
+                    w.definitions?.[0]?.meaning && w.definitions[0].meaning !== '-'
+                ).length;
+                
+                console.log(`✅ 词书更新验证: ${updatedCount}/${freshBook.words.length} 个单词有完整数据`);
+                
+                // 检查刚才补缺的单词是否都更新了
+                console.log('🔍 验证补缺的单词是否已保存:');
+                missingWords.slice(0, 3).forEach(mw => {
+                    const savedWord = freshBook.words.find(w => w.word === mw.word);
+                    if (savedWord) {
+                        console.log(`  ✓ "${savedWord.word}": 音标="${savedWord.phonetic}" 已更新`);
+                    } else {
+                        console.error(`  ❌ "${mw.word}" 未找到`);
+                    }
+                });
+                
+                // 延迟刷新表格，确保DOM更新
+                setTimeout(() => {
+                    console.log('🔄 开始重新渲染表格...');
+                    this.renderWordListTable(freshBook);
+                    console.log('✅ 表格已刷新');
+                    
+                    // 验证表格是否正确渲染
+                    const tbody = document.querySelector('#wordListTable tbody');
+                    if (tbody) {
+                        console.log(`  ✓ 表格现有 ${tbody.children.length} 行`);
+                        // 检查前3行的数据
+                        Array.from(tbody.children).slice(0, 3).forEach((row, i) => {
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length >= 6) {
+                                console.log(`  行${i}: ${cells[2].textContent} - 音标:"${cells[3].textContent}"`);
+                            }
+                        });
+                    }
+                    
+                    this.hideAIProgress();
+                    alert(`✅ 补缺完成！\n\n已成功补全 ${missingWords.length} 个单词的缺失字段`);
+                }, 300);
+            } else {
+                // 临时词书刷新表格
+                console.log('🔄 刷新临时词书表格...');
+                setTimeout(() => {
+                    this.renderWordListTable(this.tempSmartImportBook);
+                    console.log('✅ 临时词书表格已刷新');
+                    
+                    this.hideAIProgress();
+                    alert(`✅ 补缺完成！\n\n已成功补全 ${missingWords.length} 个单词的缺失字段`);
+                }, 300);
+            }
+
+        } catch (error) {
+            console.error('补缺失败:', error);
+            this.hideAIProgress();
+            alert(`❌ 补缺失败：${error.message}\n\n请检查网络连接或API配置`);
+        }
+    }
+
+    /**
+     * 查找字段不完整的单词
+     * @param {Array} words - 单词列表
+     * @returns {Array} - 字段不完整的单词列表
+     */
+    findMissingFields(words) {
+        const incomplete = [];
+        
+        for (const word of words) {
+            let hasMissing = false;
+            
+            // 检查音标
+            if (!word.phonetic || word.phonetic.trim() === '' || word.phonetic === '-') {
+                hasMissing = true;
+            }
+            
+            // 检查释义和例句
+            if (!word.definitions || word.definitions.length === 0) {
+                hasMissing = true;
+            } else {
+                const def = word.definitions[0];
+                if (!def.meaning || def.meaning.trim() === '' || def.meaning === '-') {
+                    hasMissing = true;
+                }
+                if (!def.example || def.example.trim() === '' || def.example === '-') {
+                    hasMissing = true;
+                }
+            }
+            
+            if (hasMissing) {
+                incomplete.push(word);
+            }
+        }
+        
+        return incomplete;
+    }
+
+    /**
+     * 显示AI补充进度
+     */
+    showAIProgress(message = '正在补充单词信息...') {
+        const container = document.getElementById('aiProgressContainer');
+        const messageEl = document.getElementById('aiProgressMessage');
+        const fillEl = document.getElementById('aiProgressFill');
+        const statsEl = document.getElementById('aiProgressStats');
+        const timeEl = document.getElementById('aiProgressTime');
+        
+        if (container) {
+            container.classList.remove('hidden');
+            messageEl.textContent = message;
+            fillEl.style.width = '0%';
+            statsEl.textContent = '0/0';
+            if (timeEl) timeEl.textContent = '预计剩余: 0秒';
+        }
+    }
+
+    /**
+     * 更新AI补充进度
+     */
+    updateAIProgress(current, total, percentage, message) {
+        const messageEl = document.getElementById('aiProgressMessage');
+        const fillEl = document.getElementById('aiProgressFill');
+        const statsEl = document.getElementById('aiProgressStats');
+        
+        if (messageEl) messageEl.textContent = message;
+        if (fillEl) fillEl.style.width = `${percentage}%`;
+        if (statsEl) statsEl.textContent = `${current}/${total}`;
+        
+        console.log(`🔄 AI进度：${current}/${total} (${percentage}%)`);
+    }
+
+    /**
+     * 启动倒计时（同时更新进度条和剩余时间）
+     */
+    startAIProgressCountdown(totalSeconds) {
+        // 清除之前的倒计时
+        if (this.aiCountdownTimer) {
+            clearInterval(this.aiCountdownTimer);
+        }
+        
+        const totalTime = totalSeconds;
+        let remainingSeconds = totalSeconds;
+        
+        // 立即更新一次
+        this.updateAIProgressTime(remainingSeconds);
+        this.updateProgressBarByTime(totalTime, remainingSeconds);
+        
+        // 每秒更新
+        this.aiCountdownTimer = setInterval(() => {
+            remainingSeconds--;
+            if (remainingSeconds < 0) {
+                remainingSeconds = 0;
+                clearInterval(this.aiCountdownTimer);
+            }
+            
+            // 更新时间显示
+            this.updateAIProgressTime(remainingSeconds);
+            
+            // 根据倒计时更新进度条
+            this.updateProgressBarByTime(totalTime, remainingSeconds);
+        }, 1000);
+    }
+
+    /**
+     * 根据倒计时更新进度条
+     */
+    updateProgressBarByTime(totalSeconds, remainingSeconds) {
+        const fillEl = document.getElementById('aiProgressFill');
+        if (fillEl && totalSeconds > 0) {
+            const elapsedSeconds = totalSeconds - remainingSeconds;
+            const percentage = Math.min((elapsedSeconds / totalSeconds) * 100, 100);
+            fillEl.style.width = `${percentage}%`;
+        }
+    }
+
+    /**
+     * 更新剩余时间显示
+     */
+    updateAIProgressTime(seconds) {
+        const timeEl = document.getElementById('aiProgressTime');
+        if (timeEl) {
+            if (seconds <= 0) {
+                timeEl.textContent = '即将完成...';
+            } else if (seconds < 60) {
+                timeEl.textContent = `预计剩余: ${seconds}秒`;
+            } else {
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                timeEl.textContent = `预计剩余: ${minutes}分${secs}秒`;
+            }
+        }
+    }
+
+    /**
+     * 隐藏AI补充进度
+     */
+    hideAIProgress() {
+        // 清除倒计时
+        if (this.aiCountdownTimer) {
+            clearInterval(this.aiCountdownTimer);
+            this.aiCountdownTimer = null;
+        }
+        
+        const container = document.getElementById('aiProgressContainer');
+        if (container) {
+            setTimeout(() => {
+                container.classList.add('hidden');
+            }, 500); // 延迟隐藏，让用户看到100%
+        }
+    }
+
+    /**
+     * 显示智能导入完成对话框
+     */
+    async showSmartImportCompleteDialog(words, analysis) {
+        const message = `✅ 智能分析完成！\n\n` +
+            `📊 分析结果：${analysis.description}\n` +
+            `📝 识别单词：${words.length} 个\n\n` +
+            `是否导入这些单词？`;
+
+        const userChoice = confirm(message + '\n\n点击"确定"导入，点击"取消"继续编辑');
+
+        if (userChoice) {
+            // 用户选择立即导入
+            await this.confirmSmartImport();
+        } else {
+            // 用户选择"再等等"，激活编辑模式
+            this.activateSmartImportEditMode();
+        }
+    }
+
+    /**
+     * 确认智能导入
+     */
+    async confirmSmartImport() {
+        if (!this.tempSmartImportBook) return;
+
+        const bookName = prompt('请输入词书名称：', this.tempSmartImportBook.name);
+        if (!bookName) return;
+
+        // 添加为新词书
+        const newBook = Storage.addBook({
+            name: bookName,
+            words: this.tempSmartImportBook.words
+        });
+
+        // 选中新词书
+        this.currentBook = newBook;
+        Storage.saveCurrentBook(newBook.id);
+
+        // 清理临时词书
+        this.tempSmartImportBook = null;
+        this.currentWordListBookId = null;
+
+        // 返回首页并刷新词书列表
+        this.showScreen('welcomeScreen');
+        this.loadBooks();
+
+        alert(`✅ 词书"${bookName}"已成功导入！\n共 ${newBook.words.length} 个单词`);
+    }
+
+    /**
+     * 激活智能导入编辑模式
+     */
+    activateSmartImportEditMode() {
+        // 自动进入编辑模式
+        if (!this.isWordListEditMode) {
+            this.toggleWordListEditMode();
+        }
+
+        // 提示用户
+        alert('💡 已进入编辑模式\n\n您可以：\n• 直接点击单元格编辑内容\n• 使用收藏和删除按钮管理单词\n• 编辑完成后点击"完成"按钮导入');
     }
 
     // 加载示例单词
@@ -845,6 +1818,9 @@ class WordMemoryApp {
             exampleContainer.classList.remove('show');
         }
 
+        // 关闭记忆方法卡片（切换单词时自动关闭）
+        this.closeMemoryAid();
+
         // 生成选项
         this.generateOptions(word);
         
@@ -970,7 +1946,8 @@ class WordMemoryApp {
                 `;
             }
             
-            btn.onclick = () => this.selectOption(option, actualCorrectAnswer);
+            // 使用 dataset.option 而不是闭包变量，这样修改 dataset.option 后点击事件能获取到新值
+            btn.onclick = () => this.selectOption(btn.dataset.option, actualCorrectAnswer);
             container.appendChild(btn);
         });
         
@@ -1071,7 +2048,480 @@ class WordMemoryApp {
         this.speak(this.currentExample);
     }
 
+    // 显示记忆方法
+    async showMemoryAid() {
+        const currentWord = this.sessionWords[this.currentWordIndex];
+        if (!currentWord) return;
+
+        console.log('💡 显示记忆方法:', currentWord.word);
+
+        // 判断是移动端还是PC端
+        const isMobile = window.innerWidth <= 768;
+
+        if (isMobile) {
+            // 移动端：显示蒙版弹窗
+            const modal = document.getElementById('memoryAidModal');
+            const modalBody = document.getElementById('memoryAidModalBody');
+            
+            // 显示加载状态
+            modalBody.innerHTML = `
+                <div class="memory-loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在生成记忆方法...</p>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            modal.classList.add('show');
+
+            // 调用API获取记忆方法
+            const memoryContent = await this.getMemoryAidFromAI(currentWord);
+            modalBody.innerHTML = memoryContent;
+        } else {
+            // PC端：直接在下方显示卡片
+            const card = document.getElementById('memoryAidCard');
+            const content = document.getElementById('memoryAidContent');
+            
+            // 显示加载状态
+            content.innerHTML = `
+                <div class="memory-loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在生成记忆方法...</p>
+                </div>
+            `;
+            card.classList.remove('hidden');
+            card.classList.add('show');
+
+            // 调用API获取记忆方法
+            const memoryContent = await this.getMemoryAidFromAI(currentWord);
+            content.innerHTML = memoryContent;
+        }
+    }
+
+    // 调用QWEN模型获取记忆方法
+    async getMemoryAidFromAI(wordData) {
+        try {
+            const apiKey = this.settings.aiApiKey || '';
+            if (!apiKey) {
+                return `
+                    <div class="memory-method-section">
+                        <div class="memory-method-title">⚠️ 未配置API密钥</div>
+                        <div class="memory-method-content">
+                            <p>请先在设置中配置硅基流动API密钥才能使用AI记忆辅助功能。</p>
+                            <p>前往 设置 → AI工坊设置 → 配置API密钥</p>
+                            <p style="margin-top: 8px; font-size: 0.85rem; color: var(--text-tertiary);">
+                                💡 使用邀请码 <strong style="color: var(--primary-color);">WtZO3i7N</strong> 可免费获赠2000万token
+                            </p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            console.log('🔑 使用API密钥长度:', apiKey.length);
+
+            const word = wordData.word;
+            const meaning = wordData.definitions?.[0]?.meaning || '';
+            const example = wordData.definitions?.[0]?.example || '';
+
+            const prompt = `请帮我生成记忆英文单词"${word}"的方法。
+
+单词信息：
+- 单词：${word}
+- 释义：${meaning}
+${example ? `- 例句：${example}` : ''}
+
+请严格按照以下JSON格式返回，只返回JSON，不要有其他文字：
+
+{
+  "methods": [
+    {
+      "type": "词根词缀法",
+      "content": "具体的词根词缀分析"
+    },
+    {
+      "type": "联想记忆",
+      "content": "联想记忆的具体方法"
+    },
+    {
+      "type": "近义词",
+      "content": "相关的近义词或反义词"
+    },
+    {
+      "type": "名言名句",
+      "content": "使用${word}的名人名言或著作名句"
+    }
+  ]
+}
+
+要求：
+1. 只返回适用的记忆方法，不适用的直接省略
+2. 每个方法的content要简洁实用，名言名句必须有真实来源，不要编造
+3. 必须是有效的JSON格式，不要使用中文引号""
+4. content中避免使用换行符，用空格或分号代替
+5. 不要添加任何注释或额外文字`;
+
+            console.log('🚀 开始调用QWEN API...');
+            console.log('📝 提示词:', prompt);
+
+            const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'Qwen/Qwen2.5-7B-Instruct',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 1000
+                })
+            });
+
+            console.log('📡 API响应状态:', response.status);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ API请求失败:', errorText);
+                throw new Error(`API请求失败 (${response.status}): ${errorText}`);
+            }
+
+            const data = await response.json();
+            console.log('✅ API响应数据:', data);
+            
+            const aiResponse = data.choices?.[0]?.message?.content || '生成失败';
+            console.log('💡 AI生成的记忆方法:', aiResponse);
+
+            // 格式化AI响应
+            return this.formatMemoryAidContent(aiResponse);
+        } catch (error) {
+            console.error('获取记忆方法失败:', error);
+            return `
+                <div class="memory-method-section">
+                    <div class="memory-method-title">❌ 生成失败</div>
+                    <div class="memory-method-content">
+                        <p>无法连接到AI服务，请检查：</p>
+                        <ul>
+                            <li>API密钥是否正确</li>
+                            <li>网络连接是否正常</li>
+                            <li>API额度是否充足</li>
+                        </ul>
+                        <p>错误信息：${error.message}</p>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // 根据记忆方法类型自动匹配图标
+    getMemoryMethodIcon(type) {
+        const iconMap = {
+            '词根词缀法': '🌱',
+            '词根词缀': '🌱',
+            '联想记忆法': '💭',
+            '联想记忆': '💭',
+            '谐音记忆': '🎵',
+            '谐音联想': '🎵',
+            '近义词': '🔄',
+            '反义词': '↔️',
+            '同义词': '🔄',
+            '例句名言': '📝',
+            '名言': '📝',
+            '名言名句': '📝',
+            '词源故事': '📚',
+            '词源': '📚',
+            '形象记忆': '🎨',
+            '场景记忆': '🎬',
+            '搭配用法': '🔗',
+            '用法搭配': '🔗'
+        };
+        
+        // 精确匹配
+        if (iconMap[type]) {
+            return iconMap[type];
+        }
+        
+        // 模糊匹配
+        for (const key in iconMap) {
+            if (type.includes(key) || key.includes(type)) {
+                return iconMap[key];
+            }
+        }
+        
+        // 默认图标
+        return '💡';
+    }
+    
+    // 格式化记忆方法内容
+    formatMemoryAidContent(content) {
+        try {
+            // 尝试清理可能存在的markdown代码块标记
+            let cleanContent = content.trim();
+            
+            // 移除可能的 ```json 和 ``` 标记
+            cleanContent = cleanContent.replace(/^```json\s*/i, '');
+            cleanContent = cleanContent.replace(/^```\s*/, '');
+            cleanContent = cleanContent.replace(/```\s*$/, '');
+            cleanContent = cleanContent.trim();
+            
+            // 替换中文引号为英文引号
+            cleanContent = cleanContent.replace(/"/g, '"').replace(/"/g, '"');
+            cleanContent = cleanContent.replace(/'/g, "'").replace(/'/g, "'");
+            
+            // 移除或转义控制字符（换行、制表符等）
+            cleanContent = cleanContent.replace(/[\n\r\t]/g, ' ');
+            
+            console.log('🧹 清理后的内容:', cleanContent);
+            
+            // 尝试解析JSON
+            const data = JSON.parse(cleanContent);
+            
+            if (!data.methods || !Array.isArray(data.methods) || data.methods.length === 0) {
+                throw new Error('无效的JSON结构');
+            }
+            
+            console.log('✅ JSON解析成功:', data);
+            console.log('📊 方法数量:', data.methods.length);
+            
+            // 生成美观的HTML
+            let html = '';
+            
+            data.methods.forEach((method, index) => {
+                const type = method.type || '记忆方法';
+                const icon = this.getMemoryMethodIcon(type); // 自动匹配图标
+                const content = method.content || '';
+                
+                console.log(`  方法${index + 1}: type="${type}", icon="${icon}", content长度=${content.length}`);
+                
+                if (!content) {
+                    console.log(`  ⚠️ 跳过空内容: type="${type}"`);
+                    return; // 跳过空内容
+                }
+                
+                html += `
+                    <div class="memory-method-section">
+                        <div class="memory-method-title">
+                            <span class="memory-icon">${icon}</span>
+                            <span class="memory-type">${type}</span>
+                        </div>
+                        <div class="memory-method-content">
+                            ${this.formatContentText(content)}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            console.log('🎨 生成的HTML长度:', html.length);
+            return html || '<p>暂无记忆方法</p>';
+            
+        } catch (error) {
+            console.error('❌ JSON解析失败，使用备用格式化:', error);
+            console.log('原始内容:', content);
+            
+            // 如果JSON解析失败，使用备用的文本格式化
+            return this.formatContentAsPlainText(content);
+        }
+    }
+    
+    // 格式化内容文本（处理特殊格式）
+    formatContentText(text) {
+        if (!text) return '';
+        
+        let formatted = text.trim();
+        
+        // 处理粗体 **文字**
+        formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong class="memory-highlight">$1</strong>');
+        
+        // 处理列表项（- 开头）
+        if (formatted.includes('\n- ')) {
+            const lines = formatted.split('\n');
+            let result = '';
+            let inList = false;
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (line.startsWith('- ')) {
+                    if (!inList) {
+                        result += '<ul class="memory-list">';
+                        inList = true;
+                    }
+                    result += `<li>${line.substring(2)}</li>`;
+                } else {
+                    if (inList) {
+                        result += '</ul>';
+                        inList = false;
+                    }
+                    if (line) {
+                        result += `<p>${line}</p>`;
+                    }
+                }
+            });
+            
+            if (inList) {
+                result += '</ul>';
+            }
+            
+            return result;
+        }
+        
+        // 处理普通换行
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        return formatted;
+    }
+    
+    // 备用的纯文本格式化（当JSON解析失败时使用）
+    formatContentAsPlainText(content) {
+        let formatted = content.trim();
+        
+        // 尝试提取JSON对象，即使格式不完美
+        try {
+            // 清理中文引号和特殊字符
+            let cleaned = formatted
+                .replace(/"/g, '"').replace(/"/g, '"')
+                .replace(/'/g, "'").replace(/'/g, "'")
+                .replace(/[\n\r\t]/g, ' ')
+                .replace(/\s+/g, ' '); // 多个空格合并为一个
+            
+            // 尝试再次解析
+            const data = JSON.parse(cleaned);
+            if (data.methods && Array.isArray(data.methods)) {
+                console.log('🔄 备用格式化中成功解析JSON');
+                let html = '';
+                data.methods.forEach(method => {
+                    const type = method.type || '记忆方法';
+                    const icon = this.getMemoryMethodIcon(type);
+                    const content = method.content || '';
+                    if (content) {
+                        html += `
+                            <div class="memory-method-section">
+                                <div class="memory-method-title">
+                                    <span class="memory-icon">${icon}</span>
+                                    <span class="memory-type">${type}</span>
+                                </div>
+                                <div class="memory-method-content">
+                                    ${this.formatContentText(content)}
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                if (html) return html;
+            }
+        } catch (e) {
+            console.log('🔄 备用格式化也无法解析JSON，使用纯文本处理');
+        }
+        
+        // 如果还是失败，尝试手动提取type和content
+        console.log('🔄 进入纯文本提取模式');
+        
+        // 尝试匹配 "type": "xxx" 和 "content": "xxx" 的模式
+        const methodRegex = /"type"\s*:\s*"([^"]+)"\s*,?\s*"content"\s*:\s*"([^"]+)"/gi;
+        const matches = [...formatted.matchAll(methodRegex)];
+        
+        if (matches.length > 0) {
+            console.log(`📝 手动提取到 ${matches.length} 个方法`);
+            let html = '';
+            matches.forEach(match => {
+                const type = match[1];
+                const content = match[2];
+                const icon = this.getMemoryMethodIcon(type);
+                
+                html += `
+                    <div class="memory-method-section">
+                        <div class="memory-method-title">
+                            <span class="memory-icon">${icon}</span>
+                            <span class="memory-type">${type}</span>
+                        </div>
+                        <div class="memory-method-content">
+                            ${this.formatContentText(content)}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            if (html) return html;
+        }
+        
+        // 最后的纯文本处理
+        console.log('📄 使用最终的纯文本格式化');
+        formatted = formatted
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/, '')
+            .replace(/```\s*$/, '')
+            .replace(/[{}\[\]"]/g, '') // 移除JSON符号
+            .replace(/\btype:\s*/gi, '\n\n')
+            .replace(/\bcontent:\s*/gi, '')
+            .replace(/\bmethods:\s*/gi, '')
+            .replace(/\bicon:\s*[^\s,}]+,?\s*/gi, '') // 移除icon字段
+            .replace(/,\s*,/g, ',') // 移除多余逗号
+            .replace(/^[#*\-,]+\s*/gm, '') // 移除markdown符号
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        
+        // 简单分段
+        const paragraphs = formatted.split(/\n\n+/).filter(p => p.trim());
+        let html = '';
+        
+        paragraphs.forEach((para, index) => {
+            para = para.trim();
+            if (para && para.length > 2) { // 忽略太短的段落
+                html += `
+                    <div class="memory-method-section">
+                        <div class="memory-method-title">
+                            <span class="memory-icon">💡</span>
+                            <span class="memory-type">记忆提示 ${index + 1}</span>
+                        </div>
+                        <div class="memory-method-content">
+                            ${para.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>
+                `;
+            }
+        });
+        
+        return html || `
+            <div class="memory-method-section">
+                <div class="memory-method-content">
+                    ${content.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+        `;
+    }
+
+    // 关闭记忆方法卡片
+    closeMemoryAid() {
+        // PC端卡片
+        const card = document.getElementById('memoryAidCard');
+        if (card) {
+            card.classList.remove('show');
+            setTimeout(() => {
+                card.classList.add('hidden');
+            }, 300);
+        }
+
+        // 移动端弹窗
+        const modal = document.getElementById('memoryAidModal');
+        if (modal) {
+            modal.classList.remove('show');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+    }
+
     selectOption(selected, correct) {
+        console.log('📝 selectOption 被调用:', { selected, correct });
+        
+        // 检测是否点击了"如何记忆？"按钮
+        if (selected === '如何记忆？') {
+            console.log('💡 检测到点击"如何记忆？"按钮');
+            this.showMemoryAid();
+            return;
+        }
+        
         // 移除焦点，避免移动端出现绿色边框
         if (document.activeElement) {
             document.activeElement.blur();
@@ -1175,6 +2625,24 @@ class WordMemoryApp {
             
             // 显示例句并朗读（不知道样式）
             this.showExampleOnWrongAnswer('unknown');
+            
+            // 将"不知道"按钮文字改为"如何记忆？"
+            const unknownButton = Array.from(buttons).find(btn => btn.dataset.option === '不知道');
+            if (unknownButton && !unknownButton.dataset.memoryAidMode) {
+                const optionContent = unknownButton.querySelector('.option-content');
+                if (optionContent) {
+                    const optionText = optionContent.querySelector('.option-text');
+                    if (optionText) {
+                        optionText.textContent = '如何记忆？';
+                        // 修改dataset.option的值，这样点击时才能正确识别
+                        unknownButton.dataset.option = '如何记忆？';
+                        unknownButton.dataset.memoryAidMode = 'true'; // 标记已改变
+                        unknownButton.classList.add('memory-aid-btn');
+                        // 移除禁用状态，允许点击
+                        unknownButton.disabled = false;
+                    }
+                }
+            }
             
             // ❌ 不知道后不允许直接切换，必须点击正确答案才能切换
             document.getElementById('nextBtn').disabled = true;
@@ -2939,6 +4407,9 @@ class WordMemoryApp {
 
         // 加载AI API密钥
         document.getElementById('aiApiKey').value = this.settings.aiApiKey || '';
+        
+        // 加载Hugging Face API密钥
+        document.getElementById('hfApiKey').value = this.settings.hfApiKey || '';
 
         // 加载自动保存统计数据设置
         document.getElementById('autoSaveStats').checked = this.settings.autoSaveStats !== false; // 默认开启
@@ -3130,7 +4601,8 @@ class WordMemoryApp {
             autoNext: document.getElementById('autoNext').checked,
             autoNextTime: parseFloat(document.getElementById('autoNextTime').value),
             autoSaveStats: document.getElementById('autoSaveStats').checked, // 保存自动缓存设置
-            aiApiKey: document.getElementById('aiApiKey').value.trim() || '', // 保存AI API密钥
+            aiApiKey: document.getElementById('aiApiKey').value.trim() || '', // 保存AI API密钥（AI工坊）
+            hfApiKey: document.getElementById('hfApiKey').value.trim() || '', // 保存Hugging Face API密钥（智能导入）
             hotkeys: {
                 option1: document.getElementById('hotkey1').value,
                 option2: document.getElementById('hotkey2').value,
@@ -3164,6 +4636,7 @@ class WordMemoryApp {
                 autoNext: true,
                 autoNextTime: 3,
                 aiApiKey: '', // 默认为空，用户需要自己配置
+                hfApiKey: '', // 默认为空，用户需要自己配置
                 hotkeys: {
                     option1: '1',
                     option2: '2',
@@ -4321,7 +5794,16 @@ class WordMemoryApp {
     
     // 保存所有单词表编辑
     saveAllWordListEdits() {
-        const book = Storage.getBook(this.currentWordListBookId);
+        // 判断是否为临时词书（智能导入模式）
+        const isSmartImport = this.tempSmartImportBook && this.currentWordListBookId === 'temp_smart_import';
+        
+        let book;
+        if (isSmartImport) {
+            book = this.tempSmartImportBook;
+        } else {
+            book = Storage.getBook(this.currentWordListBookId);
+        }
+        
         if (!book) return;
         
         let hasChanges = false;
@@ -4388,17 +5870,22 @@ class WordMemoryApp {
             }
         });
         
+        if (isSmartImport) {
+            // 智能导入模式：编辑完成后自动导入
         if (hasChanges) {
-            // 保存到存储
+                console.log('✅ 智能导入编辑已保存');
+                this.showToast('编辑已保存', 'success');
+            }
+            // 完成编辑后，询问是否导入
+            this.confirmSmartImport();
+        } else {
+            // 普通模式：保存到Storage
+            if (hasChanges) {
             Storage.updateBook(this.currentWordListBookId, book);
-            
-            // 重新加载词书列表
             this.loadBooks();
-            
             console.log('✅ 单词表编辑已保存');
-            
-            // 显示提示
             this.showToast('保存成功', 'success');
+            }
         }
     }
     
@@ -5817,20 +7304,17 @@ class WordMemoryApp {
             
             if (lastResult.correct) {
                 badge.textContent = '✓ 上一题正确';
-                badge.style.background = 'var(--success)';
-                badge.style.color = 'white';
+                
             } else if (lastResult.partial) {
                 badge.textContent = '△ 上一题部分正确';
-                badge.style.background = 'var(--warning)';
-                badge.style.color = 'white';
+                
             } else if (lastResult.skipped) {
                 badge.textContent = '⊘ 上一题跳过';
-                badge.style.background = 'var(--text-tertiary)';
-                badge.style.color = 'white';
+                
+               
             } else {
                 badge.textContent = '✗ 上一题错误';
-                badge.style.background = 'var(--error)';
-                badge.style.color = 'white';
+               
             }
         } else {
             badge.style.display = 'none';
@@ -8090,6 +9574,221 @@ But little did she know, this was just the beginning of an extraordinary journey
                 ctx.fill();
             });
         }
+
+        // 添加鼠标移动事件监听器来显示数据点
+        const chartKey = `${canvasId}_mousemove`;
+        if (!this.chartEventListeners) {
+            this.chartEventListeners = {};
+        }
+        
+        // 移除旧的监听器
+        if (this.chartEventListeners[chartKey]) {
+            canvas.removeEventListener('mousemove', this.chartEventListeners[chartKey]);
+            canvas.removeEventListener('mouseleave', this.chartEventListeners[`${chartKey}_leave`]);
+        }
+        
+        // 创建重绘基础图表的函数（不包含事件监听器）
+        const redrawBase = () => {
+            // 设置高DPI显示
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            
+            const width = rect.width;
+            const height = rect.height;
+            
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            
+            // 绘制网格线和Y轴标签
+            ctx.strokeStyle = gridColor;
+            ctx.lineWidth = 1;
+            ctx.font = '11px Inter';
+            ctx.fillStyle = textColor;
+            ctx.textAlign = 'right';
+
+            for (let i = 0; i <= gridLines; i++) {
+                const y = padding.top + (chartHeight / gridLines) * i;
+                const value = Math.round(maxValue - (valueRange / gridLines) * i);
+                
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(width - padding.right, y);
+                ctx.stroke();
+
+                ctx.fillText(value.toString(), padding.left - 10, y + 4);
+            }
+
+            // 绘制X轴标签
+            ctx.textAlign = 'center';
+            const labelStep = Math.ceil(labels.length / 7);
+            labels.forEach((label, index) => {
+                if (index % labelStep === 0 || index === labels.length - 1) {
+                    const x = padding.left + (chartWidth / (labels.length - 1 || 1)) * index;
+                    ctx.fillText(label, x, height - 10);
+                }
+            });
+
+            // 绘制折线和点
+            if (data.length > 0) {
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
+                ctx.lineWidth = 2.5;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+
+                // 绘制渐变填充区域
+                const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+                gradient.addColorStop(0, color + '30');
+                gradient.addColorStop(1, color + '00');
+
+                ctx.beginPath();
+                data.forEach((value, index) => {
+                    const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                    const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+
+                const lastX = padding.left + chartWidth;
+                const baseY = padding.top + chartHeight;
+                ctx.lineTo(lastX, baseY);
+                ctx.lineTo(padding.left, baseY);
+                ctx.closePath();
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // 绘制折线
+                ctx.beginPath();
+                data.forEach((value, index) => {
+                    const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                    const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.strokeStyle = color;
+                ctx.stroke();
+
+                // 绘制数据点
+                data.forEach((value, index) => {
+                    const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                    const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = styles.getPropertyValue('--surface').trim();
+                    ctx.fill();
+                });
+            }
+        };
+        
+        // 创建新的监听器
+        const mouseMoveHandler = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 检查是否悬停在某个数据点附近
+            let hoveredIndex = -1;
+            let minDistance = 15; // 检测范围
+            
+            data.forEach((value, index) => {
+                const x = padding.left + (chartWidth / (data.length - 1 || 1)) * index;
+                const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                const distance = Math.sqrt(Math.pow(mouseX - x, 2) + Math.pow(mouseY - y, 2));
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    hoveredIndex = index;
+                }
+            });
+            
+            // 重绘基础图表
+            redrawBase();
+            
+            // 如果悬停在数据点上，显示提示
+            if (hoveredIndex >= 0) {
+                const value = data[hoveredIndex];
+                const label = labels[hoveredIndex];
+                const x = padding.left + (chartWidth / (data.length - 1 || 1)) * hoveredIndex;
+                const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+                
+                // 高亮数据点
+                ctx.beginPath();
+                ctx.arc(x, y, 7, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = styles.getPropertyValue('--surface').trim();
+                ctx.fill();
+                
+                // 绘制提示框
+                const text = `${value}${unit}`;
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'center';
+                const textWidth = ctx.measureText(text).width;
+                const tooltipPadding = 8;
+                const tooltipWidth = textWidth + tooltipPadding * 2;
+                const tooltipHeight = 24;
+                const tooltipX = x - tooltipWidth / 2;
+                let tooltipY = y - 35;
+                
+                // 确保提示框在画布内
+                if (tooltipY < 0) {
+                    tooltipY = y + 20;
+                }
+                if (tooltipX < 0) {
+                    tooltipX = 5;
+                } else if (tooltipX + tooltipWidth > width) {
+                    tooltipX = width - tooltipWidth - 5;
+                }
+                
+                // 绘制提示框背景
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 4);
+                ctx.fill();
+                
+                // 绘制提示框文字
+                ctx.fillStyle = '#ffffff';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, x, tooltipY + tooltipHeight / 2);
+                
+                canvas.style.cursor = 'pointer';
+            } else {
+                canvas.style.cursor = 'default';
+            }
+        };
+        
+        const mouseLeaveHandler = () => {
+            // 鼠标离开时重绘图表，移除高亮
+            redrawBase();
+            canvas.style.cursor = 'default';
+        };
+        
+        // 保存监听器引用
+        this.chartEventListeners[chartKey] = mouseMoveHandler;
+        this.chartEventListeners[`${chartKey}_leave`] = mouseLeaveHandler;
+        
+        // 添加监听器
+        canvas.addEventListener('mousemove', mouseMoveHandler);
+        canvas.addEventListener('mouseleave', mouseLeaveHandler);
     }
 }
 

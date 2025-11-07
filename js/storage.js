@@ -242,7 +242,34 @@ const Storage = {
     // 获取最近N天的统计数据
     getRecentStats(days = 30) {
         const history = this.loadStatsHistory();
-        return history.slice(0, days);
+        const result = [];
+        const today = new Date();
+        
+        // 从今天往前推N天
+        for (let i = 0; i < days; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toDateString();
+            
+            // 查找该日期的数据
+            const found = history.find(item => item.date === dateStr);
+            
+            if (found) {
+                result.push(found);
+            } else {
+                // 如果没有数据，创建一个空记录
+                result.push({
+                    date: dateStr,
+                    time: 0,
+                    words: 0,
+                    correct: 0,
+                    wrong: 0,
+                    mastery: 0
+                });
+            }
+        }
+        
+        return result;
     },
 
     // 删除指定日期的统计数据

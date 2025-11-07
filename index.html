@@ -128,9 +128,9 @@
                             <line x1="12" y1="3" x2="12" y2="15"/>
                         </svg>
                         <p class="upload-text">拖拽文件到此处或点击上传</p>
-                        <p class="upload-hint">支持 TXT、CSV、DOCX、Excel 格式</p>
+                        <p class="upload-hint">支持 TXT、CSV、DOCX、Excel 格式 | AI智能识别</p>
                         <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.xls,.docx" hidden>
-                        <button class="btn-primary" id="uploadBtn">选择文件</button>
+                        <button class="btn-primary" id="uploadBtn">🧠 智能导入</button>
                     </div>
 
                     <div class="or-divider">
@@ -220,6 +220,25 @@
                             </div>
                             <div class="options-container" id="optionsContainer">
                                 <!-- 动态生成选项 -->
+                            </div>
+                        </div>
+                        
+                        <!-- 记忆方法卡片（PC端直接显示在下方） -->
+                        <div class="memory-aid-card hidden" id="memoryAidCard">
+                            <div class="memory-aid-header">
+                                <h3>💡 如何记忆</h3>
+                                <button class="btn-close-memory" id="closeMemoryAidBtn">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="memory-aid-content" id="memoryAidContent">
+                                <div class="memory-loading">
+                                    <div class="loading-spinner"></div>
+                                    <p>正在生成记忆方法...</p>
+                                </div>
                             </div>
                         </div>
 
@@ -828,7 +847,28 @@
                             共 <span id="wordListTotalCount">0</span> 个单词
                         </p>
                     </div>
+                    <!-- AI补充进度显示 -->
+                    <div class="ai-progress-container hidden" id="aiProgressContainer">
+                        <div class="ai-progress-text">
+                            <span class="ai-progress-icon">🤖</span>
+                            <span id="aiProgressMessage">正在补充单词信息...</span>
+                        </div>
+                        <div class="ai-progress-bar">
+                            <div class="ai-progress-fill" id="aiProgressFill"></div>
+                        </div>
+                        <div class="ai-progress-stats">
+                            <span id="aiProgressStats">0/0</span>
+                            <span id="aiProgressTime" class="ai-progress-time">预计剩余: 0秒</span>
+                        </div>
+                    </div>
                     <div class="word-list-actions">
+                        <button class="btn-word-list-action" id="fillMissingBtn" title="自动检查并补全词单的音标、释义和例句">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            <span>补缺</span>
+                        </button>
                         <button class="btn-word-list-action" id="toggleEditModeBtn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1244,7 +1284,7 @@
                 <!-- AI工坊设置选项卡 -->
                 <div class="settings-tab-content" id="aiSettings">
                     <div class="setting-group">
-                        <label class="setting-label">硅基流动 API密钥</label>
+                        <label class="setting-label">硅基流动 API密钥（AI工坊）</label>
                         <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxx">
                         <div class="setting-hint" style="margin-top: 8px;">
                             <div style="margin-bottom: 4px;">💡 <strong>如何获取免费API密钥：</strong></div>
@@ -1253,6 +1293,33 @@
                                 2. 注册账号（使用邀请码 <code style="background: #f0f0f0; padding: 2px 6px;font-size: x-large; border-radius: 3px; color: #d63031;">WtZO3i7N</code> 可<strong>免费获赠2000万token</strong>）<br>
                                 3. 在"API密钥管理"中创建新密钥<br>
                                 4. 将密钥复制粘贴到上方输入框<br>
+                            </div>
+                            <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
+                                ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e0e0e0;">
+                        <label class="setting-label">🧠 智能导入 API配置</label>
+                        <div class="setting-hint" style="margin-top: 8px; margin-bottom: 16px;">
+                            <div style="padding: 12px; background: #e8f5e9; border-radius: 6px; font-size: 13px;">
+                                ℹ️ <strong>智能导入说明：</strong><br>
+                                • 智能导入功能<strong>默认使用上方的"硅基流动 API密钥"</strong><br>
+                                • 如果硅基流动API不可用，会自动降级到Hugging Face（如已配置）<br>
+                                • 两者均使用相同的Qwen大模型，效果一致
+                            </div>
+                        </div>
+                        
+                        <label class="setting-label" style="margin-top: 16px; font-size: 14px; color: #666;">Hugging Face API密钥（可选/备用）</label>
+                        <input type="password" class="setting-input" id="hfApiKey" placeholder="hf_xxxxxxxxxxxx（可选）">
+                        <div class="setting-hint" style="margin-top: 8px;">
+                            <div style="margin-bottom: 4px;">💡 <strong>如何获取Hugging Face API密钥：</strong></div>
+                            <div style="padding-left: 20px; line-height: 1.8;">
+                                1. 访问 <a href="https://huggingface.co/settings/tokens" target="_blank" style="color: #667eea;">Hugging Face Tokens</a><br>
+                                2. 注册/登录账号<br>
+                                3. 创建新的 Access Token（选择 Read 权限即可）<br>
+                                4. 将 Token 复制粘贴到上方输入框<br>
                             </div>
                             <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
                                 ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
@@ -1491,6 +1558,28 @@
     <!-- 粒子动画容器 -->
     <canvas id="particleCanvas" class="particle-canvas"></canvas>
     
+    <!-- 移动端记忆方法蒙版弹窗 -->
+    <div class="memory-aid-modal hidden" id="memoryAidModal">
+        <div class="memory-aid-modal-overlay"></div>
+        <div class="memory-aid-modal-content">
+            <div class="memory-aid-modal-header">
+                <h3>💡 如何记忆</h3>
+                <button class="btn-close-memory-modal" id="closeMemoryAidModalBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="memory-aid-modal-body" id="memoryAidModalBody">
+                <div class="memory-loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在生成记忆方法...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- 文本选择浮动工具栏 -->
     <div class="text-selection-toolbar hidden" id="textSelectionToolbar">
         <div class="toolbar-buttons" id="toolbarButtons">
@@ -1551,16 +1640,18 @@
             </svg>
             <span>词书</span>
         </button>
-        <button class="mobile-nav-btn mobile-nav-center" id="mobileOpenWorkshop" title="AI工坊">
-            <span class="ai-icon">
-                🎨
-            </span>
-            <span>AI工坊</span>
+        <button class="mobile-nav-btn mobile-nav-center" id="mobileGoHome" title="主页">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span>主页</span>
         </button>
         <button class="mobile-nav-btn" id="mobileToggleStats" title="今日统计">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
+                <line x1="18" y1="20" x2="18" y2="10"/>
+                <line x1="12" y1="20" x2="12" y2="4"/>
+                <line x1="6" y1="20" x2="6" y2="14"/>
             </svg>
             <span>统计</span>
         </button>
@@ -1573,6 +1664,7 @@
     <script src="data/synonym-538-data.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>
+    <script src="js/ai-service.js"></script>
     <script src="js/word-parser.js"></script>
     <script src="js/app.js"></script>
     
