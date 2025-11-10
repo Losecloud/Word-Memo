@@ -34,6 +34,11 @@ class WordMemoryApp {
             unknown: 0
         }; // 本次session已经记录到今日统计的数量，避免重复计数
         this.statsDisplayTimer = null; // 今日统计显示更新定时器（每秒更新显示，不保存）
+        this.lastActivityTime = null; // 最后一次用户活动时间（防挂机）
+        this.isPausedDueToInactivity = false; // 是否因无活动而暂停计时
+        this.pausedTime = null; // 暂停时的时间点
+        this.pausedElapsedMinutes = 0; // 暂停时已累计的时长（分钟）
+        this.activityTrackerBound = null; // 活动跟踪函数的绑定引用（用于移除监听器）
         this.isReviewMode = false; // 是否处于复习模式
         this.reviewingWrongCount = 0; // 正在复习的错题数量
         this.isWordListEditMode = false; // 单词表是否处于编辑模式
@@ -47,6 +52,8 @@ class WordMemoryApp {
         this.currentQuestions = []; // 当前题目
         this.userAnswers = {}; // 用户答案
         this.keywordInputTimer = null; // 输入计时器
+        this.readingTimer = null; // 阅读计时器定时器
+        this.readingTimerSeconds = 300; // 阅读计时器秒数（5分钟 = 300秒）
         
         // 同义词练习相关
         this.synonymDocs = []; // 文档列表（支持多文档缓存）
@@ -980,7 +987,8 @@ class WordMemoryApp {
             'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
             // 其他常用词
             'yes', 'no', 'ok', 'please', 'thanks', 'sorry', 'hello', 'hi', 'bye', 'goodbye', "sb", "sth", "black", 
-            "white", "red", "green", "pink", "yellow", "blue", "orange", "purple", "brown", "gray", 
+            "white", "red", "green", "pink", "yellow", "blue", "orange", "purple", "brown", "gray", "ing", "ed", "s",
+             "ly", "er", "est", "tion", "ment", "ness", "ity", "able", "ible", "al", "ful", "less", "ous", "ive", "y"
         ]);
 
         // 检查哪些单词是A1级
@@ -1753,6 +1761,9 @@ class WordMemoryApp {
 
         // 显示侧边栏和统计面板
         document.getElementById('sidebar').classList.remove('collapsed');
+        
+        // 移动端：自动关闭侧边栏弹窗
+        this.closeMobileSidebar();
         
         // 启动今日统计显示定时器
         this.startStatsDisplayTimer();
@@ -3508,7 +3519,21 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('statsAccuracy').textContent = `${accuracy}%`;
 
         // 保存最后的时间增量（单词数和答题结果已在实时更新中记录，避免重复）
-        const elapsed = (Date.now() - this.startTime) / 60000; // 分钟（保留小数）
+        // 计算实际学习时长（考虑暂停的情况）
+        let elapsed = 0;
+        if (this.effectiveStartTime) {
+            // 如果当前处于暂停状态，使用暂停时的累计时长
+            if (this.isPausedDueToInactivity && this.pausedElapsedMinutes > 0) {
+                elapsed = this.pausedElapsedMinutes;
+            } else {
+                // 否则计算从有效开始时间到现在的时长
+                elapsed = (Date.now() - this.effectiveStartTime) / 60000; // 分钟（保留小数）
+            }
+        } else {
+            // 兼容旧逻辑：如果没有有效开始时间，使用原始开始时间
+            elapsed = (Date.now() - this.startTime) / 60000;
+        }
+        
         if (elapsed > 0) {
             const currentStats = Storage.loadStats();
             Storage.updateStats({
@@ -4707,7 +4732,33 @@ ${example ? `- 例句：${example}` : ''}
             this.sessionStatsRecorded.unknown = this.sessionResults.unknown;
             
             // 计算当前session的实时时长（分钟，保留小数以支持秒级精度）
-            const currentElapsed = (Date.now() - this.startTime) / 60000;
+            // 考虑暂停的情况：如果处于暂停状态，不更新时长（暂停期间不计入学习时长）
+            if (this.isPausedDueToInactivity) {
+                // 暂停期间不更新时长，只更新答题统计
+                const currentStats = Storage.loadStats();
+                const wordsToAdd = this.isReviewMode ? 0 : newTotal;
+                
+                Storage.updateStats({
+                    words: currentStats.words + wordsToAdd,
+                    correct: currentStats.correct + newCorrect,
+                    wrong: currentStats.wrong + newWrong + newUnknown
+                });
+                
+                // 更新界面显示
+                this.updateStats();
+                
+                console.log(`📊 实时统计更新（暂停中，不计时长）- 新增: ${newTotal}词 (✓${newCorrect} ✗${newWrong} ?${newUnknown})`);
+                return;
+            }
+            
+            // 正常情况：计算时长并更新
+            let currentElapsed = 0;
+            if (this.effectiveStartTime) {
+                currentElapsed = (Date.now() - this.effectiveStartTime) / 60000;
+            } else {
+                // 兼容旧逻辑
+                currentElapsed = (Date.now() - this.startTime) / 60000;
+            }
             
             // 更新存储的统计数据
             const currentStats = Storage.loadStats();
@@ -4722,8 +4773,16 @@ ${example ? `- 例句：${example}` : ''}
                 wrong: currentStats.wrong + newWrong + newUnknown  // unknown也算作wrong
             });
             
-            // 重置开始时间，下次只计算增量时间
-            this.startTime = Date.now();
+            // 更新基础分钟数和有效开始时间，下次只计算增量时间
+            this.baseMinutes = currentStats.time;
+            if (this.effectiveStartTime) {
+                this.effectiveStartTime = Date.now();
+                // 更新定时器的基础时间（不重启，只是更新内部变量）
+                this.baseMinutes = currentStats.time;
+            } else {
+                // 兼容旧逻辑
+                this.startTime = Date.now();
+            }
             
             // 更新界面显示
             this.updateStats();
@@ -4734,23 +4793,83 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 启动今日统计显示定时器（每秒更新时长显示）
-    startStatsDisplayTimer() {
+    startStatsDisplayTimer(customStartTime = null, customBaseMinutes = null) {
         // 清除可能存在的旧定时器
         this.stopStatsDisplayTimer();
         
         // 记录基础统计（分钟数）
         const baseStats = Storage.loadStats();
-        const baseMinutes = baseStats.time || 0;
-        const baseStartTime = this.startTime;
+        // 如果提供了自定义基础分钟数，使用它；否则使用存储的统计
+        const baseMinutes = customBaseMinutes !== null ? customBaseMinutes : (baseStats.time || 0);
+        // 如果提供了自定义开始时间，使用它；否则使用 this.startTime
+        let effectiveStartTime = customStartTime !== null ? customStartTime : this.startTime;
+        
+        if (!effectiveStartTime) {
+            console.warn('⚠️ 无法启动统计显示定时器：开始时间未设置');
+            return;
+        }
+        
+        // 初始化活动跟踪
+        this.lastActivityTime = Date.now();
+        this.isPausedDueToInactivity = false;
+        this.pausedTime = null;
+        this.pausedElapsedMinutes = 0;
+        this.effectiveStartTime = effectiveStartTime; // 存储可修改的开始时间
+        this.baseMinutes = baseMinutes; // 存储基础分钟数
+        
+        // 启动活动跟踪监听器
+        this.startActivityTracking();
         
         // 每秒更新一次时长显示（不保存到storage）
         this.statsDisplayTimer = setInterval(() => {
-            // 计算经过的总秒数
-            const elapsedSeconds = Math.floor((Date.now() - baseStartTime) / 1000);
+            // 检查用户活动状态
+            const now = Date.now();
+            const inactiveDuration = now - this.lastActivityTime; // 无活动时长（毫秒）
+            const INACTIVE_THRESHOLD = 3 * 60 * 1000; // 3分钟（毫秒）
+            
+            // 如果超过3分钟无活动，暂停计时
+            if (inactiveDuration >= INACTIVE_THRESHOLD && !this.isPausedDueToInactivity) {
+                // 计算暂停前的累计时长
+                const elapsedBeforePause = (this.lastActivityTime - this.effectiveStartTime) / 60000;
+                this.pausedElapsedMinutes = elapsedBeforePause;
+                this.pausedTime = this.lastActivityTime;
+                this.isPausedDueToInactivity = true;
+                console.log(`⏸️ 检测到3分钟无活动，已暂停计时（暂停前时长: ${elapsedBeforePause.toFixed(2)}分钟）`);
+            }
+            
+            // 如果用户恢复活动，继续计时
+            if (inactiveDuration < INACTIVE_THRESHOLD && this.isPausedDueToInactivity) {
+                // 恢复计时：调整开始时间，使得累计时长 = 暂停时的时长 + (当前时间 - 恢复时间)
+                const resumeTime = Date.now();
+                // 调整开始时间：newStartTime = resumeTime - pausedElapsedMinutes
+                this.effectiveStartTime = resumeTime - (this.pausedElapsedMinutes * 60000);
+                this.isPausedDueToInactivity = false;
+                this.pausedTime = null;
+                console.log(`▶️ 检测到用户活动，已恢复计时（恢复前累计: ${this.pausedElapsedMinutes.toFixed(2)}分钟）`);
+                this.pausedElapsedMinutes = 0;
+            }
+            
+            // 如果处于暂停状态，不更新计时
+            if (this.isPausedDueToInactivity) {
+                // 显示暂停时的时长（不增加）
+                const totalMinutes = this.baseMinutes + this.pausedElapsedMinutes;
+                const minutes = Math.floor(totalMinutes);
+                const seconds = Math.floor((totalMinutes - minutes) * 60);
+                const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                
+                const timeElement = document.getElementById('todayTime');
+                if (timeElement && timeElement.textContent !== timeStr) {
+                    timeElement.textContent = timeStr;
+                }
+                return;
+            }
+            
+            // 计算经过的总秒数（从调整后的开始时间计算）
+            const elapsedSeconds = Math.floor((Date.now() - this.effectiveStartTime) / 1000);
             // 转换为分钟（小数）
             const elapsedMinutes = elapsedSeconds / 60;
-            // 总时长（分钟）
-            const totalMinutes = baseMinutes + elapsedMinutes;
+            // 总时长（分钟）= 基础时长 + 当前session的时长
+            const totalMinutes = this.baseMinutes + elapsedMinutes;
             
             // 转换为 MM:SS 格式
             const minutes = Math.floor(totalMinutes);
@@ -4758,6 +4877,11 @@ ${example ? `- 例句：${example}` : ''}
             const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             
             const timeElement = document.getElementById('todayTime');
+            if (!timeElement) {
+                // 如果元素不存在（比如不在统计面板可见的页面），跳过更新
+                return;
+            }
+            
             const oldTimeStr = timeElement.textContent;
             
             // 每秒都更新显示
@@ -4774,7 +4898,45 @@ ${example ? `- 例句：${example}` : ''}
             }
         }, 1000);
         
-        console.log('⏱️ 今日统计显示定时器已启动（MM:SS格式）');
+        console.log('⏱️ 今日统计显示定时器已启动（MM:SS格式，防挂机保护已启用）');
+    }
+    
+    // 启动用户活动跟踪
+    startActivityTracking() {
+        // 绑定函数以便后续移除监听器
+        this.activityTrackerBound = this.trackUserActivity.bind(this);
+        
+        // 监听各种用户活动事件
+        const events = ['mousedown', 'mousemove', 'keydown', 'keypress', 'scroll', 'touchstart', 'touchmove', 'click', 'wheel'];
+        events.forEach(event => {
+            document.addEventListener(event, this.activityTrackerBound, { passive: true });
+        });
+        
+        console.log('👆 用户活动跟踪已启动（防挂机保护）');
+    }
+    
+    // 停止用户活动跟踪
+    stopActivityTracking() {
+        if (this.activityTrackerBound) {
+            const events = ['mousedown', 'mousemove', 'keydown', 'keypress', 'scroll', 'touchstart', 'touchmove', 'click', 'wheel'];
+            events.forEach(event => {
+                document.removeEventListener(event, this.activityTrackerBound);
+            });
+            this.activityTrackerBound = null;
+            console.log('👆 用户活动跟踪已停止');
+        }
+    }
+    
+    // 跟踪用户活动
+    trackUserActivity() {
+        // 更新最后一次活动时间
+        this.lastActivityTime = Date.now();
+        
+        // 如果当前处于暂停状态，恢复计时
+        if (this.isPausedDueToInactivity) {
+            console.log('▶️ 检测到用户活动，恢复计时');
+            // 恢复逻辑在定时器中处理
+        }
     }
     
     // 停止今日统计显示定时器
@@ -4784,6 +4946,15 @@ ${example ? `- 例句：${example}` : ''}
             this.statsDisplayTimer = null;
             console.log('⏱️ 今日统计显示定时器已停止');
         }
+        
+        // 停止活动跟踪
+        this.stopActivityTracking();
+        
+        // 重置活动跟踪状态
+        this.lastActivityTime = null;
+        this.isPausedDueToInactivity = false;
+        this.pausedTime = null;
+        this.pausedElapsedMinutes = 0;
     }
 
     // 检查复习
@@ -5329,6 +5500,9 @@ ${example ? `- 例句：${example}` : ''}
         // 切换到学习界面
         this.showScreen('learningScreen');
         document.getElementById('sidebar').classList.remove('collapsed');
+        
+        // 移动端：自动关闭侧边栏弹窗
+        this.closeMobileSidebar();
         
         // 启动今日统计显示定时器
         this.startStatsDisplayTimer();
@@ -6454,6 +6628,9 @@ ${example ? `- 例句：${example}` : ''}
     closeAiWorkshop() {
         this.showScreen('welcomeScreen');
         
+        // 停止阅读计时器
+        this.stopReadingTimer();
+        
         // 清除缓存的故事和题目数据
         this.currentStory = null;
         this.currentQuestions = [];
@@ -6513,6 +6690,32 @@ ${example ? `- 例句：${example}` : ''}
     // ============================================
     
     // 切换移动端词书列表
+    // 关闭移动端侧边栏
+    closeMobileSidebar() {
+        const sidebar = document.querySelector('.sidebar');
+        const btn = document.getElementById('mobileToggleSidebar');
+        
+        if (sidebar && sidebar.classList.contains('mobile-show')) {
+            sidebar.classList.remove('mobile-show');
+            if (btn) {
+                btn.classList.remove('active');
+            }
+        }
+    }
+    
+    // 关闭移动端统计面板
+    closeMobileStats() {
+        const statsPanel = document.querySelector('.stats-panel');
+        const btn = document.getElementById('mobileToggleStats');
+        
+        if (statsPanel && statsPanel.classList.contains('mobile-show')) {
+            statsPanel.classList.remove('mobile-show');
+            if (btn) {
+                btn.classList.remove('active');
+            }
+        }
+    }
+    
     toggleMobileSidebar() {
         const sidebar = document.querySelector('.sidebar');
         const statsPanel = document.querySelector('.stats-panel');
@@ -6996,6 +7199,17 @@ ${example ? `- 例句：${example}` : ''}
         this.synonymCurrentIndex = 0;
         this.synonymResults = [];
         
+        // 初始化学习时长统计
+        this.synonymStartTime = Date.now();
+        this.synonymStatsRecorded = { correct: 0, wrong: 0, partial: 0 }; // 已记录的统计，避免重复计数
+        
+        // 获取当前已保存的时长作为基础
+        const baseStats = Storage.loadStats();
+        this.synonymBaseMinutes = baseStats.time || 0;
+        
+        // 启动实时统计显示定时器（秒级更新）
+        this.startStatsDisplayTimer(this.synonymStartTime, this.synonymBaseMinutes);
+        
         // 显示练习页面
         document.getElementById('synonymConfig').classList.add('hidden');
         document.getElementById('synonymPractice').classList.remove('hidden');
@@ -7165,6 +7379,9 @@ ${example ? `- 例句：${example}` : ''}
             correctAnswers: correctAnswers
         });
         
+        // 实时更新学习时长统计
+        this.updateSynonymStatsRealtime(isFullyCorrect, isPartiallyCorrect);
+        
         // 显示反馈
         this.showSynonymFeedback(isFullyCorrect, isPartiallyCorrect, correctAnswers, incorrectSelected, missed);
     }
@@ -7249,6 +7466,10 @@ ${example ? `- 例句：${example}` : ''}
             userAnswers: [],
             correctAnswers: this.synonymCurrentWord.synonyms
         });
+        
+        // 实时更新学习时长统计（跳过算作错误）
+        this.updateSynonymStatsRealtime(false, false);
+        
         this.nextSynonymWord();
     }
     
@@ -7259,6 +7480,52 @@ ${example ? `- 例句：${example}` : ''}
         const correct = this.synonymResults.filter(r => r.correct).length;
         const partial = this.synonymResults.filter(r => r.partial).length;
         const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+        
+        // 停止实时统计显示定时器
+        this.stopStatsDisplayTimer();
+        
+        // 记录最终的学习时长和剩余统计
+        if (this.synonymStartTime || this.effectiveStartTime) {
+            // 计算实际学习时长（考虑暂停的情况）
+            let elapsed = 0;
+            const effectiveStart = this.effectiveStartTime || this.synonymStartTime;
+            
+            if (effectiveStart) {
+                // 如果当前处于暂停状态，使用暂停时的累计时长
+                if (this.isPausedDueToInactivity && this.pausedElapsedMinutes > 0) {
+                    elapsed = this.pausedElapsedMinutes;
+                } else {
+                    elapsed = (Date.now() - effectiveStart) / 60000; // 分钟（保留小数）
+                }
+            }
+            
+            if (elapsed > 0) {
+                // 计算剩余未记录的统计
+                const remainingCorrect = correct - (this.synonymStatsRecorded.correct || 0);
+                const remainingWrong = (total - correct - partial) - (this.synonymStatsRecorded.wrong || 0);
+                const remainingPartial = partial - (this.synonymStatsRecorded.partial || 0);
+                
+                // 如果有剩余未记录的统计，更新统计（包括部分正确的也算错误）
+                if (remainingCorrect > 0 || remainingWrong > 0 || remainingPartial > 0 || elapsed > 0.01) {
+                    const currentStats = Storage.loadStats();
+                    Storage.updateStats({
+                        time: currentStats.time + elapsed,
+                        correct: currentStats.correct + remainingCorrect,
+                        wrong: currentStats.wrong + remainingWrong + remainingPartial // 部分正确也算错误
+                    });
+                    
+                    console.log(`📊 同义词练习完成统计 - 时长: ${elapsed.toFixed(2)}分钟, 正确: ${remainingCorrect}, 错误: ${remainingWrong + remainingPartial}`);
+                }
+            }
+            
+            // 重置开始时间
+            this.synonymStartTime = null;
+            this.synonymBaseMinutes = null;
+            this.effectiveStartTime = null;
+        }
+        
+        // 更新今日统计显示
+        this.updateStats();
         
         // 显示完成页面
         document.getElementById('synonymPractice').classList.add('hidden');
@@ -7271,9 +7538,83 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('synonymStatsAccuracy').textContent = `${accuracy}%`;
     }
     
+    // 实时更新同义词练习统计（类似学习模式的实时更新）
+    updateSynonymStatsRealtime(isFullyCorrect, isPartiallyCorrect) {
+        if (!this.synonymStartTime) return;
+        
+        // 计算本次新增的答题数
+        const currentCorrect = this.synonymResults.filter(r => r.correct).length;
+        const currentWrong = this.synonymResults.filter(r => !r.correct && !r.partial && !r.skipped).length;
+        const currentPartial = this.synonymResults.filter(r => r.partial).length;
+        
+        const newCorrect = currentCorrect - (this.synonymStatsRecorded.correct || 0);
+        const newWrong = currentWrong - (this.synonymStatsRecorded.wrong || 0);
+        const newPartial = currentPartial - (this.synonymStatsRecorded.partial || 0);
+        const newTotal = newCorrect + newWrong + newPartial;
+        
+        if (newTotal > 0) {
+            // 更新已记录的统计，避免下次重复计数
+            this.synonymStatsRecorded.correct = currentCorrect;
+            this.synonymStatsRecorded.wrong = currentWrong;
+            this.synonymStatsRecorded.partial = currentPartial;
+            
+            // 更新存储的统计数据（只更新答题统计，不更新时长）
+            // 时长由定时器实时显示，只在完成/退出时保存
+            const currentStats = Storage.loadStats();
+            
+            // 同义词模式：部分正确也算错误，不计入学习单词数（因为这是练习，不是学习新单词）
+            Storage.updateStats({
+                correct: currentStats.correct + newCorrect,
+                wrong: currentStats.wrong + newWrong + newPartial // 部分正确也算错误
+            });
+            
+            // 更新界面显示（单词数和正确率）
+            this.updateStats();
+            
+            console.log(`📊 同义词实时统计更新 - 新增: ${newTotal}题 (✓${newCorrect} ✗${newWrong} △${newPartial})`);
+        }
+    }
+    
     // 退出练习
     exitSynonymPractice() {
         if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
+            // 停止实时统计显示定时器
+            this.stopStatsDisplayTimer();
+            
+            // 记录已学习的时长（即使退出也记录）
+            if (this.synonymStartTime || this.effectiveStartTime) {
+                // 计算实际学习时长（考虑暂停的情况）
+                let elapsed = 0;
+                const effectiveStart = this.effectiveStartTime || this.synonymStartTime;
+                
+                if (effectiveStart) {
+                    // 如果当前处于暂停状态，使用暂停时的累计时长
+                    if (this.isPausedDueToInactivity && this.pausedElapsedMinutes > 0) {
+                        elapsed = this.pausedElapsedMinutes;
+                    } else {
+                        elapsed = (Date.now() - effectiveStart) / 60000;
+                    }
+                }
+                
+                if (elapsed > 0) {
+                    // 只更新时长，不更新答题统计（因为用户选择退出，不保存进度）
+                    const currentStats = Storage.loadStats();
+                    Storage.updateStats({
+                        time: currentStats.time + elapsed
+                    });
+                    
+                    console.log(`📊 同义词练习退出 - 已记录时长: ${elapsed.toFixed(2)}分钟`);
+                }
+                
+                // 重置开始时间
+                this.synonymStartTime = null;
+                this.synonymBaseMinutes = null;
+                this.effectiveStartTime = null;
+            }
+            
+            // 更新今日统计显示
+            this.updateStats();
+            
             this.showWorkshopHome();
         }
     }
@@ -8094,7 +8435,7 @@ But little did she know, this was just the beginning of an extraordinary journey
 主题：${theme}
 关键词：${keywordsStr}
 难度等级：${difficulty}
-词数：500-800单词
+词数：800-1200单词
 
 请生成一个完整的${contentType}内容，并附带4-5个阅读理解题目。`;
 
@@ -8200,6 +8541,60 @@ But little did she know, this was just the beginning of an extraordinary journey
         return text.replace(/\*\*/g, '');
     }
 
+    // 启动阅读计时器
+    startReadingTimer() {
+        // 如果已有计时器，先清除
+        this.stopReadingTimer();
+        
+        // 重置为5分钟（300秒）
+        this.readingTimerSeconds = 300;
+        
+        // 更新显示
+        this.updateReadingTimerDisplay();
+        
+        // 启动定时器
+        this.readingTimer = setInterval(() => {
+            this.readingTimerSeconds--;
+            this.updateReadingTimerDisplay();
+        }, 1000);
+    }
+    
+    // 停止阅读计时器
+    stopReadingTimer() {
+        if (this.readingTimer) {
+            clearInterval(this.readingTimer);
+            this.readingTimer = null;
+        }
+    }
+    
+    // 更新阅读计时器显示
+    updateReadingTimerDisplay() {
+        const timerElement = document.getElementById('readingTimer');
+        if (!timerElement) return;
+        
+        const isNegative = this.readingTimerSeconds < 0;
+        const absSeconds = Math.abs(this.readingTimerSeconds);
+        
+        // 计算分、秒
+        const minutes = Math.floor((absSeconds % 3600) / 60);
+        const seconds = absSeconds % 60;
+        
+        // 格式化为 分:秒
+        const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        // 如果是负值，添加负号
+        const displayString = isNegative ? `-${timeString}` : timeString;
+        
+        timerElement.textContent = displayString;
+        
+        // 如果是负值，添加红色样式
+        if (isNegative) {
+            timerElement.classList.add('negative');
+        } else {
+            timerElement.classList.remove('negative');
+        }
+    }
+
     // 显示故事
     displayStory(story) {
         // 清洗标题和内容中的Markdown标记
@@ -8237,6 +8632,9 @@ But little did she know, this was just the beginning of an extraordinary journey
         
         // 初始化关键词点击功能
         this.initKeywordHighlightClick();
+        
+        // 启动阅读计时器
+        this.startReadingTimer();
     }
     
     // 渲染单词列表
@@ -9415,6 +9813,9 @@ But little did she know, this was just the beginning of an extraordinary journey
 
         // 显示图表页面
         document.getElementById('statsChartScreen').classList.remove('hidden');
+        
+        // 移动端：自动关闭统计面板弹窗
+        this.closeMobileStats();
 
         // 默认显示最近7天数据
         this.currentChartRange = 7;

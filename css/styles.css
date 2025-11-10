@@ -3531,6 +3531,21 @@ body {
     animation: fadeIn 0.5s ease-out;
 }
 
+/* 阅读计时器 */
+.reading-timer {
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    font-family: 'Inter', monospace;
+    letter-spacing: 0.1em;
+    transition: color var(--transition-normal);
+}
+
+.reading-timer.negative {
+    color: var(--error);
+}
+
 .story-header {
     margin-bottom: var(--spacing-xl);
     display: flex;
@@ -3587,8 +3602,8 @@ body {
 /* 双页模式下的按钮样式 */
 .dual-view-mode .btn-dual-view {
     position: absolute;
-    top: var(--spacing-sm);
-    right: var(--spacing-sm);
+    top: var(--spacing-md);
+    right: var(--spacing-md);
     z-index: 10;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
@@ -3900,6 +3915,7 @@ body {
     margin-bottom: var(--spacing-xl);
     max-height: 600px;
     overflow-y: auto;
+    border: 2px solid var(--border-color);
 }
 
 .story-paragraph {
