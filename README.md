@@ -56,7 +56,7 @@ python -m http.server 8000
 
 ### 1. 导入词书
 
-[https://github.com/Losecloud/reciting/blob/bd28143a9d908fefbcb4ea5e6b48da047909a170/examples/%E6%99%BA%E8%83%BD%E5%AF%BC%E5%85%A5.mp4](https://github.com/Losecloud/reciting/issues/1#issue-3611136158)
+https://github.com/Losecloud/reciting/blob/bd28143a9d908fefbcb4ea5e6b48da047909a170/examples/%E6%99%BA%E8%83%BD%E5%AF%BC%E5%85%A5.mp4
 
 支持多种格式的词书导入：
 
