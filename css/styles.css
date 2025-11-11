@@ -5,6 +5,7 @@
     /* 颜色主题 */
     --primary-color: #4a9d9a;
     --primary-hover: #3d8582;
+    --primary-emphasis: #19aca4;
     --primary-light: #e8f5f4;
     --secondary-color: #6B7280;
     --background: #F5F7FA;
@@ -173,7 +174,7 @@ body {
 }
 
 .btn-primary:hover {
-    background: var(--primary-hover);
+    background: var(--primary-emphasis);
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
@@ -921,6 +922,22 @@ body {
 .upload-area.dragover {
     border-color: var(--primary-color);
     background: var(--primary-light);
+    background-image: url('../examples/示例格式(极速导入版).png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    position: relative;
+   
+}
+
+.upload-area:hover::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 255, 255, 0.087);
+    pointer-events: none;
+    border-radius: var(--radius-lg);
+    
 }
 
 .upload-icon {
@@ -970,9 +987,11 @@ body {
 .link {
     display: inline-block;
     margin-top: var(--spacing-lg);
+    margin-left: var(--spacing-md);
     color: var(--primary-color);
     text-decoration: none;
     font-size: 0.875rem;
+   
 }
 
 .link:hover {
@@ -7153,5 +7172,15 @@ body {
     .basic-words-buttons button {
         width: 100%;
     }
+}
+
+.upload-area:hover .upload-icon,
+.upload-area:hover .upload-text,
+.upload-area:hover .upload-hint,
+.upload-area.dragover .upload-icon,
+.upload-area.dragover .upload-text,
+.upload-area.dragover .upload-hint {
+    opacity: 0;
+    transition: opacity 0.3s;
 }
 
