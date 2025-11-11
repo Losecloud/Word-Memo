@@ -56,6 +56,8 @@ python -m http.server 8000
 
 ### 1. 导入词书
 
+<video src="./examples/智能导入.mp4" controls width="600" height="400"></video>
+
 支持多种格式的词书导入：
 
 - **CSV格式** - 推荐格式，结构清晰
