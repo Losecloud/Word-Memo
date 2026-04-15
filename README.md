@@ -27,7 +27,7 @@
 
 ### 在线使用
 
-直接访问：[https://Losecloud.github.io/reciting](https://Losecloud.github.io/reciting)
+直接访问：[https://Losecloud.github.io/reciting](https://Losecloud.github.io/VocRec)
 
 ### 本地运行
 
