@@ -27,13 +27,13 @@
 
 ### 在线使用
 
-直接访问：[https://Losecloud.github.io/reciting](https://Losecloud.github.io/VocRec)
+直接访问：[https://Losecloud.github.io/VocRec/](https://Losecloud.github.io/VocRec/)
 
 ### 本地运行
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/Losecloud/reciting.git
+git clone https://github.com/Losecloud/VocRec.git
 
 # 2. 进入项目目录
 cd reciting
@@ -189,8 +189,8 @@ reciting/
 
 ## 📮 联系方式
 
-- 问题反馈：[GitHub Issues](https://github.com/Losecloud/reciting/issues)
-- 功能建议：[GitHub Discussions](https://github.com/Losecloud/reciting/discussions)
+- 问题反馈：[GitHub Issues](https://github.com/Losecloud/VocRec/issues)
+- 功能建议：[GitHub Discussions](https://github.com/Losecloud/VocRec/discussions)
 
 ---
 
