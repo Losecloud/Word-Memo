@@ -48,3 +48,14 @@ build/
 .jekyll-metadata
 _site/
 
+/.history
+/CEFR Shadow_uni
+data/englishwords-dict.py
+data/englishwords.db
+data/kaoyan-words.json
+examples/扇贝考研.xlsx
+examples/扇贝考研.xls
+examples/有道单词表.txt
+user/user_Stray_Cloud.json
+user/user_三号.json
+examples/index.html

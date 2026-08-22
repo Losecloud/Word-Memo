@@ -1,11 +1,15 @@
 apple
 book
+ribble
 cat
+fabulous
 dog
 happy
 sad
 run
 walk
+goodwill
+descendant
 big
 small
 good
@@ -18,4 +22,6 @@ time
 world
 hello
 goodbye
+frustrate
+
 

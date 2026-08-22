@@ -1,6 +1,6 @@
 // 词忆 - Service Worker
 // 版本号（更新时修改此版本号以触发更新）
-const CACHE_VERSION = 'v1.0.0';
+const CACHE_VERSION = 'v1.0.1';
 const CACHE_NAME = `word-memory-${CACHE_VERSION}`;
 
 // 需要缓存的核心文件
@@ -12,7 +12,9 @@ const CORE_ASSETS = [
   './js/storage.js',
   './js/word-parser.js',
   './js/dictionary-api.js',
+  './js/dictionary-worker.js',
   './data/cefr-data.js',
+  './data/englishwords-dict.js',
   './static/image/book.svg',
   './static/image/menu.png',
   './manifest.json'

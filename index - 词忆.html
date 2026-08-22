@@ -78,11 +78,27 @@
                     </svg>
                 </button>
                 <button class="btn-icon" id="settingsBtn" title="设置">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
-                        <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                 </button>
+                <!-- 用户区域：未登录显示登录按钮，已登录显示昵称 + 下拉菜单 -->
+                <div class="user-area" id="userArea">
+                    <button class="btn-primary btn-login" id="headerLoginBtn">登录</button>
+                    <button class="user-menu-btn hidden" id="userMenuBtn" title="用户菜单">
+                        <span class="user-avatar" id="userAvatar">词</span>
+                        <span class="user-name" id="headerUserName">用户</span>
+                        <span class="user-caret">▾</span>
+                    </button>
+                    <div class="user-dropdown hidden" id="userDropdown">
+                        <div class="dropdown-item" id="dropdownProfile">个人信息</div>
+                        <div class="dropdown-item" id="dropdownStats">学习数据</div>
+                        <div class="dropdown-item" id="dropdownSyncDir">绑定本地文件夹</div>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-item dropdown-danger" id="dropdownLogout">退出登录</div>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
@@ -103,21 +119,43 @@
                 <div class="book-list" id="bookList">
                     <!-- 动态生成词书列表 -->
                 </div>
+                <div id="favoriteBookContainer">
+                    <!-- 收藏词单（固定在添加词书上方，动态生成） -->
+                </div>
                 <button class="btn-add-book" id="addBookBtn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <line x1="12" y1="5" x2="12" y2="19"/>
                         <line x1="5" y1="12" x2="19" y2="12"/>
                     </svg>
-                    添加词书
+                    导入词单
                 </button>
             </div>
         </aside>
 
+        <!-- 封面/学习区 左右边缘折叠控制（主按钮 + 贴合边缘的整条副按钮） -->
+        <div class="edge-toggle edge-toggle-left" id="edgeToggleLeft">
+            <span class="edge-toggle-sub" title="折叠左侧词书列表"></span>
+            <button class="edge-toggle-btn" title="折叠左侧词书列表">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 18l-6-6 6-6"/>
+                </svg>
+            </button>
+        </div>
+        <div class="edge-toggle edge-toggle-right" id="edgeToggleRight">
+            <span class="edge-toggle-sub" title="折叠右侧统计面板"></span>
+            <button class="edge-toggle-btn" title="折叠右侧统计面板">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                </svg>
+            </button>
+        </div>
+
         <!-- 中间主学习区域 -->
-        <main class="main-content">
+        <main class="main-content ">
             <!-- 欢迎页面 -->
             <div class="welcome-screen" id="welcomeScreen">
-                <div class="welcome-content">
+                <!-- 封面一：单词导入（默认） -->
+                <div class="welcome-content cover-import" id="coverImport">
                     <div class="welcome-icon">
                         <img src="static/image/book.svg" alt="词忆" class="welcome-icon-img">
                     </div>
@@ -133,7 +171,7 @@
                         <p class="upload-text">拖拽文件到此处或点击上传</p>
                         <p class="upload-hint">支持 TXT、CSV、DOCX、Excel 格式 | AI智能识别</p>
                         <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.xls,.docx" hidden>
-                        <button class="btn-primary" id="uploadBtn">立即导入</button>
+                        <button class="btn-primary" id="uploadBtn">导入词单</button>
                     </div>
 
                     <div class="or-divider">
@@ -143,6 +181,114 @@
                     <button class="btn-secondary" id="useDemoBtn">使用示例单词</button>
                     <a href="#" class="link" id="downloadTemplate">下载文档模板</a>
                 </div>
+
+                <!-- 封面二：单词星云（3D） -->
+                <div class="cover-nebula hidden" id="coverNebula">
+                    <canvas id="nebulaCanvas"></canvas>
+                    <!-- 星云加载动画：Three.js 渲染就绪前显示 -->
+                    <div class="nebula-loader" id="nebulaLoader">
+                        <div class="nebula-loader-spinner" aria-hidden="true">
+                            <div class="nebula-loader-ring nebula-loader-ring1"></div>
+                            <div class="nebula-loader-ring nebula-loader-ring2"></div>
+                            <div class="nebula-loader-core"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z"/></svg></div>
+                        </div>
+                        <div class="nebula-loader-text">正在生成词云…</div>
+                        <div class="nebula-loader-bar"><div class="nebula-loader-bar-fill"></div></div>
+                    </div>
+                    <div class="nebula-controls" id="nebulaControls">
+                        <div class="nebula-controls-header">
+                            <span class="nebula-controls-title">控制面板</span>
+                            <button type="button" class="nebula-controls-toggle" id="nebulaControlsToggle" title="折叠控制面板">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M6 9l6 6 6-6"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="nebula-controls-body" id="nebulaControlsBody">
+                        <div class="nebula-ctrl-group">
+                            <label>词单</label>
+                            <div class="nebula-bookpicker">
+                                <button type="button" class="nebula-booktrigger" id="nebulaBookTrigger">选择词单</button>
+                                <div class="nebula-bookpanel hidden" id="nebulaBookSelect"></div>
+                            </div>
+                        </div>
+                        <div class="nebula-ctrl-group">
+                            <label>等级类别</label>
+                            <select id="nebulaSortBy">
+                                <option value="cefr">CEFR等级</option>
+                                <option value="error">错误率</option>
+                                <option value="time">加入时间</option>
+                            </select>
+                        </div>
+                        <div class="nebula-ctrl-group">
+                            <label>显示详情</label>
+                            <div class="nebula-bookpicker">
+                                <button type="button" class="nebula-booktrigger" id="nebulaDetailTrigger">单词</button>
+                                <div class="nebula-bookpanel hidden" id="nebulaDetailSelect"></div>
+                            </div>
+                        </div>
+                        <div class="nebula-ctrl-group">
+                            <div class="nebula-range-labels">
+                                <label>字体大小</label>
+                                <span class="nebula-range-value" id="nebulaFontSizeValue">2.5</span>
+                            </div>
+                            <input type="range" id="nebulaFontSize" class="nebula-range" min="0.6" max="3" step="0.05" value="2.5">
+                        </div>
+                        <div class="nebula-ctrl-group">
+                            <div class="nebula-range-labels">
+                                <label>旋转速度</label>
+                                <span class="nebula-range-value" id="nebulaSpeedValue">0.1</span>
+                            </div>
+                            <input type="range" id="nebulaSpeed" class="nebula-range" min="0" max="5" step="0.1" value="0.1">
+                        </div>
+                        <div class="nebula-ctrl-group">
+                            <div class="nebula-color-labels">
+                                <label>单词颜色</label>
+                                <span>缩放反向</span>
+                            </div>
+                            <div class="nebula-color-row">
+                                <input type="color" id="nebulaWordColor" value="#4a9d9a">
+                                <label class="nebula-switch" title="缩放反向">
+                                    <input type="checkbox" id="nebulaInvertZoom">
+                                    <span class="nebula-switch-track"></span>
+                                </label>
+                            </div>
+                        </div>
+                        </div><!-- /nebula-controls-body -->
+                    </div>
+                    <!-- 点击单词弹出的完整信息卡片 -->
+                    <div class="nebula-card hidden" id="nebulaCard">
+                        <div class="nebula-card-head">
+                            <span class="nebula-card-word" id="nebulaCardWord"></span>
+                            <button type="button" class="nebula-card-fav" id="nebulaCardFav" title="收藏">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                </svg>
+                            </button>
+                            <button type="button" class="nebula-card-speak" id="nebulaCardSpeak" title="朗读">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="nebula-card-phonetic-row">
+                            <span class="nebula-card-phonetic" id="nebulaCardPhonetic"></span>
+                            <span class="nebula-card-level" id="nebulaCardLevel"></span>
+                        </div>
+                        <div class="nebula-card-mean" id="nebulaCardMean"></div>
+                        <div class="nebula-card-example" id="nebulaCardExample"></div>
+                        <div class="nebula-card-source" id="nebulaCardSource"></div>
+                    </div>
+                </div>
+                <!-- 单词导入封面：右下角切换到星云封面 -->
+                <button type="button" class="cover-switch-btn" id="switchNebulaCoverBtn" title="点击切换到🌌星云封面，可在页面设置中更改~">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="4"/>
+                        <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+                    </svg>
+                    切换星云封面
+                </button>
             </div>
 
             <!-- 单词编辑预览页面 -->
@@ -175,6 +321,7 @@
 
             <!-- 学习页面 -->
             <div class="learning-screen hidden" id="learningScreen">
+               
                 <!-- 进度条 -->
                 <div class="progress-bar">
                     <div class="progress-info">
@@ -193,6 +340,20 @@
                 <!-- 单词卡片区域 -->
                 <div class="card-container">
                     <div class="word-card" id="wordCard">
+                         <!-- 移动端学习头部：返回按钮（左）+ 发音按钮（右），仅移动端显示 -->
+                        <div class="learning-mobile-header" id="learningMobileHeader">
+                            <button class="btn-icon learning-back-btn" id="learningBackBtn" title="退出学习">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="15 18 9 12 15 6"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon btn-sound" id="soundBtnMobile" title="发音">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                </svg>
+                            </button>
+                        </div>
                         <!-- 模式1: 看单词选释义 -->
                         <div class="mode-select-meaning" id="modeSelectMeaning">
                             <div class="card-header">
@@ -226,25 +387,6 @@
                             </div>
                         </div>
                         
-                        <!-- 记忆方法卡片（PC端直接显示在下方） -->
-                        <div class="memory-aid-card hidden" id="memoryAidCard">
-                            <div class="memory-aid-header">
-                                <h3>💡 如何记忆</h3>
-                                <button class="btn-close-memory" id="closeMemoryAidBtn">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <line x1="18" y1="6" x2="6" y2="18"/>
-                                        <line x1="6" y1="6" x2="18" y2="18"/>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div class="memory-aid-content" id="memoryAidContent">
-                                <div class="memory-loading">
-                                    <div class="loading-spinner"></div>
-                                    <p>正在生成记忆方法...</p>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- 模式2: 看释义拼单词 -->
                         <div class="mode-spell-word hidden" id="modeSpellWord">
                             <div class="card-header">
@@ -283,12 +425,56 @@
                             </div>
                             <div class="spell-actions">
                                 <button class="btn-secondary" id="hintBtn">
-                                    <span class="hotkey-hint">h</span>
+                                    <span class="hotkey-hint" id="hintHotkey"></span>
                                     提示
                                 </button>
                                 <button class="btn-secondary" id="unknownSpellBtn">
                                     <span class="hotkey-hint" id="unknownSpellHotkey"></span>
                                     不知道
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 模式3: 记得么 -->
+                        <div class="mode-remember hidden" id="modeRemember">
+                            <div class="card-header">
+                                <button class="btn-icon btn-sound" id="soundBtn3">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                    </svg>
+                                </button>
+                                <div class="last-word-badge" id="lastWordBadge3"></div>
+                            </div>
+                            <div class="word-display">
+                                <h2 class="word-text" id="rememberWordText">apple</h2>
+                                <p class="word-phonetic" id="rememberWordPhonetic">/ˈæpl/</p>
+                                <div class="word-meta">
+                                    <span class="word-pos" id="rememberWordPos">n.</span>
+                                    <button class="btn-favorite" id="favoriteBtn3" title="收藏/取消收藏">
+                                        <span class="favorite-icon favorite-gray">⭐</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- 记得么模式专用的释义显示区（默认隐藏，点不记得后显示） -->
+                            <div class="remember-meaning-display hidden" id="rememberMeaningDisplay">
+                                <!-- 释义区域 (前置，默认隐藏) -->
+                                <div class="remember-meaning-section hidden" id="rememberMeaningSection" style="margin-bottom: 10px;">
+                                    <div class="example-label">📖 释义</div>
+                                    <p class="remember-meaning-text" id="rememberMeaningText"></p>
+                                </div>
+                                <!-- 例句区域 -->
+                                <div class="remember-example-section" id="rememberExampleSection">
+                                    <div class="example-label">📝 例句</div>
+                                    <p class="remember-example-text" id="rememberExampleText"></p>
+                                </div>
+                            </div>
+                            <div class="remember-actions">
+                                <button class="btn-secondary btn-remember" id="rememberBtn">记得
+                                    <span class="hotkey-hint" id="rememberHotkey"></span>
+                                </button>
+                                <button class="btn-secondary" id="notRememberBtn">不记得
+                                    <span class="hotkey-hint" id="notRememberHotkey"></span>
                                 </button>
                             </div>
                         </div>
@@ -299,6 +485,36 @@
                                 <div class="feedback-icon" id="feedbackIcon">✓</div>
                                 <p class="feedback-text" id="feedbackText">太棒了！</p>
                                 <div class="correct-answer" id="correctAnswer"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 记忆方法卡片（PC端直接显示在下方） -->
+                    <div class="memory-aid-card hidden" id="memoryAidCard">
+                        <div class="memory-aid-header">
+                            <h3>💡 如何记忆
+                                <button type="button" class="btn-refresh-memory" id="refreshMemoryAidBtn" title="重新生成">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="23 4 23 10 17 10"/>
+                                        <polyline points="1 20 1 14 7 14"/>
+                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                                    </svg>
+                                </button>
+                            </h3>
+                            <div class="memory-aid-tools">
+                                <select class="form-select memory-aid-model" id="memoryAidModel" title="选择生成记忆方法的AI模型" data-ai-model-select data-short-label="true"></select>
+                                <button class="btn-close-memory" id="closeMemoryAidBtn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                            </div>
+                        </div>
+                        <div class="memory-aid-content" id="memoryAidContent">
+                            <div class="memory-loading">
+                                <div class="loading-spinner"></div>
+                                <p>正在生成记忆方法...</p>
                             </div>
                         </div>
                     </div>
@@ -345,17 +561,13 @@
 
             <!-- AI工坊页面 -->
             <div class="ai-workshop-screen hidden" id="aiWorkshopScreen">
-                <div class="ai-workshop-header">
-                    <h2 class="ai-workshop-title">
-                        <span class="ai-icon-large">🎨</span>
-                        AI 创意工坊
-                    </h2>
-                    <button class="btn-text" id="closeAiWorkshopBtn">
+                <!-- 顶部header栏：最右侧关闭按钮（仅在AI工坊菜单页显示） -->
+                <div class="ai-workshop-header" id="aiWorkshopTopBar">
+                    <button class="ai-close-btn" id="aiWorkshopCloseBtn" title="关闭AI工坊，返回主页">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <line x1="18" y1="6" x2="6" y2="18"/>
                             <line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
-                        关闭
                     </button>
                 </div>
 
@@ -368,10 +580,24 @@
                         <button class="btn-primary workshop-app-btn">开始使用</button>
                     </div>
                     
+                    <div class="workshop-app-card" data-app="textgame">
+                        <div class="workshop-app-icon">🎭</div>
+                        <h3 class="workshop-app-title">文字游戏</h3>
+                        <p class="workshop-app-desc">与AI对话式扮演主角，进行沉浸式文字游戏（恐怖/科幻/恋爱）</p>
+                        <button class="btn-primary workshop-app-btn">开始使用</button>
+                    </div>
+                    
                     <div class="workshop-app-card" data-app="synonym">
                         <div class="workshop-app-icon">🔄</div>
                         <h3 class="workshop-app-title">同义替换练习</h3>
                         <p class="workshop-app-desc">从混合选项中选出正确的同义词，每题包含3个干扰项</p>
+                        <button class="btn-primary workshop-app-btn">开始使用</button>
+                    </div>
+
+                    <div class="workshop-app-card" data-app="writing">
+                        <div class="workshop-app-icon">✍️</div>
+                        <h3 class="workshop-app-title">CEFR写作(开发中)</h3>
+                        <p class="workshop-app-desc">输入或让AI生成英文段落，实时高亮CEFR词汇等级颜色</p>
                         <button class="btn-primary workshop-app-btn">开始使用</button>
                     </div>
                 </div>
@@ -380,8 +606,15 @@
                 <div class="reading-app-container hidden" id="readingAppContainer">
                 <div class="ai-feature-card">
                     <div class="ai-feature-header">
-                        <h3>📖 阅读联想记忆</h3>
-                        <p class="ai-feature-desc">根据收藏的单词生成阅读考题，在阅读中记忆单词</p>
+                        <div class="ai-feature-header-text">
+                            <h3>📖 阅读联想记忆</h3>
+                            <p class="ai-feature-desc">根据收藏的单词生成阅读考题，在阅读中记忆单词</p>
+                        </div>
+                        <button class="ai-close-btn" id="closeAiWorkshopBtn" title="返回AI工坊菜单页">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                        </button>
                     </div>
 
                     <!-- 输入表单 -->
@@ -389,7 +622,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label class="form-label">阅读题材</label>
-                                <select class="form-select" id="storyGenre">
+                                <select class="form-select setting-select" id="storyGenre">
                                     <option value="外文刊物">📰 外文刊物</option>
                                     <option value="生动故事">📖 生动故事</option>
                                     <option value="文献报告">📚 文献报告</option>
@@ -399,7 +632,7 @@
                             
                             <div class="form-group">
                                 <label class="form-label">文章主题</label>
-                                <select class="form-select" id="storyTheme">
+                                <select class="form-select setting-select" id="storyTheme">
                                     <option value="随机" selected>🔄 随机选择</option>
                                     <option value="科技未来">🚀 科技未来</option>
                                     <option value="环境与能源">🌍 环境与能源</option>
@@ -420,7 +653,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label class="form-label">难度等级</label>
-                                <select class="form-select" id="storyDifficulty">
+                                <select class="form-select setting-select" id="storyDifficulty">
                                     <option value="A1">A1 (初级)</option>
                                     <option value="A2">A2 (初中级)</option>
                                     <option value="B1">B1 (中级)</option>
@@ -437,14 +670,7 @@
                                     AI模型选择
                                     <span class="form-hint">(不同模型生成风格不同)</span>
                                 </label>
-                                <select class="form-select" id="aiModel">
-                                    <option value="Qwen/Qwen3-30B-A3B">Qwen3-30B-A3B (通义千问3-30B)</option>
-                                    <option value="deepseek-ai/DeepSeek-R1" selected>DeepSeek-R1 (深度求索R1)</option>
-                                    <option value="inclusionAI/Ling-1T">Ling-1T (多语言模型)</option>
-                                    <option value="Qwen/Qwen3-235B-A22B">Qwen3-235B-A22B (通义千问3-235B)</option>
-                                    <option value="zai-org/GLM-4.6">GLM-4.6 (智谱GLM-4.6)</option>
-                                    <option value="tencent/Hunyuan-A13B-Instruct">Hunyuan-A13B (腾讯混元A13B)</option>
-                                    <option value="ByteDance-Seed/Seed-OSS-36B-Instruct">Seed-OSS-36B (字节跳动Seed-36B)</option>
+                                <select class="form-select" id="aiModel" data-ai-model-select>
                                 </select>
                             </div>
                         </div>
@@ -506,7 +732,7 @@
                                                     <rect x="14" y="14" width="7" height="7"/>
                                                     <rect x="3" y="14" width="7" height="7"/>
                                                 </svg>
-                                                立即挑选
+                                                <span id="autoSelectBtnText">立即挑选</span>
                                             </button>
                                         </div>
                                      </div>
@@ -667,26 +893,514 @@
                     </div>
                 </div>
                 </div>
+
+                <!-- AI写作功能 -->
+                <div class="writing-app-container hidden" id="writingAppContainer">
+                    <div class="ai-feature-card">
+                        <div class="ai-feature-header">
+                            <div class="ai-feature-header-text">
+                                <h3>✍️ CEFR写作（开发中）</h3>
+                                <p class="ai-feature-desc">输入或让AI生成英文段落，实时高亮CEFR词汇等级颜色（A1→C2 由绿到红渐变）</p>
+                            </div>
+                            <button class="ai-close-btn" id="closeAiWorkshopBtnWriting" title="返回AI工坊菜单页">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+
+                            </button>
+                        </div>
+
+                        <!-- 紧凑配置工具栏 -->
+                        <div class="writing-toolbar">
+                            <select class="form-select toolbar-select setting-select" id="writingTopic" title="写作主题">
+                                <option value="随机" selected>🔄 随机主题</option>
+                                <option value="科技未来">🚀 科技未来</option>
+                                <option value="环境与能源">🌍 环境与能源</option>
+                                <option value="教育社科">🎓 教育社科</option>
+                                <option value="商业职场">💼 商业职场</option>
+                                <option value="健康与生活">❤️ 健康与生活</option>
+                                <option value="社会问题">🔍 社会问题</option>
+                                <option value="文化交流">🎭 文化交流</option>
+                                <option value="个人经历">📝 个人经历</option>
+                            </select>
+                            <select class="form-select toolbar-select setting-select" id="writingLevel" title="目标等级">
+                                <option value="A1">A1 初级</option>
+                                <option value="A2">A2 初中级</option>
+                                <option value="B1">B1 中级</option>
+                                <option value="B2" selected>B2 中高级</option>
+                                <option value="C1">C1 高级</option>
+                                <option value="C2">C2 精通</option>
+                            </select>
+                            <select class="form-select toolbar-select setting-select" id="writingStyle" title="文体">
+                                <option value="议论文" selected>议论文</option>
+                                <option value="记叙文">记叙文</option>
+                                <option value="说明文">说明文</option>
+                                <option value="书信">书信</option>
+                                <option value="演讲稿">演讲稿</option>
+                            </select>
+                            <select class="form-select toolbar-select" id="writingAiModel" title="AI模型" data-ai-model-select data-short-label="true">
+                                </select>
+                            <input type="text" id="writingPrompt" class="form-input toolbar-prompt" placeholder="额外要求（可选）...">
+                            <button class="btn-primary btn-generate" id="generateWritingBtn">
+                                <span class="generate-icon">✨</span>
+                                AI生成
+                            </button>
+                            <button class="btn-secondary" id="clearWritingBtn" title="清空">🗑️</button>
+                            <button class="btn-secondary" id="toggleCefrMarkBtn" title="切换染色">
+                                <span>🎨</span>
+                                <span id="cefrMarkLabel">染色</span>
+                            </button>
+                        </div>
+
+                        <!-- 主工作区：顶部三列 + 大输入区 -->
+                        <div class="writing-workspace">
+                            <div class="writing-top-row">
+                                <!-- 左：题目卡片 -->
+                                <div class="writing-topic-card">
+                                    <div class="topic-icon-wrap"><span class="topic-icon">?</span></div>
+                                    <div class="topic-content" id="writingTopicContent">
+                                        点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。
+                                    </div>
+                                </div>
+
+                               
+
+                                <!-- 右：等级评估框（含柱状图 + score-btn + tips） -->
+                                <div class="writing-eval-box">
+                                    <!-- 左：CEFR柱状图 -->
+                                    <div class="eval-chart" id="evalChart">
+                                        <!-- 6级柱状图（基线30%，输入后增长到30+百分比） -->
+                                        <div class="cefr-bars" id="cefrBars">
+                                            <div class="cefr-bar" data-level="A1" style="--bar-color:#57912b">
+                                                <div class="bar-fill" id="barFillA1"><span class="bar-pct" id="barPctA1">0%</span><span class="bar-label">A1</span></div>
+                                            </div>
+                                            <div class="cefr-bar" data-level="A2" style="--bar-color:#93a418">
+                                                <div class="bar-fill" id="barFillA2"><span class="bar-pct" id="barPctA2">0%</span><span class="bar-label">A2</span></div>
+                                            </div>
+                                            <div class="cefr-bar" data-level="B1" style="--bar-color:#b9780f">
+                                                <div class="bar-fill" id="barFillB1"><span class="bar-pct" id="barPctB1">0%</span><span class="bar-label">B1</span></div>
+                                            </div>
+                                            <div class="cefr-bar" data-level="B2" style="--bar-color:#b6620e">
+                                                <div class="bar-fill" id="barFillB2"><span class="bar-pct" id="barPctB2">0%</span><span class="bar-label">B2</span></div>
+                                            </div>
+                                            <div class="cefr-bar" data-level="C1" style="--bar-color:#b32e27">
+                                                <div class="bar-fill" id="barFillC1"><span class="bar-pct" id="barPctC1">0%</span><span class="bar-label">C1</span></div>
+                                            </div>
+                                            <div class="cefr-bar" data-level="C2" style="--bar-color:#b1296d">
+                                                <div class="bar-fill" id="barFillC2"><span class="bar-pct" id="barPctC2">0%</span><span class="bar-label">C2</span></div>
+                                            </div>
+                                        </div>
+                                        <!-- 三段组介绍标签（空状态显示，0.5s 渐隐） -->
+                                        <div class="cefr-intro-label beg-intro" id="begIntro">beg</div>
+                                        <div class="cefr-intro-label intm-intro" id="intmIntro">intm</div>
+                                        <div class="cefr-intro-label adv-intro" id="advIntro">adv</div>
+                                    </div>
+
+                                    <!-- 右：数据 + 按钮 -->
+                                    <div class="eval-data">
+                                        <div class="eval-stats">
+                                            <div><span id="writingTypeCount">0</span> types</div>
+                                            <div><span id="writingTokenCount">0</span> tokens</div>
+                                        </div>
+                                        <div class="tip-row">
+                                            <!-- tip-btn（带阴影） -->
+                                            <div class="tip-btn" id="tipBtn">
+                                                <div class="tip-shadow"></div>
+                                                <div class="tip-content" id="tipContent">
+                                                    <span class="tip-text">All set!</span>
+                                                </div>
+                                            </div>
+                                            <!-- score-btn（带阴影，颜色=等级色） -->
+                                            <div class="score-btn-wrap">
+                                                <div class="score-btn-shadow" id="scoreBtnShadow"></div>
+                                                <div class="score-btn" id="scoreBtn">
+                                                    <span class="score-btn-level" id="writingEstimatedLevel">A1</span>
+                                                    <span class="score-btn-sub">综合评估 &gt;</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 输入区（单层 contenteditable，兼具编辑和渲染） -->
+                            <div class="writing-input-wrapper cefr-active">
+                                <div id="writingEditor" class="writing-editor" contenteditable="true" spellcheck="true" data-placeholder="Input your opinion here..."></div>
+                            </div>
+                        </div>
+
+                        <!-- 底部导航（5 图标胶囊） -->
+                        <div class="writing-bottom-nav">
+                            <div class="nav-item" id="navLikeBtn" title="点赞">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            </div>
+                            <div class="nav-item" id="navDeleteBtn" title="清空">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                            </div>
+                            <div class="nav-item" id="navPhotoBtn" title="拍照识别">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            </div>
+                            <div class="nav-item" id="navCopyBtn" title="复制">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </div>
+                            <div class="nav-item" id="navSettingBtn" title="设置" style="transform:scale(0.85)">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            </div>
+                        </div>
+
+                        <!-- 计时器按钮（位于主题卡片右上角浮动） -->
+                        <button class="writing-timer-btn" id="writingTimerBtn" title="计时（长按结束）">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <span id="timerDisplay">00:00</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 写作设置面板（底部滑入） -->
+                <div class="setting-overlay" id="settingOverlay">
+                    <div class="setting-panel" id="settingPanel">
+                        <div class="setting-header">
+                            <span class="setting-title">写作设置</span>
+                            <button class="setting-close" id="settingCloseBtn" title="关闭">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>
+                            </button>
+                        </div>
+                        <div class="setting-content">
+                            <div class="setting-item">
+                                <div class="setting-item-info">
+                                    <div class="setting-item-title">CEFR词汇标记</div>
+                                    <div class="setting-item-desc">显示不同CEFR等级的词汇颜色</div>
+                                </div>
+                                <label class="switch-wrap">
+                                    <input type="checkbox" id="settingCefrSwitch">
+                                    <span class="switch-slider"></span>
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-item-info">
+                                    <div class="setting-item-title">输入防抖</div>
+                                    <div class="setting-item-desc">停顿后自动刷新统计（500ms）</div>
+                                </div>
+                                <label class="switch-wrap">
+                                    <input type="checkbox" id="settingDebounceSwitch" checked>
+                                    <span class="switch-slider"></span>
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-item-info">
+                                    <div class="setting-item-title">AI实时纠正</div>
+                                    <div class="setting-item-desc">自动检测拼写和语法错误</div>
+                                </div>
+                                <label class="switch-wrap">
+                                    <input type="checkbox" id="settingAiSwitch">
+                                    <span class="switch-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 纠错弹窗容器 -->
+                <div id="correctionPopup"></div>
+
+                <!-- 文字游戏功能 -->
+                <div class="textgame-app-container hidden" id="textGameAppContainer">
+                    <div class="ai-feature-card">
+                        <div class="ai-feature-header">
+                            <div class="ai-feature-header-text">
+                                <h3>🎭 文字游戏</h3>
+                                <p class="ai-feature-desc">通过对话扮演主角，与AI旁白互动展开趣味剧情</p>
+                            </div>
+                            <button class="ai-close-btn" id="closeAiWorkshopBtnTextGame" title="返回AI工坊菜单页">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- 配置表单 -->
+                        <div class="ai-story-form" id="textGameConfig">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">游戏题材</label>
+                                    <select class="form-select setting-select" id="textGameGenre">
+                                        <option value="horror">👻 恐怖悬疑</option>
+                                        <option value="sci-fi">🚀 科幻烧脑</option>
+                                        <option value="romance">💗 恋爱物语</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">主角性别</label>
+                                    <select class="form-select setting-select" id="textGameGender">
+                                        <option value="male">男</option>
+                                        <option value="female">女</option>
+                                        <option value="unknown" selected>未知</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">词汇等级</label>
+                                    <select class="form-select setting-select" id="textGameVocabLevel">
+                                        <option value="A">A</option>
+                                        <option value="B1" selected>B1</option>
+                                        <option value="B2" >B2</option>
+                                        <option value="C1">C1</option>
+                                        <option value="C2">C2</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        AI模型选择
+                                        <span class="form-hint">(不同模型生成风格不同)</span>
+                                    </label>
+                                    <select class="form-select" id="textGameAiModel" data-ai-model-select>
+                                        </select>
+                                </div>
+                            </div>
+
+                            <!-- Keywords selector: reuse reading app's keyword selector (moved at runtime) -->
+                            <div class="form-group">
+                                <label class="form-label">
+                                    Keywords
+                                    <span class="form-hint">(Use the shared selector — choose from books/favorites/review or input manually)</span>
+                                </label>
+                                <div id="textGameKeywordPlaceholder">
+                                    <!-- At runtime the shared keyword selector will be moved here -->
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="btn-primary btn-generate" id="generateGameBtn">
+                                    <span class="generate-icon">✨</span>
+                                    Start Game
+                                </button>
+                                <button class="btn-secondary" id="useDemoGameBtn">
+                                    <span>📝</span>
+                                    Use Demo (for debug)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 游戏展示区 -->
+                        <div class="ai-story-display hidden" id="textGameDisplay">
+                            <div class="story-header">
+                                <div class="story-header-content">
+                                    <h3 class="story-title" id="textGameTitle">Text Game</h3>
+                                    <div class="story-meta">
+                                        <span class="story-meta-item" id="textGameMeta"></span>
+                                    </div>
+                                </div>
+                                <button class="btn-dual-view" id="toggleTextGameDualViewBtn" title="双页展示（仅PC端可用）">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="7" height="18" rx="1"/>
+                                        <rect x="14" y="3" width="7" height="18" rx="1"/>
+                                    </svg>
+                                    <span>双页展示</span>
+                                </button>
+                            </div>
+                        <!-- 固定显示场景摘要（右上角）-->
+                        <div id="sceneMeta" class="scene-meta hidden" aria-hidden="true"style="margin-left: 15px;">
+                            <div id="sceneBackground" class="scene-background" aria-live="polite"></div>
+                            <div id="sceneMission" class="scene-mission" aria-live="polite"></div>
+                           
+                        </div>
+                            <div class="story-content" id="textGameContent">
+                                <!-- Conversation dialog: AI as narrator (left), Player as right bubbles -->
+                                <div id="messageList" class="message-list" aria-live="polite" role="log"></div>
+                                 <!-- 通关进度条：位于 scene-mission 下方 -->
+                                <div id="sceneProgress" class="scene-progress hidden" aria-live="polite">
+                                    <div class="scene-progress-head">
+                                        <span class="scene-progress-label">通关进度</span>
+                                        <span class="scene-progress-value" id="sceneProgressValue">0%</span>
+                                    </div>
+                                    <div class="scene-progress-track">
+                                        <div class="scene-progress-bar" id="sceneProgressBar"></div>
+                                    </div>
+                                </div>
+                                <!-- Reply bar: shows quick-replies (choices) or input -->
+                                <div id="replyBar" class="reply-bar">
+                                    <div id="gameChoices" class="choices-grid hidden" aria-live="polite"></div>
+
+                                    <div id="playerInputContainer" class="hidden player-input-wrapper">
+                                        <textarea id="playerInput" class="player-input" rows="3" placeholder="Type your action here..."></textarea>
+                                        <div class="player-input-actions">
+                                            <button class="btn-secondary" id="playerSubmitBtn">Submit</button>
+                                            <button class="btn-text" id="playerCancelBtn">Cancel</button>
+                                        </div>
+                                        <div id="inputFeedback" class="input-feedback" aria-live="polite"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="story-actions">
+                                <button class="btn-secondary" id="textGameRegenerateBtn">Regenerate</button>
+                                <button class="btn-primary" id="textGameExitBtn">Exit Game</button>
+                            </div>
+                            <!-- inline styles for small UI pieces -->
+                            <style>
+                                .choices-grid {
+                                    display: grid;
+                                    grid-template-columns: repeat(2, 1fr);
+                                    gap: 12px;
+                                    margin: 16px;
+                                }
+                                .choice-card {
+                                    background: var(--surface);
+                                    border-radius: 12px;
+                                    padding: 12px;
+                                    box-shadow: var(--shadow-sm);
+                                    cursor: pointer;
+                                    transition: transform 160ms ease, box-shadow 160ms ease;
+                                    border: 1px solid rgba(0,0,0,0.04);
+                                }
+                                .choice-card:hover {
+                                    transform: translateY(-6px);
+                                    box-shadow: var(--shadow-md);
+                                }
+                                .choice-text {
+                                    font-size: 0.98rem;
+                                    line-height: 1.4;
+                                    color: var(--text-primary);
+                                }
+                                .choice-meta {
+                                    margin-top: 8px;
+                                    display:flex;
+                                    justify-content:space-between;
+                                    align-items:center;
+                                }
+                                .skip-btn {
+                                    justify-self: center;
+                                }
+                                .player-input {
+                                    width:100%;
+                                    padding:10px;
+                                    border-radius:8px;
+                                    border:1px solid #ddd;
+                                    resize:vertical;
+                                    transition:opacity 300ms ease, transform 300ms ease;
+                                }
+                                .fade-in {
+                                    animation: fadeIn 400ms ease forwards;
+                                }
+                                @keyframes fadeIn {
+                                    from { opacity: 0; transform: translateY(6px); }
+                                    to { opacity: 1; transform: translateY(0); }
+                                }
+                                .input-feedback { margin-top:8px; color:var(--text-secondary); font-size:0.9rem; }
+                                /* Dialog / message styles */
+                                .message-list {
+                                    display:flex;
+                                    flex-direction:column;
+                                    gap:12px;
+                                    max-height:420px;
+                                    overflow:auto;
+                                    padding:16px;
+                                    background:transparent;
+                                }
+                                .message {
+                                    max-width:78%;
+                                    padding:12px 14px;
+                                    border-radius:12px;
+                                    box-shadow:var(--shadow-sm);
+                                    line-height:1.5;
+                                }
+                                .message-ai {
+                                    background:var(--surface-secondary);
+                                    align-self:flex-start;
+                                    border-top-left-radius:6px;
+                                    /* 保留 AI 返回文本中的 \n 换行符 */
+                                    white-space: pre-line;
+                                }
+                                .message-player {
+                                    display:flex;
+                                    align-items:center;
+                                    gap:8px;
+                                    padding:0;
+                                    background:transparent;
+                                    box-shadow:none;
+                                    align-self:flex-end;
+                                    max-width:78%;
+                                }
+                                .message-player .player-bubble {
+                                    background:var(--primary-color);
+                                    color:white;
+                                    padding:12px 14px;
+                                    border-radius:12px;
+                                    box-shadow:var(--shadow-sm);
+                                    border-top-right-radius:6px;
+                                    line-height:1.5;
+                                    white-space:pre-line;
+                                    word-break:break-word;
+                                }
+                                .player-undo {
+                                    display:inline-flex;
+                                    align-items:center;
+                                    justify-content:center;
+                                    flex-shrink:0;
+                                    width:26px;
+                                    height:26px;
+                                    border-radius:50%;
+                                    background:rgba(0,0,0,0.06);
+                                    cursor:pointer;
+                                    border:none;
+                                    padding:0;
+                                    transition:background 200ms ease, opacity 200ms ease;
+                                }
+                                .player-undo:hover { background:rgba(0,0,0,0.14); }
+                                .player-undo svg { width:16px; height:16px; }
+                                .player-undo.undo-disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
+                                .reply-bar { margin-top: 12px; display:flex; flex-direction:column; gap:8px; }
+                                .quick-replies { display:flex; gap:8px; flex-wrap:wrap; }
+                                .quick-reply-btn {
+                                    background: #fff;
+                                    border:1px solid rgba(0,0,0,0.06);
+                                    padding:8px 12px;
+                                    border-radius:20px;
+                                    cursor:pointer;
+                                    box-shadow:var(--shadow-xs);
+                                }
+                                .quick-reply-btn:hover { transform:translateY(-3px); box-shadow:var(--shadow-sm); }
+                                /* 禁用反馈：选项已被提交/禁用时灰度处理，且不再触发长按填充 */
+                                .quick-reply-btn:disabled {
+                                    opacity:0.45;
+                                    filter:grayscale(1);
+                                    cursor:not-allowed;
+                                    transform:none !important;
+                                    box-shadow:none !important;
+                                    pointer-events:none;
+                                }
+                                .quick-reply-btn:disabled .press-fill { display:none; }
+                                .player-input-wrapper { display:flex; flex-direction:column; gap:8px; }
+                                .player-input { width:100%; min-height:64px; max-height:160px; }
+                            </style>
+                        </div>
+                    </div>
+                </div>
                 
                 <!-- 同义替换练习功能 -->
                 <div class="synonym-app-container hidden" id="synonymAppContainer">
-                    <div class="synonym-header">
-                        <button class="btn-text" id="backToWorkshopBtn">
+                    <div class="ai-feature-card">
+                    <div class="ai-feature-header">
+                        <div class="ai-feature-header-text">
+                            <h3>🔄 同义替换练习</h3>
+                            <p class="ai-feature-desc">从混合选项中选出正确的同义词/替换词（每题3个干扰项），提升词汇替换能力</p>
+                        </div>
+                        <button class="ai-close-btn" id="closeAiWorkshopBtnSynonym" title="返回AI工坊菜单页">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                                 <path d="M19 12H5M12 19l-7-7 7-7"/>
                             </svg>
-                            返回工坊
                         </button>
-                        <h3>🔄 同义替换练习</h3>
                     </div>
 
                     <!-- 开始配置页面 -->
                     <div class="synonym-config" id="synonymConfig">                          
                             
                         <div class="synonym-settings">
+                            <!-- 模块1：词汇数据（文档列表管理） -->
                             <div class="form-group">
-                                <h2>🔄 同义替换练习</h2>
-                                <p>从混合选项中选出正确的同义词/替换词（每题3个干扰项），提升词汇替换能力</p>
                                 <label class="form-label">词汇数据</label>
                                 
                                 <!-- 文档列表管理 -->
@@ -714,10 +1428,11 @@
                                 </div>
                             </div>
 
+                            <!-- 模块2：练习设置（模式 + 数量） -->
                             <div class="form-row">
                                 <div class="form-group">
                                     <label class="form-label">练习模式</label>
-                                    <select class="form-select" id="synonymMode">
+                                    <select class="form-select setting-select" id="synonymMode">
                                         <option value="sequential">正序练习</option>
                                         <option value="random">乱序练习</option>
                                     </select>
@@ -728,6 +1443,7 @@
                                 </div>
                             </div>
 
+                            <!-- 模块3：操作区（开始练习） -->
                             <div class="form-actions">
                                 <button class="btn-primary" id="startSynonymBtn" disabled>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -771,7 +1487,6 @@
                                     <h2 class="word-text" id="synonymWordText">trait</h2>
                                     <p class="word-phonetic" id="synonymWordPhonetic">/treɪt/</p>
                                     <div class="word-meta">
-                                        <span class="word-pos" id="synonymWordPos">n.</span>
                                         <span class="word-meaning" id="synonymWordMeaning">特性，特征</span>
                                         <span class="word-level" id="synonymWordLevel">B2</span>
                                     </div>
@@ -837,6 +1552,45 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 词单浏览视图（复用 word-list-screen 样式） -->
+                    <div class="synonym-wordlist-view hidden" id="synonymWordListView">
+                        <div class="word-list-header">
+                            <div class="word-list-title-section">
+                                <h2 class="word-list-title">
+                                    <span class="word-list-icon">📄</span>
+                                    <span id="synonymViewDocName">词单名称</span>
+                                </h2>
+                                <p class="word-list-subtitle">
+                                    共 <span id="synonymViewDocCount">0</span> 个单词
+                                </p>
+                            </div>
+                            <div class="word-list-actions">
+                                <button class="btn-word-list-action btn-word-list-close" id="closeSynonymWordListViewBtn">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                    <span>关闭</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="word-list-table-wrapper">
+                            <table class="word-list-table" id="synonymViewDocTable">
+                                <thead>
+                                    <tr>
+                                        <th class="word-list-col-index">序号</th>
+                                        <th class="word-list-col-word">单词</th>
+                                        <th class="word-list-col-phonetic">音标</th>
+                                        <th class="word-list-col-meaning">释义</th>
+                                        <th class="word-list-col-example">同义词</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="synonymViewDocTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    </div><!-- /ai-feature-card -->
                 </div>
             </div>
 
@@ -857,6 +1611,7 @@
                         <div class="ai-progress-text">
                             <span class="ai-progress-icon">🤖</span>
                             <span id="aiProgressMessage">正在补充单词信息...</span>
+                            <button type="button" class="ai-progress-cancel" id="aiProgressCancelBtn" title="终止当前AI补缺，并保存已补充的内容">终止</button>
                         </div>
                         <div class="ai-progress-bar">
                             <div class="ai-progress-fill" id="aiProgressFill"></div>
@@ -914,6 +1669,18 @@
                             <!-- 动态生成单词列表 -->
                         </tbody>
                     </table>
+                    <!-- 编辑模式下的新增单词按钮群 -->
+                    <div class="word-list-add-buttons hidden" id="wordListAddButtons">
+                        <button class="word-list-add-btn" id="addOneWordBtn" title="添加1行空白行">
+                            <span>＋1</span>
+                        </button>
+                        <button class="word-list-add-btn" id="addNWordsBtn" title="添加N行空白行">
+                            <span>＋N</span>
+                        </button>
+                        <button class="word-list-add-btn" id="addWordsFromFileBtn" title="从文件导入单词">
+                            <span>＋📂</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1105,9 +1872,9 @@
             <!-- 设置选项卡 -->
             <div class="settings-tabs">
                 <button class="settings-tab active" data-tab="basic">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
-                        <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m-6 6l-4.2 4.2m16.4 0l-4.2-4.2m-6-6l-4.2-4.2"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                     <span>基本设置</span>
                 </button>
@@ -1116,7 +1883,7 @@
                         <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                         <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
                     </svg>
-                    <span>AI工坊设置</span>
+                    <span>AI设置</span>
                 </button>
                 <button class="settings-tab" data-tab="cache">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -1126,6 +1893,14 @@
                     </svg>
                     <span>缓存设置</span>
                 </button>
+                <button class="settings-tab" data-tab="page">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <line x1="3" y1="9" x2="21" y2="9"/>
+                        <line x1="9" y1="21" x2="9" y2="9"/>
+                    </svg>
+                    <span>页面设置</span>
+                </button>
             </div>
             
             <div class="modal-body">
@@ -1134,9 +1909,9 @@
                 <div class="setting-group">
                     <label class="setting-label">学习模式</label>
                     <div class="switch-buttons" id="learningModeButtons">
-                        <button class="switch-btn active" data-mode="mixed">①+②交替</button>
-                        <button class="switch-btn" data-mode="selectOnly">看单词选释义</button>
+                        <button class="switch-btn active" data-mode="selectOnly">看单词选释义</button>
                         <button class="switch-btn" data-mode="spellOnly">看释义拼单词</button>
+                        <button class="switch-btn" data-mode="rememberOnly">记得么</button>
                     </div>
                 </div>
                 <div class="setting-group">
@@ -1274,7 +2049,7 @@
                         <span class="time-value"><span id="autoNextTimeValue">0.5</span>秒</span>
                     </label>
                     <input type="range" class="setting-slider" id="autoNextTime" 
-                           min="0" max="10" step="0.1" value="3">
+                           min="0" max="10" step="0.1" value="1">
                     <div class="slider-marks">
                         <span>0s</span>
                         <span>2.5s</span>
@@ -1288,47 +2063,67 @@
                 
                 <!-- AI工坊设置选项卡 -->
                 <div class="settings-tab-content" id="aiSettings">
+                    <!-- AI 提供商 sheet 标签栏 -->
+                    <div class="ai-provider-tabs">
+                        <div class="ai-provider-tab-list" id="aiProviderTabList"><!-- 动态渲染厂商sheet --></div>
+                        <button type="button" class="ai-provider-tab-add" id="aiAddProviderTab" title="新增AI提供商">+</button>
+                    </div>
+
                     <div class="setting-group">
-                        <label class="setting-label">硅基流动 API密钥 (默认)</label>
-                        <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxx">
+                        <label class="setting-label ai-setting-label">API 格式<span style="color:var(--error); margin-top:4px;  margin-left: 5px;"> *</span></label>
+                        <select class="setting-select" id="aiApiFormat">
+                            <option value="openai">OpenAI Chat Completions 格式（默认）</option>
+                            <option value="anthropic">Anthropic Messages 格式</option>
+                        </select>
                         <div class="setting-hint" style="margin-top: 8px;">
-                            <div style="margin-bottom: 4px;">💡 <strong>如何获取免费API密钥：</strong></div>
-                            <div style="padding-left: 20px; line-height: 1.8;">
-                                1. 访问 <a href="https://cloud.siliconflow.cn/i/WtZO3i7N" target="_blank" style="color: #667eea;">硅基流动官网</a><br>
-                                2. 注册账号（使用邀请码 <code style="background: #f0f0f0; padding: 2px 6px;font-size: x-large; border-radius: 3px; color: #d63031;">WtZO3i7N</code> 可<strong>免费获赠2000万token</strong>）<br>
-                                3. 在"API密钥管理"中创建新密钥<br>
-                                4. 将密钥复制粘贴到上方输入框<br>
+                            <div class="setting-hint" style="margin-top: 8px;">
+                                <div style="margin-bottom: 4px;"> <strong>兼容说明：</strong></div>
+                                <div style="padding-left: 20px; line-height: 1.8;">
+                                    • OpenAI Chat Completions 格式适用于绝大多数平台（OpenAI、DeepSeek、硅基流动等）<br>
+                                    • Anthropic Messages 格式适用于 Claude 系列模型<br>
+                                </div>
                             </div>
-                            <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
+                        </div>
+                    </div>
+
+                    <div class="setting-group" style="margin-top: 24px;">
+                        <label class="setting-label ai-setting-label">自定义请求地址<span style="color:var(--error); margin-top:4px;  margin-left: 5px;"> *</span></label>
+                        <input type="text" class="setting-input" id="aiApiBaseUrl" placeholder="e.g. https://api.openai.com/v1">
+                        <div class="setting-hint" style="margin-top: 8px;">
+                            <div style="margin-bottom: 4px;"><strong>填写说明：</strong></div>
+                            <div style="padding-left: 20px; line-height: 1.8;">
+                                1. 填写你使用的 AI 服务的基础地址（到 /v1 即可）<br>
+                                2. 留空时默认使用 OpenAI 官方地址（https://api.openai.com/v1）<br>
+                                3. 例如：使用硅基流动可填写 https://api.siliconflow.cn/v1<br>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                        <label class="setting-label ai-setting-label">API 密钥<span style="color:var(--error); margin-top:4px;  margin-left: 5px;"> *</span></label> 
+                        <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx">
+                        <div class="setting-hint" style="margin-top: 8px;">
+                            <div style="padding-left: 20px; line-height: 1.8;">
+                                1. 从你的 AI 服务提供商处获取 API 密钥<br>
+                                2. 将密钥复制粘贴到上方输入框<br>
+                            </div>
+                            <div style="margin-top: 6px; padding: 8px; background: none; font-size: 13px;">
                                 ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
                             </div>
                         </div>
                     </div>
-                    
-                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e0e0e0;">
-                        <label class="setting-label">Hugging face API配置 (备选)</label>
-                        <div class="setting-hint" style="margin-top: 8px; margin-bottom: 16px;">
-                            <div style="padding: 12px; background: #e8f5e9; border-radius: 6px; font-size: 13px;">
-                                ℹ️ <strong>智能导入说明：</strong><br>
-                                • 智能导入功能<strong>默认使用上方的"硅基流动 API密钥"</strong><br>
-                                • 如果硅基流动API不可用，会自动降级到Hugging Face（如已配置）<br>
-                                • 两者均使用相同的Qwen大模型，效果一致
-                            </div>
+
+                    <!-- 自定义模型管理 -->
+                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                            <label class="setting-label" style="margin:0;">自定义模型列表</label>
+                            <button type="button" class="btn-secondary" id="addCustomModelFromSettings" style="padding:4px 12px; font-size:13px;">➕ 添加模型</button>
                         </div>
-                        
-                        <label class="setting-label" style="margin-top: 16px; font-size: 14px; color: #666;">Hugging Face API密钥（可选/备用）</label>
-                        <input type="password" class="setting-input" id="hfApiKey" placeholder="hf_xxxxxxxxxxxx（可选）">
-                        <div class="setting-hint" style="margin-top: 8px;">
-                            <div style="margin-bottom: 4px;">💡 <strong>如何获取Hugging Face API密钥：</strong></div>
-                            <div style="padding-left: 20px; line-height: 1.8;">
-                                1. 访问 <a href="https://huggingface.co/settings/tokens" target="_blank" style="color: #667eea;">Hugging Face Tokens</a><br>
-                                2. 注册/登录账号<br>
-                                3. 创建新的 Access Token（选择 Read 权限即可）<br>
-                                4. 将 Token 复制粘贴到上方输入框<br>
-                            </div>
-                            <div style="margin-top: 6px; padding: 8px; background: #fff3cd; border-radius: 6px; font-size: 13px;">
-                                ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
-                            </div>
+                        <div class="setting-hint" style="margin-bottom: 12px;">
+                            在模型下拉中通过「➕ 添加自定义模型」新增的模型会汇总在此处，可统一管理删除。模型 ID 在添加模型时填写。
+                        </div>
+                        <div id="customModelList" style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 4px;">
+                            <!-- 动态渲染自定义模型列表项 -->
                         </div>
                     </div>
                 </div>
@@ -1432,6 +2227,21 @@
                     </div>
                 </div>
                 <!-- 缓存设置选项卡结束 -->
+
+                <!-- 页面设置选项卡 -->
+                <div class="settings-tab-content" id="pageSettings">
+                    <div class="setting-group">
+                        <label class="setting-label">默认封面</label>
+                        <select class="setting-select" id="defaultCover">
+                            <option value="import">单词导入（默认）</option>
+                            <option value="nebula">单词星云</option>
+                        </select>
+                        <div class="setting-hint">
+                            「单词导入」封面即现有首页，放置导入词单按钮，供初次使用的用户了解单词导入流程。
+                        </div>
+                    </div>
+                </div>
+                <!-- 页面设置选项卡结束 -->
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="resetSettingsBtn">恢复默认</button>
@@ -1484,14 +2294,7 @@
                         </svg>
                         <span id="toggleOrderText">设置为乱序</span>
                     </button>
-                    <button class="book-settings-item" id="addWordsBtn" disabled>
-                        <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <line x1="12" y1="5" x2="12" y2="19"/>
-                            <line x1="5" y1="12" x2="19" y2="12"/>
-                        </svg>
-                        <span>添加新词</span>
-                        <span class="badge-dev">开发中</span>
-                    </button>
+                    <!-- '添加新词' 已移除，使用 浏览词单 中的新增功能 -->
                     <button class="book-settings-item" id="exportBookBtn">
                         <svg class="book-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1568,13 +2371,24 @@
         <div class="memory-aid-modal-overlay"></div>
         <div class="memory-aid-modal-content">
             <div class="memory-aid-modal-header">
-                <h3>💡 如何记忆</h3>
-                <button class="btn-close-memory-modal" id="closeMemoryAidModalBtn">
+                <h3>💡 如何记忆
+                    <button type="button" class="btn-refresh-memory" id="refreshMemoryAidMobileBtn" title="重新生成">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                    </button>
+                </h3>
+                <div class="memory-aid-tools">
+                    <select class="form-select memory-aid-model" id="memoryAidModelMobile" title="选择生成记忆方法的AI模型" data-ai-model-select data-short-label="true"></select>
+                    <button class="btn-close-memory-modal" id="closeMemoryAidModalBtn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <line x1="18" y1="6" x2="6" y2="18"/>
                         <line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>
                 </button>
+                </div>
             </div>
             <div class="memory-aid-modal-body" id="memoryAidModalBody">
                 <div class="memory-loading">
@@ -1601,20 +2415,28 @@
                 </svg>
                 高亮
             </button>
+            <button class="toolbar-btn" id="favoriteTextBtn" title="收藏单词">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                收藏
+            </button>
         </div>
         <!-- 翻译结果显示区域 -->
         <div class="toolbar-translation-result hidden" id="toolbarTranslationResult">
             <div class="translation-header">
                 <span class="translation-title">翻译结果</span>
-                <button class="translation-close-btn" id="translationCloseBtn" title="关闭">
+                <div class="translation-tools">
+                    <select class="form-select translation-model" id="translateAiModel" title="选择翻译使用的AI模型" data-ai-model-select data-short-label="true"></select>
+                    <button class="translation-close-btn" id="translationCloseBtn" title="关闭">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <line x1="18" y1="6" x2="6" y2="18"/>
                         <line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>
                 </button>
+                </div>
             </div>
             <div class="translation-original" id="translationOriginal"></div>
-            <div class="translation-divider"></div>
             <div class="translation-text" id="translationText">
                 <span class="translation-loading">翻译中...</span>
             </div>
@@ -1662,21 +2484,129 @@
         </button>
     </nav>
 
+    <!-- 用户登录弹窗 -->
+    <div class="modal hidden" id="userLoginModal" style="z-index: 9999;">
+        <div class="modal-overlay" style="backdrop-filter: blur(5px);"></div>
+        <div class="modal-content modal-small" style="text-align: center;">
+            <div class="modal-header" style="justify-content: center;">
+                <h3>创建/选择用户</h3>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary); text-align: left; text-indent: 2em;">欢迎来到词忆！请输入您的用户昵称以继续。<br>本站采用无密码设计，您的所有配置和进度将保存在本地配置中。</p>
+                    <input type="text" class="setting-input" id="usernameInput" placeholder="请输入用户昵称" style="text-align: center; font-size: 16px;">
+                </div>
+
+                <!-- 历史用户 -->
+                <div class="setting-group" id="historyUsersGroup" style="margin-top: 8px;">
+                    <p style="margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--text-secondary);">历史用户</p>
+                    <div id="historyUserList" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
+                        <!-- 动态生成历史用户项 -->
+                    </div>
+                    <p id="historyUserEmpty" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);">暂无历史用户</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: center;">
+                <button class="btn-secondary" id="guestBtn" style="flex: 1 1 25%; min-width: 0;">游客模式</button>
+                <button class="btn-primary" id="loginBtn" style="flex: 3 1 75%; min-width: 0;">进入词忆</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 个人信息弹窗 -->
+    <div class="modal hidden" id="userProfileModal" style="z-index: 9999;">
+        <div class="modal-overlay" style="backdrop-filter: blur(5px);" data-close-modal="userProfileModal"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>个人信息</h3>
+                <button class="btn-icon" data-close-modal="userProfileModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <p style="margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);">昵称</p>
+                    <p id="profileUsername" style="font-size: 18px; font-weight: 600; margin-bottom: 24px; word-break: break-all;">-</p>
+                    <p style="margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);">注册时间</p>
+                    <p id="profileCreatedAt" style="font-size: 14px; color: var(--text-primary);">-</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: center;">
+                <button class="btn-secondary" data-close-modal="userProfileModal">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 学习数据弹窗（前端占位） -->
+    <div class="modal hidden" id="learningDataModal" style="z-index: 9999;">
+        <div class="modal-overlay" style="backdrop-filter: blur(5px);" data-close-modal="learningDataModal"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>学习数据</h3>
+                <button class="btn-icon" data-close-modal="learningDataModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" style="text-align: center;">
+                <div style="font-size: 44px; margin-bottom: 16px;">📊</div>
+                <p style="margin-bottom: 8px; font-size: 16px; font-weight: 600; word-break: break-all;">用户：<span id="statsUsername">-</span></p>
+                <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.6;">学习数据统计功能开发中<br>敬请期待</p>
+            </div>
+            <div class="modal-footer" style="justify-content: center;">
+                <button class="btn-secondary" data-close-modal="learningDataModal">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 退出学习确认弹窗（移动端返回按钮触发） -->
+    <div class="modal hidden" id="exitLearningModal" style="z-index: 9999;">
+        <div class="modal-overlay" style="backdrop-filter: blur(5px);" data-close-modal="exitLearningModal"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>退出学习</h3>
+                <button class="btn-icon" data-close-modal="exitLearningModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" style="text-align: center; padding: 8px 0 16px;">
+                <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.6;">确定要退出学习吗？<br>进度将不会保存。</p>
+            </div>
+            <div class="modal-footer" style="justify-content: center;">
+                <button class="btn-secondary" data-close-modal="exitLearningModal">继续学习</button>
+                <button class="btn-primary" id="confirmExitLearningBtn" style="background: var(--error);">退出</button>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript -->
+    <script src="lib/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="data/cefr-data.js"></script>
     <script src="data/synonym-538-data.js"></script>
+    <script src="data/synonym-kaoyan-data.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>
     <script src="js/ai-service.js"></script>
     <script src="js/word-parser.js"></script>
+    <script src="js/nebula.js"></script>
     <script src="js/app.js"></script>
     
     <!-- Service Worker 注册 (PWA支持) -->
     <script>
         // 注册 Service Worker
-        if ('serviceWorker' in navigator) {
+        // 注意：Service Worker 仅支持 http/https 协议；file:// 本地打开（开发/离线预览）时不注册，避免报错
+        const isSecureContext = ['http:', 'https:'].includes(window.location.protocol) || window.location.hostname === 'localhost';
+        if ('serviceWorker' in navigator && isSecureContext) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./service-worker.js')
                     .then(registration => {

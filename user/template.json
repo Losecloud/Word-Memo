@@ -1,0 +1,66 @@
+{
+  "username": "template_user",
+  "createdAt": "2026-08-14T00:00:00.000Z",
+  "basicSettings": {
+    "learningMode": "selectOnly",
+    "wordOrder": "sequential",
+    "wordsPerSession": 20,
+    "noAnswerProbability": 10,
+    "voiceAccent": "en-US",
+    "voiceModel": "",
+    "voiceRate": 1.0,
+    "autoSound": true,
+    "enableSoundEffects": true,
+    "animationType": "particles",
+    "animationLevel": "medium",
+    "autoNext": true,
+    "autoNextTime": 1,
+    "hotkeys": {
+      "option1": "1",
+      "option2": "2",
+      "option3": "3",
+      "option4": "4",
+      "option5": "5",
+      "option6": "6"
+    }
+  },
+  "aiSettings": {
+    "aiApiKey": "",
+    "hfApiKey": ""
+  },
+  "learningData": {
+    "autoSaveStats": true,
+    "todayStats": {
+      "date": "",
+      "time": 0,
+      "words": 0,
+      "correct": 0,
+      "wrong": 0,
+      "mastery": 0
+    },
+    "statsHistory": [],
+    "reviewList": []
+  },
+  "bookList": {
+    "currentBookId": null,
+    "books": [
+      {
+        "id": "example_book_1",
+        "name": "CET4核心词汇",
+        "icon": "📚",
+        "source": "J:\\creation\\Creation\\reciting\\examples\\cet4.xlsx",
+        "createdAt": "2026-08-14T00:00:00.000Z",
+        "lastPracticeAt": null,
+        "round": 1,
+        "progress": {
+          "currentIndex": 0,
+          "learned": [],
+          "correct": [],
+          "wrong": [],
+          "sequence": []
+        }
+      }
+    ]
+  },
+  "favoriteWords": []
+}
