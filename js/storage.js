@@ -75,6 +75,9 @@ const Storage = {
         // 仅全新账号才允许从目录文件恢复数据，避免用旧文件覆盖 localStorage 里的最新数据。
         this._isFreshUser = !localStorage.getItem(`wordMemory_user_json_${username}`);
         this.initUserConfig(username);
+        // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签
+        const config = this.getUserConfig();
+        if (config && this._migrateCategoryInConfig(config)) this.saveUserConfig(config);
     },
 
     // 获取用户配置文件键名
@@ -210,7 +213,8 @@ const Storage = {
         aiApiBaseUrl: 'aiSettings',
         aiProviders: 'aiSettings',
         aiActiveProviderIndex: 'aiSettings',
-        autoSaveStats: 'learningData'
+        autoSaveStats: 'learningData',
+        chartSheet: 'basicSettings'
     },
 
     // 获取完整用户配置对象
@@ -483,6 +487,42 @@ const Storage = {
         return this.saveUserConfig(config);
     },
 
+    // 读取混沌星云封面配置（按用户隔离，存于 aiWorkspace.chaosNebulaCover）
+    loadChaosConfig() {
+        const config = this.getUserConfig();
+        if (config && config.aiWorkspace && config.aiWorkspace.chaosNebulaCover) {
+            return this._cloneDefault(config.aiWorkspace.chaosNebulaCover);
+        }
+        return null;
+    },
+
+    // 保存混沌星云封面配置
+    saveChaosConfig(chaosConfig) {
+        const config = this.getUserConfig();
+        if (!config) return false;
+        if (!config.aiWorkspace || typeof config.aiWorkspace !== 'object') config.aiWorkspace = {};
+        config.aiWorkspace.chaosNebulaCover = chaosConfig;
+        return this.saveUserConfig(config);
+    },
+
+    // 读取蒲公英聚类封面配置（按用户隔离，存于 aiWorkspace.dandelionCover）
+    loadDandelionConfig() {
+        const config = this.getUserConfig();
+        if (config && config.aiWorkspace && config.aiWorkspace.dandelionCover) {
+            return this._cloneDefault(config.aiWorkspace.dandelionCover);
+        }
+        return null;
+    },
+
+    // 保存蒲公英聚类封面配置
+    saveDandelionConfig(dandelionConfig) {
+        const config = this.getUserConfig();
+        if (!config) return false;
+        if (!config.aiWorkspace || typeof config.aiWorkspace !== 'object') config.aiWorkspace = {};
+        config.aiWorkspace.dandelionCover = dandelionConfig;
+        return this.saveUserConfig(config);
+    },
+
     // ----------------------------------------
     // 统计数据管理 (learningData)
     // ----------------------------------------
@@ -572,6 +612,22 @@ const Storage = {
         return result;
     },
 
+    /** 统计摘要：近 N 天的学习天数/累计时长/累计单词/平均正确率 */
+    getStatsSummary(days = 30) {
+        // 只统计有数据的天（空天不计入学习天数，也不拉低正确率）
+        const history = this.getRecentStats(days).filter(item =>
+            (item.time || 0) > 0 || (item.words || 0) > 0 || (item.correct || 0) > 0 || (item.wrong || 0) > 0);
+
+        const totalDays = history.length;
+        const totalTime = history.reduce((s, i) => s + (i.time || 0), 0);
+        const totalWords = history.reduce((s, i) => s + (i.words || 0), 0);
+        const totalCorrect = history.reduce((s, i) => s + (i.correct || 0), 0);
+        const totalAttempts = history.reduce((s, i) => s + (i.correct || 0) + (i.wrong || 0), 0);
+        const avgMastery = totalAttempts > 0 ? Math.round(totalCorrect / totalAttempts * 100) : 0;
+
+        return { totalDays, totalTime, totalWords, avgMastery };
+    },
+
     clearStatsHistory() {
         const config = this.getUserConfig();
         if (config) {
@@ -583,6 +639,61 @@ const Storage = {
             return config.learningData.statsHistory;
         }
         return [];
+    },
+
+    // ----------------------------------------
+    // 场景类别迁移（旧分类树 → 当前分类树）
+    // ----------------------------------------
+
+    // 迁移配置对象内所有词条的分类字段（词书 / 复习列表 / 收藏），返回是否有改动
+    _migrateCategoryInConfig(config) {
+        const ai = (typeof AIService !== 'undefined') ? AIService : null;
+        if (!ai || typeof ai.migrateLegacyCategory !== 'function') return false;
+        let dirty = false;
+        const fix = (item) => {
+            if (!item || typeof item !== 'object') return;
+            const old = item.category;
+            if (old === undefined || old === null || old === '') return;
+            const next = ai.migrateLegacyCategory(old, item.word);
+            if (old === next) return;
+            if (next) item.category = next;
+            else delete item.category;
+            dirty = true;
+        };
+        const books = config.bookList && config.bookList.books;
+        if (Array.isArray(books)) {
+            for (const book of books) {
+                if (book && Array.isArray(book.words)) book.words.forEach(fix);
+            }
+        }
+        const review = config.learningData && config.learningData.reviewList;
+        if (Array.isArray(review)) review.forEach(fix);
+        if (Array.isArray(config.favoriteWords)) config.favoriteWords.forEach(fix);
+        return dirty;
+    },
+
+    // 一次性迁移：把所有历史用户数据中的旧场景类别标签升级到当前分类树
+    // 幂等，可重复调用；须在应用读取词书之前执行
+    migrateLegacyCategories() {
+        const currentKey = this.getUserConfigKey();
+        const prefix = 'wordMemory_user_json_';
+        let changedUsers = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key || key.indexOf(prefix) !== 0) continue;
+            let config = null;
+            try { config = JSON.parse(localStorage.getItem(key)); } catch (e) { continue; }
+            if (!config || typeof config !== 'object') continue;
+            if (!this._migrateCategoryInConfig(config)) continue;
+            localStorage.setItem(key, JSON.stringify(config));
+            changedUsers++;
+            // 当前登录用户同步写入 user/ 目录镜像
+            if (key === currentKey) {
+                this.writeConfigToFile(config).catch(() => { /* 文件镜像失败不影响主流程 */ });
+            }
+        }
+        if (changedUsers) console.log(`✅ 场景类别迁移完成：已更新 ${changedUsers} 个用户配置`);
+        return changedUsers;
     },
 
     // ----------------------------------------
@@ -766,6 +877,206 @@ const Storage = {
         const month = (past.getMonth() + 1).toString().padStart(2, '0');
         const day = past.getDate().toString().padStart(2, '0');
         return `${year}/${month}/${day}`;
+    },
+
+    // ============================================
+    // SM-2 艾宾浩斯智能复习模块 (WordMemory)
+    // ============================================
+    // 每个单词独立的记忆状态，存储于 learningData.wordMemory 字典
+    // key: `${bookId}:${word}`, value: { ef, interval, reviewCount, lastReview, nextReview, totalReviews, totalCorrect, totalWrong, history[] }
+
+    /** 创建默认记忆状态 */
+    _defaultMemory() {
+        return {
+            ef: 2.5,
+            interval: 0,
+            reviewCount: 0,
+            lastReviewDate: null,
+            nextReviewDate: null,
+            totalReviews: 0,
+            totalCorrect: 0,
+            totalWrong: 0,
+            history: [] // [{date, quality, mode}]
+        };
+    },
+
+    /** 获取所有单词记忆状态 */
+    loadAllMemory() {
+        const config = this.getUserConfig();
+        return config ? (config.learningData.wordMemory || {}) : {};
+    },
+
+    /** 保存所有单词记忆状态 */
+    saveAllMemory(memoryMap) {
+        const config = this.getUserConfig();
+        if (config) {
+            config.learningData.wordMemory = memoryMap;
+            this.saveUserConfig(config);
+        }
+    },
+
+    /** 获取单个单词的记忆状态 */
+    getWordMemory(bookId, word) {
+        const map = this.loadAllMemory();
+        const key = `${bookId}:${word}`;
+        return map[key] ? { ...map[key], history: map[key].history ? [...map[key].history] : [] } : null;
+    },
+
+    /** 保存/更新单个单词的记忆状态 */
+    setWordMemory(bookId, word, memory) {
+        const map = this.loadAllMemory();
+        const key = `${bookId}:${word}`;
+        map[key] = memory;
+        this.saveAllMemory(map);
+    },
+
+    /**
+     * SM-2 算法核心
+     * @param {number} quality - 记忆质量 0-5
+     * @param {object} prevMemory - 先前的记忆状态（或 null）
+     * @returns {object} 更新后的记忆状态
+     */
+    sm2(quality, prevMemory) {
+        const mem = prevMemory ? { ...prevMemory, history: prevMemory.history ? [...prevMemory.history] : [] } : this._defaultMemory();
+
+        // 更新 EF (易变因子)
+        mem.ef = mem.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+        mem.ef = Math.max(1.3, Math.min(3.0, mem.ef));
+
+        // 记录历史
+        mem.history.push({
+            date: new Date().toISOString(),
+            quality: quality,
+            interval: mem.interval
+        });
+        // 只保留最近 20 条
+        if (mem.history.length > 20) {
+            mem.history = mem.history.slice(-20);
+        }
+
+        mem.totalReviews++;
+
+        if (quality >= 3) {
+            // 答对
+            mem.totalCorrect++;
+            mem.reviewCount++;
+            if (mem.reviewCount === 1) {
+                mem.interval = 1;
+            } else if (mem.reviewCount === 2) {
+                mem.interval = 6;
+            } else {
+                mem.interval = Math.round((mem.interval || 1) * mem.ef);
+            }
+        } else {
+            // 答错
+            mem.totalWrong++;
+            mem.reviewCount = 0;
+            mem.interval = 1;
+        }
+
+        // 最大间隔 180 天
+        mem.interval = Math.min(180, Math.max(1, mem.interval));
+
+        mem.lastReviewDate = new Date().toISOString();
+        const next = new Date();
+        next.setDate(next.getDate() + mem.interval);
+        mem.nextReviewDate = next.toISOString();
+
+        return mem;
+    },
+
+    /**
+     * 将答题结果映射为 SM-2 质量分
+     * @param {boolean} isCorrect - 是否答对
+     * @param {boolean} hintUsed - 是否使用了提示
+     * @param {boolean} wasSlow - 是否犹豫较久
+     * @returns {number} 0-5
+     */
+    mapQuality(isCorrect, hintUsed, wasSlow) {
+        if (isCorrect && !hintUsed && !wasSlow) return 5;
+        if (isCorrect && !hintUsed && wasSlow) return 4;
+        if (isCorrect && hintUsed) return 3;
+        if (!isCorrect) return 1;
+        return 0;
+    },
+
+    /** 获取今日到期复习的单词列表 */
+    getDueWords(options = {}) {
+        const { bookId, limit } = options;
+        const map = this.loadAllMemory();
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const results = [];
+
+        for (const [key, mem] of Object.entries(map)) {
+            if (!mem.nextReviewDate) continue;
+            const [keyBookId, word] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+            if (bookId && keyBookId !== bookId) continue;
+
+            const due = new Date(mem.nextReviewDate);
+            if (due <= today) {
+                results.push({ bookId: keyBookId, word, memory: mem });
+            }
+        }
+
+        // 按到期时间排序（最急的先）
+        results.sort((a, b) => new Date(a.memory.nextReviewDate) - new Date(b.memory.nextReviewDate));
+
+        return limit ? results.slice(0, limit) : results;
+    },
+
+    /** 获取所有单词的复习统计概览 */
+    getMemoryOverview() {
+        const map = this.loadAllMemory();
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        let totalWords = 0, dueToday = 0, overdue = 0;
+        let avgEF = 0, avgInterval = 0;
+
+        for (const mem of Object.values(map)) {
+            totalWords++;
+            avgEF += mem.ef || 2.5;
+            avgInterval += mem.interval || 0;
+
+            if (mem.nextReviewDate) {
+                const due = new Date(mem.nextReviewDate);
+                if (due <= today) {
+                    dueToday++;
+                    // 逾期超过 1 天算 overdue
+                    if (due < new Date(today.getTime() - 86400000)) {
+                        overdue++;
+                    }
+                }
+            }
+        }
+
+        return {
+            totalWords,
+            dueToday,
+            overdue,
+            avgEF: totalWords > 0 ? +(avgEF / totalWords).toFixed(2) : 2.5,
+            avgInterval: totalWords > 0 ? Math.round(avgInterval / totalWords) : 0
+        };
+    },
+
+    /** 获取某词书内所有单词的记忆状态（含未初始化的，用默认值） */
+    getBookMemoryWithDefaults(bookId, words) {
+        const map = this.loadAllMemory();
+        const prefix = `${bookId}:`;
+        const result = [];
+
+        for (const w of words) {
+            const wordText = typeof w === 'string' ? w : (w.word || '');
+            if (!wordText) continue;
+            const key = prefix + wordText;
+            const mem = map[key] || null;
+            result.push({
+                word: wordText,
+                memory: mem ? { ...mem, history: mem.history ? [...mem.history] : [] } : this._defaultMemory()
+            });
+        }
+        return result;
     }
 };
 

@@ -359,8 +359,10 @@ const DictionaryAPI = {
     getDistractors(correctWord, allWords, count = 3) {
         const distractors = [];
         
-        // 从所有其他单词中随机选择干扰项
-        const candidates = allWords.filter(w => w.word !== correctWord.word);
+        // 从所有其他单词中随机选择干扰项（跳过本身没有有效释义的单词，避免出现空选项）
+        const candidates = allWords.filter(w => w.word !== correctWord.word &&
+            w.definitions && w.definitions[0] &&
+            String(w.definitions[0].meaning || '').trim() !== '');
         const shuffled = this.shuffleArray([...candidates]);
         
         for (let i = 0; i < Math.min(count, shuffled.length); i++) {

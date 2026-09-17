@@ -1,7 +1,7 @@
 {
-  "name": "词忆 - 高效背单词",
+  "name": "词忆 - 专供难词 · 趣味高效",
   "short_name": "词忆",
-  "description": "一个专注、高效、现代化的背单词工具",
+  "description": "专供难词、趣味高效的单词记忆工具",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",

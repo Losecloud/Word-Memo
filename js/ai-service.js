@@ -57,9 +57,10 @@ const AIService = {
      * @param {Function} batchCompleteCallback - 每批完成后的回调 (enrichedBatch, batchIndex, totalBatches)
      * @param {string} model - 模型名称
      * @param {Object} [cancelToken] - 取消令牌 { cancelled: false }，设为 true 后会在批次间隙停止并抛出 CANCEL_ERROR
+     * @param {Array} [fields] - 本次需要补充的字段列表，如 ['phonetic','meaning','example','category']；不传则全部字段
      * @returns {Promise<Array>} - 补充后的单词列表
      */
-    async enrichWordsWithLight(words, progressCallback = null, batchCompleteCallback = null, model = null, cancelToken = null) {
+    async enrichWordsWithLight(words, progressCallback = null, batchCompleteCallback = null, model = null, cancelToken = null, fields = null) {
         if (!words || words.length === 0) {
             return [];
         }
@@ -86,7 +87,7 @@ const AIService = {
                 progressCallback(0, 1, 0, '正在处理单词...');
             }
             
-            const prompt = this.buildEnrichmentPrompt(words);
+            const prompt = this.buildEnrichmentPrompt(words, fields);
             
             // 支持用户终止：可通过 AbortController 中断当前网络请求
             const controller = (cancelToken && typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -98,7 +99,7 @@ const AIService = {
                 checkCancelled();
                 try {
                     const result = await this.callModel(activeModel, prompt, { signal: controller ? controller.signal : undefined });
-                    enrichedWords = this.parseEnrichmentResponse(result, words);
+                    enrichedWords = this.parseEnrichmentResponse(result, words, fields);
                     break; // 解析成功
                 } catch (error) {
                     // 用户已取消：不再重试，直接抛出取消标记
@@ -165,9 +166,9 @@ const AIService = {
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 checkCancelled();
                 try {
-                    const prompt = this.buildEnrichmentPrompt(batch);
+                    const prompt = this.buildEnrichmentPrompt(batch, fields);
                     const result = await this.callModel(activeModel, prompt, { signal: controller ? controller.signal : undefined });
-                    enrichedBatch = this.parseEnrichmentResponse(result, batch);
+                    enrichedBatch = this.parseEnrichmentResponse(result, batch, fields);
                     break; // 解析成功，跳出重试
                 } catch (error) {
                     // 用户已取消：中断所有批次的补缺（即使请求在途也会被 AbortController 终止）
@@ -466,33 +467,331 @@ const AIService = {
     },
     
     /**
-     * 构建字段补充提示词
+     * 提取词义分类树的全部末级分类完整路径（children 为空的节点），用于补缺时让 AI 配对场景类别
+     * 按根目录分组输出（组间空行、组头标注序号），引导 AI 先定位根目录再选末级，降低长列表选错概率
+     * @returns {string} 分组后的路径列表；分类数据未加载时返回空串
      */
-    buildEnrichmentPrompt(words) {
-        const wordList = words.map(w => w.word).join(', ');
+    getLeafCategories() {
+        const dict = (typeof window !== 'undefined' && window.词义分类_DICT) || null;
+        if (!dict || !Array.isArray(dict.children)) return '';
+        // 先收集每组的完整路径
+        const walk = (nodes, path, bucket) => {
+            for (const n of nodes) {
+                if (!n) continue;
+                const cur = path ? path + '/' + n.name : n.name;
+                if (Array.isArray(n.children) && n.children.length > 0) {
+                    walk(n.children, cur, bucket);
+                } else {
+                    bucket.push(cur);
+                }
+            }
+        };
+        const lines = [];
+        for (const root of dict.children) {
+            if (!root || !root.name) continue;
+            const bucket = [];
+            walk([root], '', bucket);
+            if (bucket.length === 0) continue;
+            lines.push(`[${root.code || ''} ${root.name}]`);
+            lines.push(bucket.join('\n'));
+            lines.push(''); // 组间空行
+        }
+        return lines.join('\n');
+    },
+
+    // 缓存合法分类路径集合（Set），用于校验 AI 返回的 category 是否在分类树中
+    _categoryPathSet: null,
+
+    // 缓存末级分类名 → 完整路径数组（用于旧标签按末级名迁移），避免逐个遍历全量路径
+    _leafNameIndex: null,
+
+    /**
+     * 获取末级分类名到完整路径的索引（仅叶子节点）
+     * @returns {Map<string, string[]>} 末级名 → 路径数组
+     */
+    getLeafNameIndex() {
+        if (this._leafNameIndex) return this._leafNameIndex;
+        const index = new Map();
+        const dict = (typeof window !== 'undefined' && window.词义分类_DICT) || null;
+        if (dict && Array.isArray(dict.children)) {
+            const walk = (nodes, path) => {
+                for (const n of nodes) {
+                    if (!n || !n.name) continue;
+                    const cur = path ? path + '/' + n.name : n.name;
+                    if (Array.isArray(n.children) && n.children.length > 0) {
+                        walk(n.children, cur);
+                    } else {
+                        if (!index.has(n.name)) index.set(n.name, []);
+                        index.get(n.name).push(cur);
+                    }
+                }
+            };
+            walk(dict.children, '');
+        }
+        this._leafNameIndex = index;
+        return index;
+    },
+
+    /**
+     * 获取全部合法分类完整路径的集合（供校验 AI 返回的 category）
+     * @returns {Set<string>} 路径集合
+     */
+    getCategoryPathSet() {
+        if (this._categoryPathSet) return this._categoryPathSet;
+        const set = new Set();
+        const dict = (typeof window !== 'undefined' && window.词义分类_DICT) || null;
+        if (!dict || !Array.isArray(dict.children)) return set;
+        const walk = (nodes, path) => {
+            for (const n of nodes) {
+                if (!n) continue;
+                const cur = path ? path + '/' + n.name : n.name;
+                // 收集所有路径（包括非末级），因为本地打标可能匹配到任一层级
+                set.add(cur);
+                if (Array.isArray(n.children) && n.children.length > 0) {
+                    walk(n.children, cur);
+                }
+            }
+        };
+        walk(dict.children, '');
+        this._categoryPathSet = set;
+        return set;
+    },
+
+    /**
+     * 校验并规范化 AI 返回的场景类别：
+     * - 若为合法完整路径（存在于分类树）则直接采用
+     * - 若为末级名（不含 /）则尝试匹配唯一路径：唯一则替换为完整路径，歧义则保留末级名
+     * - 匹配不到（AI 自创）或其余情况返回空串，绝不写入与分类树对不上的标签
+     * @param {string} category - AI 返回的类别
+     * @returns {string} 规范后的类别
+     */
+    normalizeCategory(category) {
+        if (!category || typeof category !== 'string') return '';
+        let cat = category.trim();
+        if (cat === '') return '';
+        // 清洗常见格式差异：全角斜杠 → 半角；去除斜杠两侧多余空格；空格统一处理
+        cat = cat.replace(/／/g, '/').replace(/\s*\/\s*/g, '/').trim();
+        const pathSet = this.getCategoryPathSet();
+        if (pathSet.has(cat)) return cat;
+        if (cat.includes('/')) {
+            // 含 / 但不在分类树中：AI 拼造的路径，直接丢弃
+            console.warn(`⚠️ 场景类别 "${category}" 不在分类树中，已丢弃`);
+            return '';
+        }
+        // 末级名匹配：唯一路径才替换为完整路径；多个路径则保留末级名
+        const matches = [...pathSet].filter(p => {
+            const idx = p.lastIndexOf('/');
+            return p.substring(idx + 1) === cat;
+        });
+        if (matches.length === 0) {
+            // 匹配不到：AI 自创的分类，丢弃，避免存入与本地分类树对不上的标签
+            console.warn(`⚠️ 场景类别 "${category}" 不在分类树中，已丢弃`);
+            return '';
+        }
+        if (matches.length > 1) {
+            console.warn(`⚠️ 场景类别 "${category}" 在分类树中存在多个路径，保留末级名: ${matches.join(' / ')}`);
+            return cat;
+        }
+        return matches[0];
+    },
+
+    // 旧分类树路径 → 当前分类树的迁移映射：
+    // 覆盖词典独有的学科领域标签（医学/理化/地质矿藏…），以及旧末级名在新树中重名、需按上下文消歧的路径
+    legacyCategoryMap: {
+        // —— 医疗与身心 ——
+        '专业学科/医学': '医疗与身心',
+        '基础领域/医疗': '医疗与身心',
+        '专业学科/心理疗法': '医疗与身心/诊疗药物',
+        // —— 科学与技术 ——
+        '专业学科/理化/化学': '科学与技术/物理化学',
+        '专业学科/化学': '科学与技术/物理化学',
+        '专业学科/理化/物理': '科学与技术/物理化学',
+        '专业学科/物理': '科学与技术/物理化学',
+        '专业学科/生物': '科学与技术/生物科学',
+        '专业学科/数学': '科学与技术/数学统计',
+        '专业学科/统计': '科学与技术/数学统计',
+        '专业学科/概率': '科学与技术/数学统计',
+        '专业学科/几何': '科学与技术/天文几何',
+        '专业学科/天文': '科学与技术/天文几何',
+        '空间方位/天文': '科学与技术/天文几何',
+        '专业学科/信息技术': '科学与技术/信息技术',
+        '基础领域/科教': '科学与技术/校园教学',
+        '基础领域/生态': '科学与技术/生态气象',
+        '空间方位/气象': '科学与技术/生态气象',
+        // —— 经济与产业 ——
+        '基础领域/经济': '经济与产业/金融货币',
+        '基础领域/经济/商业': '经济与产业/市场交易',
+        '基础领域/工业': '经济与产业/工业材料',
+        '专业学科/机械': '经济与产业/工业材料',
+        '专业学科/冶金': '经济与产业/工业材料',
+        '专业学科/材料': '经济与产业/工业材料',
+        '基础领域/农业': '经济与产业/农业耕作',
+        '专业学科/农学园艺': '经济与产业/农业耕作',
+        '基础领域/水利': '经济与产业/能源水利',
+        '基础领域/能源': '经济与产业/能源水利',
+        '基础领域/建筑': '经济与产业/建筑营造',
+        '专业学科/建筑': '经济与产业/建筑营造',
+        // —— 空间与交通 ——
+        '专业学科/地理': '空间与交通/地理地貌',
+        '专业学科/地质矿藏': '空间与交通/地理地貌',
+        '专业学科/测绘': '空间与交通/地理地貌',
+        '空间方位/地理': '空间与交通/地理地貌',
+        '空间方位/空间': '空间与交通/空间范围',
+        '空间方位/范围': '空间与交通/空间范围',
+        '空间方位/距离': '空间与交通/空间范围',
+        '空间方位/地点': '空间与交通/空间范围',
+        '空间方位/方向': '空间与交通/方位朝向',
+        '空间方位/朝向': '空间与交通/方位朝向',
+        '空间方位/方位': '空间与交通/方位朝向',
+        '基础领域/交通': '空间与交通/道路交通',
+        '基础领域/交通/航海': '空间与交通/航运航空',
+        '基础领域/交通/航空': '空间与交通/航运航空',
+        '位移': '空间与交通/位移开合',
+        // —— 语言与沟通 ——
+        '基础领域/语言': '语言与沟通/语言文字',
+        '基础领域/出版': '语言与沟通/出版印刷',
+        '创造艺术/印刷出版': '语言与沟通/出版印刷',
+        '沟通交流/信息通讯': '语言与沟通/信息通讯',
+        // —— 生活与休闲 ——
+        '基础领域/体育': '生活与休闲/体育运动',
+        '基础领域/宗教': '生活与休闲/宗教信仰',
+        '基础领域/文艺': '生活与休闲/文史艺术',
+        '基础领域/历史': '生活与休闲/文史艺术',
+        '创造艺术/音乐': '生活与休闲/文史艺术',
+        '创造艺术/摄影': '生活与休闲/文史艺术',
+        '生活相关/服装': '生活与休闲/衣着形象',
+        '生活相关/饮食相关': '生活与休闲/饮食食物',
+        '家务劳动': '生活与休闲/居家生活',
+        // —— 政法与军事 ——
+        '基础领域/政治': '政法与军事/国家与社会',
+        '基础领域/法律': '政法与军事/法规与权利',
+        '基础领域/军事': '政法与军事/战争与军队',
+        // —— 思维与意志 ——
+        '基础领域/哲学思想': '思维与意志/认知思维',
+        '判断': '思维与意志/判断寻觅',
+        '寻找': '思维与意志/判断寻觅',
+        '因果关系': '思维与意志/因果关系',
+        '成败': '思维与意志/成败意志',
+        // —— 时间与数量 ——
+        '程度': '时间与数量/程度',
+        '比较': '时间与数量/异同比较',
+        '存在': '时间与数量/存在状态',
+        '进程': '时间与数量/进程变化',
+        '时间度量/频率': '时间与数量/频率周期',
+        '时间度量/阶段': '时间与数量/时态阶段',
+        '时间度量/时态': '时间与数量/时态阶段',
+        '时间度量/其它': '时间与数量/时间安排',
+        '关系': '时间与数量/范畴关系',
+        '物质': '时间与数量/范畴关系',
+        '秩序': '时间与数量/范畴关系',
+        '界限': '时间与数量/范畴关系',
+        // —— 感知与运动 ——
+        '力和运动/机械运动': '感知与运动/机械运动',
+        // —— 旧末级名在新树中重名，按原路径上下文消歧 ——
+        '生活相关/休闲娱乐/经纪人代理人': '生活与休闲/游戏娱乐/经纪人代理人',
+        '动作感官/观看发现/观看': '感知与运动/视觉观察/观看',
+        '动作感官/光线相关/发光反射': '感知与运动/色彩光影/发光反射',
+        '动作感官/光线相关/柔和悦目': '感知与运动/色彩光影/柔和悦目',
+        '专业学科/地理/地形地貌': '空间与交通/地理地貌/地形地貌',
+        '基础领域/工业/运转运行': '经济与产业/工业材料/运转运行'
+    },
+
+    /**
+     * 把历史数据中的旧分类路径迁移到当前分类树
+     * 依次尝试：已是合法路径 → 映射表 → 末级名唯一匹配 → 基础词典兜底
+     * @param {string} category - 旧的分类路径
+     * @param {string} [word] - 可选单词，用于末级名无法确定时从基础词典取新分类
+     * @returns {string} 迁移后的合法路径；无法迁移则返回空串
+     */
+    migrateLegacyCategory(category, word) {
+        if (!category || typeof category !== 'string') return '';
+        const cat = category.replace(/／/g, '/').replace(/\s*\/\s*/g, '/').trim();
+        if (!cat) return '';
+        // 已是当前分类树的合法路径，无需迁移
+        if (this.getCategoryPathSet().has(cat)) return cat;
+        // 映射表命中（词典独有学科标签、重名路径消歧）
+        const mapped = this.legacyCategoryMap[cat];
+        if (mapped) return mapped;
+        // 末级名在新树中唯一，直接替换上层路径
+        const seg = cat.split('/').filter(Boolean);
+        const cand = this.getLeafNameIndex().get(seg[seg.length - 1]);
+        if (cand && cand.length === 1) return cand[0];
+        // 兜底：基础词典已迁移到新树，取该词在词典中的分类
+        if (word) {
+            const dict = (typeof window !== 'undefined' && window.ENGLISHWORDS_DICT) || null;
+            const entry = dict ? dict[String(word).trim().toLowerCase()] : null;
+            const fromDict = entry && entry[2] ? String(entry[2]).trim() : '';
+            if (fromDict && this.getCategoryPathSet().has(fromDict)) return fromDict;
+        }
+        // 无法迁移：返回空串，由调用方清除，避免残留对不上分类树的旧标签
+        return '';
+    },
+
+    /**
+     * 构建字段补充提示词
+     * @param {Array} words - 需要补充的单词列表
+     * @param {Array} [fields] - 本次需要补充的字段列表（['phonetic','meaning','example','category']）；不传则全部字段
+     */
+    buildEnrichmentPrompt(words, fields) {
+        // 单词列表：带已有释义作为分类参考（word : 现有中文释义），帮助 AI 更准确配对场景类别
+        const wordList = words.map(w => {
+            const def = w && w.definitions && w.definitions[0] ? w.definitions[0] : {};
+            const meaning = def.meaning && def.meaning.trim() !== '' && def.meaning !== '-'
+                ? def.meaning.trim() : '';
+            return meaning ? `${w.word}（现有释义: ${meaning}）` : w.word;
+        }).join(', ');
+        const categoryList = this.getLeafCategories();
         
-        return `You are a professional English dictionary assistant. For each word provided, you must return its phonetic transcription (IPA), Chinese meaning, and an example sentence.
+        // 根据 fields 动态生成要求返回的字段及要求说明
+        const wantPhonetic = !fields || fields.includes('phonetic');
+        const wantMeaning = !fields || fields.includes('meaning');
+        const wantExample = !fields || fields.includes('example');
+        const wantCategory = !fields || fields.includes('category');
+        
+        // JSON 模板：仅包含需要返回的字段
+        const tmplFields = [];
+        if (wantPhonetic) tmplFields.push(`        "phonetic": "/ɪɡˈzæmpl/"`);
+        if (wantMeaning) tmplFields.push(`        "meaning": "n. 例子；榜样 v. 举例说明; adj. 榜样性的 adv. 作为例证..."`);
+        if (wantExample) tmplFields.push(`        "example": "Can you give me an example of what you mean?"`);
+        if (wantCategory) tmplFields.push(`        "category": "政法与军事/国家与社会/朝代王国"`);
+        const tmplJson = `[\n    {\n        "word": "example",\n${tmplFields.join(',\n')}\n    }\n]`;
+        
+        const reqFields = ['word'];
+        if (wantPhonetic) reqFields.push('phonetic');
+        if (wantMeaning) reqFields.push('meaning');
+        if (wantExample) reqFields.push('example');
+        if (wantCategory) reqFields.push('category');
+        
+        const fieldRules = [];
+        if (wantPhonetic) fieldRules.push('3. Phonetic MUST be in IPA format with forward slashes, e.g., "/wɜːrd/"');
+        if (wantMeaning) fieldRules.push('4. Meaning MUST include all part-of-speech tags (n./v./adj./adv. etc.) , but no more than 3 similar meanings for one tag.');
+        if (wantExample) fieldRules.push('5. Example MUST be a natural, commonly used English sentence');
+        if (wantCategory) fieldRules.push(`8. "category" MUST be copied VERBATIM (character-for-character) from the category list below - the complete path from root to the leaf, e.g. "科学与技术/生物科学/具体动物", with "/" separators. First decide which root group ([01]~[10]) the word belongs to, then pick ONE category from that group. STRICTLY FORBIDDEN to invent, create, merge, rephrase or shorten any category name. If you cannot find an exact match, use an empty string "" (never invent one).`);
+        
+        const categorySection = wantCategory
+            ? `Scene category list (grouped by root category [01]~[10], groups separated by blank lines). For each word:
+1. Determine its primary meaning's root group.
+2. Pick the single most fitting FULL PATH from that group's lines, copying it verbatim.
+3. If nothing fits, return "".
+Each line is a complete path; the full path reveals context, e.g. "科学与技术/生物科学/动物" vs "经济与产业/渔牧养殖/捕驯动物" are different categories.
+${categoryList || '(无分类数据)'}`
+            : '';
+        
+        return `You are a professional English dictionary assistant. For each word provided, you must return its phonetic transcription (IPA), Chinese meaning, an example sentence, and a scene category.
 
 Words to process: ${wordList}
 
 IMPORTANT: You MUST return a valid JSON array with this EXACT structure for each word:
-[
-    {
-        "word": "example",
-        "phonetic": "/ɪɡˈzæmpl/",
-        "meaning": "n. 例子；榜样 v. 举例说明; adj. 榜样性的 adv. 作为例证...",
-        "example": "Can you give me an example of what you mean?"
-    }
-]
+${tmplJson}
 
 Critical Requirements:
 1. Return ONLY the JSON array, no markdown code blocks, no explanations, no other text
-2. Each word MUST have "word", "phonetic", "meaning", and "example" fields
-3. Phonetic MUST be in IPA format with forward slashes, e.g., "/wɜːrd/"
-4. Meaning MUST include all part-of-speech tags (n./v./adj./adv. etc.) , but no more than 3 similar meanings for one tag.
-5. Example MUST be a natural, commonly used English sentence
+2. Each word MUST have the following fields: ${reqFields.join(', ')}
+${fieldRules.join('\n')}
 6. Process ALL ${words.length} words in the list above
 7. The JSON must be properly formatted and parseable
+
+${categorySection}
 
 Start your response with [ and end with ]. Do not include any text before or after the JSON array.
 
@@ -563,8 +862,13 @@ JSON:`;
 
     /**
      * 解析字段补充响应
+     * @param {string} response - AI 返回的原始文本
+     * @param {Array} originalWords - 原始单词列表
+     * @param {Array} [fields] - 本次勾选要更新的字段（['phonetic','meaning','example','category']）；
+     *                           不传表示默认全部字段（沿用旧行为：本地已有优先，AI 仅补缺失）；
+     *                           传入则被勾选的字段以 AI 结果优先（用于"数据完整时强制更新选中列"），未勾选字段保留原值
      */
-    parseEnrichmentResponse(response, originalWords) {
+    parseEnrichmentResponse(response, originalWords, fields) {
         try {
             console.log('🔍 开始解析AI响应...');
             console.log('📥 AI原始响应（前500字符）:', response.substring(0, 500));
@@ -609,6 +913,16 @@ JSON:`;
                 });
             }
             
+            const hasFields = Array.isArray(fields) && fields.length > 0;
+            const isFieldChecked = (f) => !hasFields || fields.includes(f);
+            // 字段取值规则：
+            // - 未传 fields（默认全部）：沿用旧行为，本地已有优先，AI 仅补缺失
+            // - 传了 fields：勾选列以 AI 结果优先（强制更新选中列），未勾选列保留原值
+            const pick = (field, aiVal, oldVal) => {
+                if (!isFieldChecked(field)) return oldVal || '';
+                return hasFields ? (aiVal || oldVal || '') : (oldVal || aiVal || '');
+            };
+            
             // 合并原始数据和补充数据
             const result = originalWords.map((word, index) => {
                 const enriched = enrichedData.find(e => 
@@ -617,13 +931,18 @@ JSON:`;
                 
                 const merged = {
                     word: word.word,
-                    // 本地（文件/Excel）已有的字段优先，AI 仅补充缺失字段，避免覆盖原有音标/释义/例句
-                    phonetic: word.phonetic || enriched.phonetic || '',
+                    phonetic: pick('phonetic', enriched.phonetic, word.phonetic),
                     definitions: [{
-                        pos: '',
-                        meaning: word.definitions?.[0]?.meaning || enriched.meaning || '',
-                        example: word.definitions?.[0]?.example || enriched.example || ''
-                    }]
+                        pos: word.definitions?.[0]?.pos || '',
+                        meaning: pick('meaning', enriched.meaning, word.definitions?.[0]?.meaning),
+                        example: pick('example', enriched.example, word.definitions?.[0]?.example)
+                    }],
+                    // 场景类别：勾选时以 AI 结果优先并校验规范化；未勾选保留原值
+                    category: isFieldChecked('category')
+                        ? (hasFields
+                            ? (this.normalizeCategory(enriched.category) || word.category || '')
+                            : (word.category || this.normalizeCategory(enriched.category) || ''))
+                        : (word.category || '')
                 };
                 
                 // 调试：打印第一个合并结果
