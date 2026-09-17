@@ -6,7 +6,7 @@
 
 一个专注、高效、现代化的背单词工具，支持多词书管理、智能复习、AI工坊等功能。
 
-[在线体验](https://Losecloud.github.io/reciting) | [使用文档](#使用指南) | [问题反馈](https://github.com/Losecloud/reciting/issues)
+[在线体验](https://Losecloud.github.io/VocRec/) | [使用文档](#使用指南) | [问题反馈](https://github.com/Losecloud/VocRec/issues)
 
 </div>
 
