@@ -9323,7 +9323,9 @@ ${example ? `- 例句：${example}` : ''}
                 option5: document.getElementById('hotkey5').value,
                 option6: document.getElementById('hotkey6').value
             },
-            defaultCover: this._getSavedDefaultCover()
+            defaultCover: this._getSavedDefaultCover(),
+            obWereadKey: ((document.getElementById('obWereadKey') || {}).value || '').trim(),
+            obWereadProxy: ((document.getElementById('obWereadProxy') || {}).value || '').trim()
         };
 
         Storage.saveSettings(this.settings);
@@ -9349,6 +9351,10 @@ ${example ? `- 例句：${example}` : ''}
             // 同步自绘下拉的触发器显示
             if (el._settingPickerBuilt) this._refreshSettingPicker(el);
         }
+        const keyEl = document.getElementById('obWereadKey');
+        if (keyEl) keyEl.value = this.settings.obWereadKey || '';
+        const proxyEl = document.getElementById('obWereadProxy');
+        if (proxyEl) proxyEl.value = this.settings.obWereadProxy || '';
     }
 
     // 重置设置
@@ -9382,7 +9388,9 @@ ${example ? `- 例句：${example}` : ''}
                     option5: '5',
                     option6: '6'
                 },
-                defaultCover: 'import'
+                defaultCover: 'import',
+                obWereadKey: '', // 微信读书 API Key（英文原著榜划线，选填）
+                obWereadProxy: '' // 微信读书划线转发地址（选填，留空用本地网关）
             };
             Storage.saveSettings(this.settings);
             this.closeSettings();
@@ -17130,15 +17138,15 @@ ${head}
     }
 
     // ============================================
-    // 英文原著榜（微信读书榜单 + 热门划线 + AI 阅读方法）
+    // 英文原著榜（古登堡计划榜单 + 微信读书热门划线 + AI 阅读方法）
     // ============================================
 
-    // 数据源（每个来源对应一个页签）：目前只保留微信读书英文原版榜
-    // 实测仅 1800001 可匿名取到数据；all / newbook / newrating_publish 等返回空（需登录态）
-    // 后续接入豆瓣、Goodreads 等其它平台时，在此追加即可，页签会自动出现
+    // 数据源（每个来源对应一个页签）：古登堡计划（Gutendex 开放接口）
+    // 该接口带 Access-Control-Allow-Origin: *，浏览器可直连、免密钥、无需本地网关，故作为唯一榜单源。
+    // 后续接入其它平台时，在此追加即可，页签会自动出现
     getObRanks() {
         return [
-            { id: '1800001', name: '微信读书 · 英文原版', short: '微信读书' }
+            { id: 'gutenberg', name: '古登堡计划 · 英文原著', short: '古登堡' }
         ];
     }
 
@@ -17156,6 +17164,7 @@ ${head}
         this.obTotal = 0;
         this.obGeneratedOnce = false;
         this._obMarkToken = (this._obMarkToken || 0) + 1;
+        this._obLoadToken = 0; // 榜单拉取代次令牌：重新拉取时递增，用于中止上一轮的后台补页
         this.renderObTabs();
         this.resetObDetail();
         this.renderObBookList();
@@ -17175,7 +17184,7 @@ ${head}
             });
         }
 
-        // 排序方式：热度 / 评分 / 划线数
+        // 排序方式：下载量 / 书名 / 经典序
         const sortBox = document.getElementById('obSortGroup');
         if (sortBox) {
             sortBox.addEventListener('click', (e) => {
@@ -17235,87 +17244,126 @@ ${head}
         this.loadObRanklist(false);
     }
 
-    // 单条书目标准化：统一字段，便于渲染与缓存
+    // 单条书目标准化：把 Gutendex 结果统一为内部字段，便于渲染与缓存
+    // Gutendex 结构：{ id, title, authors:[{name,birth_year,death_year}], subjects[], formats{}, download_count }
     _obNormalize(b) {
-        const bi = (b && b.bookInfo) || {};
+        const fmt = (b && b.formats) || {};
+        const author = (b.authors || []).map(a => {
+            const n = String(a.name || '');
+            const i = n.indexOf(','); // Gutendex 为「姓, 名」，转成「名 姓」更自然
+            return i > 0 ? (n.slice(i + 1).trim() + ' ' + n.slice(0, i).trim()) : n;
+        }).filter(Boolean).join(' / ');
+        const subjects = (b.subjects || []).slice();
         return {
-            bookId: String(bi.bookId || ''),
-            title: bi.title || '',
-            author: bi.author || '',
-            cover: bi.cover || '',
-            intro: bi.intro || '',
-            rating: bi.newRating ? (bi.newRating / 10).toFixed(1) + '%' : '',
-            ratingValue: bi.newRating ? bi.newRating / 10 : 0,
-            ratingCount: bi.newRatingCount || 0,
-            ratingTitle: (bi.newRatingDetail && bi.newRatingDetail.title) || '',
-            readingCount: (b && b.readingCount) || 0,
-            price: bi.price != null ? bi.price : '',
-            category: bi.category || '',
-            deepLink: bi.deepLink || ''
+            bookId: 'pg' + b.id,       // 统一主键（古登堡编号前缀，避免与其它来源冲突）
+            gid: b.id || 0,            // 古登堡计划编号
+            title: b.title || '',
+            author: author,
+            cover: fmt['image/jpeg'] || '',
+            intro: (b.summaries && b.summaries[0]) || '',
+            subjects: subjects,
+            category: subjects[0] || '',
+            downloads: b.download_count || 0,
+            readUrl: fmt['text/html'] || fmt['text/plain; charset=utf-8'] || '',
+            wereadId: ''               // 由「热门划线」环节按书名自动匹配得到的微信读书 bookId
         };
     }
 
-    // 通用 JSON 请求：直连失败（跨域）时依次尝试公共代理
-    async _obFetchJson(url) {
-        const once = async (target, timeoutMs) => {
-            let controller = null, timer = null;
-            if (typeof AbortController !== 'undefined') {
-                controller = new AbortController();
-                timer = setTimeout(() => controller.abort(), timeoutMs);
-            }
-            try {
-                const res = await fetch(target, { method: 'GET', credentials: 'omit', signal: controller ? controller.signal : undefined });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const text = await res.text();
-                try { return JSON.parse(text); }
-                catch (pe) {
-                    const s = text.indexOf('{'), en = text.lastIndexOf('}');
-                    if (s >= 0 && en > s) return JSON.parse(text.slice(s, en + 1));
-                    throw new Error('接口返回内容不是有效 JSON');
-                }
-            } finally {
-                if (timer) clearTimeout(timer);
-            }
-        };
+    // 数字缩写：83000 → 8.3万
+    _obFmtNum(n) {
+        n = Number(n) || 0;
+        if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        return String(n);
+    }
 
-        // 通道：0 = 本地网关（tools/serve.js 的 /proxy，实测唯一稳定可用），1 = 直连，2 = 公共代理兜底
-        // 命中可用通道后会记住，后续分页请求直接复用，避免每页都先撞一次跨域
-        // 注：日志实测 cors.eu.org / codetabs / corsproxy.io / r.jina.ai 均已失效或需密钥，公共代理仅保留
-        //     allorigins 一项并设短超时（5000ms），失败即快速报错，不再让用户白等超时
-        const channels = [
-            { name: '本地网关', build: u => `${this._obGateway()}/proxy?url=${encodeURIComponent(u)}`, timeout: 15000 },
-            { name: '直连', build: u => u, timeout: 15000 },
-            { name: '公共代理', build: u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, timeout: 5000 }
-        ];
-        const order = [];
-        if (this._obGwOk === true) order.push(0); // 已探测到网关存活：优先走网关
-        if (typeof this._obTransport === 'number' && this._obTransport >= 0) order.push(this._obTransport);
-        for (let i = 0; i < channels.length; i++) {
-            if (order.indexOf(i) === -1) order.push(i);
+    // 通用 JSON 请求：Gutendex 允许跨域，浏览器直连即可，无需本地网关或公共代理
+    // 超时设 60 秒：按下载量排序的首个查询在 Gutendex 侧需现算全量排名，实测冷启动约 40 秒，后续分页仅数百毫秒
+    async _obFetchJson(url, timeoutMs) {
+        let controller = null, timer = null;
+        if (typeof AbortController !== 'undefined') {
+            controller = new AbortController();
+            timer = setTimeout(() => controller.abort(), timeoutMs || 60000);
         }
-        if (!this._obDeadCh) this._obDeadCh = {};
+        try {
+            const res = await fetch(url, { method: 'GET', credentials: 'omit', signal: controller ? controller.signal : undefined });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return await res.json();
+        } catch (e) {
+            if (e && e.name === 'AbortError') throw new Error('请求超时（Gutendex 首次排序较慢，请稍后重试）');
+            throw e;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
 
+    // 微信读书 Agent Gateway 调用（划线数据通道）
+    // 官方网关 https://i.weread.qq.com/api/agent/gateway 的 CORS 仅放行 weread.qq.com，浏览器无法直连，
+    // 故需经转发层：默认走本地 tools/serve.js 的 POST /weread；若在设置里填了自定义转发地址则优先使用它。
+    async _obWereadCall(apiName, params) {
+        const key = this._obWereadKey();
+        if (!key) throw new Error('未配置微信读书 API Key（设置 → 页面设置）');
+        if (key.indexOf('wrk-') !== 0) throw new Error('微信读书 API Key 格式应为 wrk-xxxxxxxx');
+        const body = JSON.stringify(Object.assign({ api_name: apiName, skill_version: '1.0.5' }, params || {}));
+        const custom = (this.settings && this.settings.obWereadProxy || '').trim().replace(/\/+$/, '');
+        const targets = [];
+        if (custom) targets.push(custom);
+        targets.push(this._obGateway() + '/weread');
         let lastErr = null;
-        for (const idx of order) {
-            // 60 秒内失败过的「公共代理」直接跳过（网关/直连失败是瞬时拒绝，无需拉黑，方便用户起了网关立即重试）
-            if (idx > 1 && this._obDeadCh[idx] && Date.now() - this._obDeadCh[idx] < 60000) continue;
+        for (const target of targets) {
             try {
-                const data = await once(channels[idx].build(url), channels[idx].timeout);
-                this._obTransport = idx;
-                delete this._obDeadCh[idx];
-                if (idx > 1) console.warn(`[原著榜] 本地网关与直连均不可用，已改用「${channels[idx].name}」获取数据`);
-                return data;
-            } catch (err) {
-                lastErr = err;
-                if (idx > 1) this._obDeadCh[idx] = Date.now();
-            }
+                return await this._obPostJson(target, body, key);
+            } catch (e) { lastErr = e; }
         }
-        // 全部通道失败：区分「本地网关没启动」（最常见）与其它网络问题，给出可操作的错误提示
-        if (!(await this._obGatewayAlive())) throw new Error(`本地网关未启动（${this._obGateway()}）`);
-        throw new Error('网关/网络请求失败' + (lastErr ? `（最后一次错误：${lastErr.message}）` : ''));
+        throw new Error('划线转发通道不可用：' + (lastErr ? lastErr.message : '未知错误')
+            + (custom ? '' : '。可运行 node tools/serve.js，或在设置中填写「划线转发地址」'));
     }
 
-    // 本地网关存活探测：GET /proxy 不带 url 参数会被网关立即回 400 JSON，能拿到 HTTP 响应即视为存活
+    // POST JSON 到转发层，返回业务数据（兼容 {code,data} / 裸业务字段两种回包）
+    async _obPostJson(target, body, key) {
+        let controller = null, timer = null;
+        if (typeof AbortController !== 'undefined') {
+            controller = new AbortController();
+            timer = setTimeout(() => controller.abort(), 20000);
+        }
+        try {
+            const res = await fetch(target, {
+                method: 'POST',
+                credentials: 'omit',
+                headers: { 'Content-Type': 'application/json', 'X-Weread-Key': key },
+                body: body,
+                signal: controller ? controller.signal : undefined
+            });
+            const text = await res.text();
+            let data = null;
+            try { data = JSON.parse(text); } catch (e) { throw new Error(`HTTP ${res.status}: 回包不是有效 JSON`); }
+            if (data && data.errcode && data.errcode !== 0) throw new Error(data.errmsg || data.errMsg || `接口错误 ${data.errcode}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return (data && data.data && typeof data.data === 'object') ? data.data : data;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    _obWereadKey() {
+        return String((this.settings && this.settings.obWereadKey) || '').trim();
+    }
+
+    // 按书名在微信读书匹配 bookId（古登堡榜只有书名/作者，微信读书侧多为中文译者版本，故以书名归一化匹配为主）
+    async _obMatchWereadBook(book) {
+        const keyword = String(book.title || '').replace(/[:;(（].*$/, '').trim();
+        if (!keyword) return '';
+        const d = await this._obWereadCall('/store/search', { keyword: keyword, scope: 10 });
+        const cand = [];
+        (d.results || []).forEach(g => (g.books || []).forEach(x => { if (x && x.bookInfo) cand.push(x.bookInfo); }));
+        if (!cand.length) return '';
+        const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const t = norm(book.title);
+        const hit = cand.find(c => norm(c.title) === t) || cand.find(c => norm(c.title).indexOf(t) === 0) || cand[0];
+        return String((hit && hit.bookId) || '');
+    }
+
+    // 本地网关存活探测：GET /dict-list.json 能拿到 HTTP 响应即视为存活
     // 仅缓存「存活」结果（20 秒），避免每次重试都先撞一次连接拒绝；启动网关后立即重试可即时生效
     async _obGatewayAlive() {
         const now = Date.now();
@@ -17327,7 +17375,7 @@ ${head}
             timer = setTimeout(() => controller.abort(), 2500);
         }
         try {
-            await fetch(`${this._obGateway()}/proxy`, { method: 'GET', credentials: 'omit', signal: controller ? controller.signal : undefined });
+            await fetch(`${this._obGateway()}/dict-list.json`, { method: 'GET', credentials: 'omit', signal: controller ? controller.signal : undefined });
             ok = true;
         } catch (e) {
             ok = false;
@@ -17369,13 +17417,13 @@ ${head}
         } catch (e) { /* 存储超限时静默忽略 */ }
     }
 
-    // 拉取榜单：分页（每页 20 条）直到达到目标条数或无更多
+    // 拉取榜单：分页（Gutendex 每页 32 条）直到达到目标条数或无更多
     async loadObRanklist(force) {
         const rank = (this.obRanks || []).find(r => r.id === this.obActiveRankId) || this.obRanks[0];
         if (!rank) return;
         const limit = this.obLimit || 100;
         // 键带版本号：书目字段结构变更时自然失效旧缓存
-        const cacheKey = `ob1_${rank.id}_${limit}`;
+        const cacheKey = `ob2_${rank.id}_${limit}`;
         const listEl = document.getElementById('obBookList');
         const btn = document.getElementById('obLoadBtn');
 
@@ -17390,49 +17438,80 @@ ${head}
             }
         }
 
+        const token = ++this._obLoadToken; // 每次重新拉取生成新令牌，用于中止上一轮的后台补页
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<span class="loading-spinner-small"></span>拉取中...';
         }
         if (listEl) {
-            listEl.innerHTML = `<div class="ob-loading"><span class="loading-spinner-small"></span>正在拉取「${this.escapeHtml(rank.name)}」前 ${limit} 本...</div>`;
+            listEl.innerHTML = `<div class="ob-loading"><span class="loading-spinner-small"></span>正在拉取「${this.escapeHtml(rank.name)}」...<br><span class="ob-err-hint">先取回前 32 本并立即展示，其余在后台继续补齐；首次排序较慢，请稍候</span></div>`;
         }
 
         try {
-            const books = [];
-            let maxIndex = 0;
-            this.obTotal = 0;
-            while (maxIndex < limit) {
-                const url = `https://weread.qq.com/web/bookListInCategory/${rank.id}?maxIndex=${maxIndex}`;
-                const data = await this._obFetchJson(url);
-                const batch = (data && data.books) || [];
-                if (data && data.totalCount) this.obTotal = data.totalCount;
-                batch.forEach(b => { if (b && b.bookInfo) books.push(this._obNormalize(b)); });
-                if (!(data && data.hasMore) || !batch.length) break;
-                maxIndex += 20;
-                // 分页间稍作停顿，避免高频请求
-                if (maxIndex < limit) await new Promise(r => setTimeout(r, 150));
-            }
+            // 第 1 页先取回并立即渲染，剩余分页转后台静默补齐
+            // （Gutendex 的下载量排序由服务端现算，个别页可能耗时数十秒，不能让界面一直干等）
+            const first = await this._obFetchJson('https://gutendex.com/books?languages=en&sort=popular', 90000);
+            if (token !== this._obLoadToken) return;
+            const books = ((first && first.results) || []).map(b => this._obNormalize(b));
+            this.obTotal = (first && first.count) || 0;
             books.forEach((b, i) => { b.rank = i + 1; });
             this.obBooks = books;
             this.obSelectedIndex = -1;
             this.obSelectedBookId = '';
-            if (books.length) this._obCacheSet(cacheKey, books, this.obTotal);
+            this._obCacheSet(cacheKey, books, this.obTotal);
             this.renderObBookList();
             this.showToast(`已拉取 ${books.length} 本`, 'success');
+            // 后台补齐：任一分页失败只停止补齐，不影响已展示的书目
+            if (first && first.next && books.length < limit) {
+                this._obFetchMorePages(token, cacheKey, first.next, books, limit);
+            }
         } catch (e) {
+            if (token !== this._obLoadToken) return;
             console.error('[原著榜] 榜单拉取失败:', e);
             this.obBooks = [];
             this.renderObBookList();
             if (listEl) {
-                listEl.innerHTML = `<div class="ob-empty">榜单拉取失败：${this.escapeHtml(e.message || '未知错误')}<br><span class="ob-err-hint">微信读书接口未开放跨域，浏览器需经由本地网关转发。请在项目根目录运行 <code>node tools/serve.js</code> 后，直接点击上方「拉取榜单」重试即可（无需重启本应用）</span></div>`;
+                listEl.innerHTML = `<div class="ob-empty">榜单拉取失败：${this.escapeHtml(e.message || '未知错误')}<br><span class="ob-err-hint">榜单来自古登堡计划开放接口（gutendex.com）。该接口需在服务端现算全量下载量排名，首次或缓存失效时可能耗时较久甚至超时；稍等片刻再点上方「拉取榜单」重试，通常能命中缓存而明显加快</span></div>`;
             }
             this.showToast('榜单拉取失败', 'info');
         } finally {
-            if (btn) {
+            if (token === this._obLoadToken && btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fi-rr-refresh"></i>拉取榜单';
             }
+        }
+    }
+
+    // 后台逐页补齐榜单：每页 90 秒超时，任一页失败即停止，已获取书目保留
+    async _obFetchMorePages(token, cacheKey, next, books, limit) {
+        const before = books.length;
+        let timedOut = false;
+        while (next && books.length < limit && token === this._obLoadToken) {
+            let data = null;
+            try {
+                data = await this._obFetchJson(next, 90000);
+            } catch (e) {
+                console.warn('[原著榜] 追加分页失败，保留已获取书目:', e.message);
+                timedOut = true;
+                break;
+            }
+            if (token !== this._obLoadToken || this.obBooks !== books) return;
+            ((data && data.results) || []).forEach(b => books.push(this._obNormalize(b)));
+            next = (data && data.next) || '';
+            books.length = Math.min(books.length, limit);
+            books.forEach((b, i) => { b.rank = i + 1; });
+            this.obBooks = books;
+            this.renderObBookList();
+            this._obCacheSet(cacheKey, books, this.obTotal);
+            const cnt = document.getElementById('obListCount');
+            if (cnt) cnt.textContent = `${books.length} 本${next && books.length < limit ? '（继续加载…）' : ''}`;
+        }
+        if (token !== this._obLoadToken) return;
+        if (books.length > before) {
+            this.renderObBookList();
+            this.showToast(timedOut
+                ? `已拉取 ${books.length} 本（部分分页超时，可再点「拉取榜单」补齐）`
+                : `已拉取 ${books.length} 本`, timedOut ? 'info' : 'success');
         }
     }
 
@@ -17451,12 +17530,13 @@ ${head}
     getObVisibleBooks() {
         const list = (this.obBooks || []).slice();
         const mode = this.obSort || 'hot';
-        if (mode === 'rating') {
-            list.sort((a, b) => (b.ratingValue || 0) - (a.ratingValue || 0) || (a.rank || 0) - (b.rank || 0));
-        } else if (mode === 'reviews') {
-            list.sort((a, b) => (b.ratingCount || 0) - (a.ratingCount || 0) || (a.rank || 0) - (b.rank || 0));
+        if (mode === 'title') {
+            list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')) || (a.rank || 0) - (b.rank || 0));
+        } else if (mode === 'classic') {
+            // 古登堡编号越小 = 越早被收录的经典
+            list.sort((a, b) => (a.gid || 0) - (b.gid || 0) || (a.rank || 0) - (b.rank || 0));
         } else {
-            list.sort((a, b) => (b.readingCount || 0) - (a.readingCount || 0) || (a.rank || 0) - (b.rank || 0));
+            list.sort((a, b) => (b.downloads || 0) - (a.downloads || 0) || (a.rank || 0) - (b.rank || 0));
         }
         return list;
     }
@@ -17485,10 +17565,9 @@ ${head}
                     <div class="ob-book-title">${this.escapeHtml(b.title)}</div>
                     <div class="ob-book-author">${this.escapeHtml(b.author || '佚名')}</div>
                     <div class="ob-book-meta">
-                        ${b.rating ? `<span class="ob-rating">${b.rating}</span>` : ''}
-                        ${b.ratingTitle ? `<span class="ob-tag">${this.escapeHtml(b.ratingTitle)}</span>` : ''}
-                        ${b.readingCount ? `<span class="ob-reading"><i class="fi-rr-flame"></i>${b.readingCount}</span>` : ''}
-                        ${b.price !== '' && b.price !== undefined ? `<span class="ob-price">¥${b.price}</span>` : ''}
+                        ${b.downloads ? `<span class="ob-reading" title="古登堡计划累计下载量"><i class="fi-rr-flame"></i>${this._obFmtNum(b.downloads)}</span>` : ''}
+                        ${b.category ? `<span class="ob-tag">${this.escapeHtml(String(b.category).slice(0, 20))}</span>` : ''}
+                        ${b.gid ? `<span class="ob-price">No.${b.gid}</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -17532,12 +17611,11 @@ ${head}
 
         const infoEl = document.getElementById('obBookInfo');
         if (infoEl) {
+            const subjects = (book.subjects || []).slice(0, 3);
             const tags = [
-                book.rating ? `<span class="ob-rating">${book.rating}（${book.ratingCount} 人评）</span>` : '',
-                book.ratingTitle ? `<span class="ob-tag">${this.escapeHtml(book.ratingTitle)}</span>` : '',
-                book.readingCount ? `<span class="ob-reading"><i class="fi-rr-flame"></i>今日 ${book.readingCount} 人在读</span>` : '',
-                book.price !== '' && book.price !== undefined ? `<span class="ob-price">￥${book.price}</span>` : '',
-                book.category ? `<span class="ob-cat">${this.escapeHtml(book.category)}</span>` : ''
+                book.downloads ? `<span class="ob-reading"><i class="fi-rr-flame"></i>${this._obFmtNum(book.downloads)} 次下载</span>` : '',
+                book.gid ? `<span class="ob-tag">古登堡 No.${book.gid}</span>` : '',
+                ...subjects.map(s => `<span class="ob-cat">${this.escapeHtml(s)}</span>`)
             ].filter(Boolean).join('');
             infoEl.innerHTML = `
                 <div class="ob-detail-top">
@@ -17546,14 +17624,14 @@ ${head}
                         <div class="ob-detail-title">第 ${book.rank || index + 1} 名 · ${this.escapeHtml(book.title)}</div>
                         <div class="ob-detail-author">${this.escapeHtml(book.author || '佚名')}</div>
                         <div class="ob-detail-tags">${tags}</div>
-                        ${book.deepLink ? '<button type="button" class="ob-open-btn" data-ob-open>在微信读书打开</button>' : ''}
+                        ${book.readUrl ? '<button type="button" class="ob-open-btn" data-ob-open>在线阅读原文</button>' : ''}
                     </div>
                 </div>
                 ${book.intro ? `<div class="ob-detail-intro">${this.escapeHtml(String(book.intro).replace(/\s+/g, ' ').trim())}</div>` : ''}
             `;
             const openBtn = infoEl.querySelector('[data-ob-open]');
             if (openBtn) {
-                openBtn.addEventListener('click', () => window.open(book.deepLink, '_blank'));
+                openBtn.addEventListener('click', () => window.open(book.readUrl, '_blank'));
             }
         }
 
@@ -17564,21 +17642,34 @@ ${head}
         this._obLoadHotMarks(book);
     }
 
-    // 拉取该书热门划线（count=10000 可一次取全量，默认折叠显示前 10 条）
+    // 拉取该书大众热门划线：古登堡榜无划线数据，故按书名自动匹配微信读书 bookId 后取其热门划线
+    // 说明：官方 /book/bestbookmarks 固定返回前 20 条，不支持分页
     async _obLoadHotMarks(book) {
         const box = document.getElementById('obMarksBox');
-        if (!box || !book.bookId) return;
+        if (!box) return;
         const token = ++this._obMarkToken;
-        box.innerHTML = '<div class="ob-loading"><span class="loading-spinner-small"></span>正在拉取热门划线...</div>';
+        if (!this._obWereadKey()) {
+            box.innerHTML = '<div class="ob-err-hint">未配置微信读书 API Key，无法获取该书的大众热门划线。可在「设置 → 页面设置」中填入 wrk- 开头的 Key 后重试</div>';
+            return;
+        }
+        box.innerHTML = '<div class="ob-loading"><span class="loading-spinner-small"></span>正在匹配微信读书书目并拉取热门划线...</div>';
         try {
-            const url = `https://weread.qq.com/web/book/bestbookmarks?bookId=${encodeURIComponent(book.bookId)}&hasLogin=0&count=10000`;
-            const data = await this._obFetchJson(url);
-            if (token !== this._obMarkToken) return; // 已被后一次选择覆盖
-            const raw = (data && data.bestBookMarks) || {};
+            let bookId = book.wereadId;
+            if (!bookId) {
+                bookId = await this._obMatchWereadBook(book);
+                if (token !== this._obMarkToken) return; // 已被后一次选择覆盖
+                if (!bookId) {
+                    box.innerHTML = '<div class="ob-err-hint">未在微信读书找到与本书匹配的版本，暂无大众热门划线</div>';
+                    return;
+                }
+                book.wereadId = bookId;
+            }
+            const raw = await this._obWereadCall('/book/bestbookmarks', { bookId: bookId, chapterUid: 0, synckey: 0 });
+            if (token !== this._obMarkToken) return;
             // 章节信息保留 chapterIdx，供「章节顺序」视图排序
             const chapters = {};
             (raw.chapters || []).forEach(c => { chapters[c.chapterUid] = { idx: c.chapterIdx || 0, title: c.title || '' }; });
-            // 按标记人数降序，保留全部（不截断，交由渲染层控制折叠）
+            // 按标记人数降序（服务端固定 20 条，交由渲染层控制折叠）
             this.obMarksItems = (raw.items || [])
                 .slice()
                 .sort((a, b) => (b.totalCount || 0) - (a.totalCount || 0));
@@ -17603,7 +17694,7 @@ ${head}
 
         box.innerHTML = `
             <div class="ob-marks-head">
-                <span class="ob-section-title">热门划线 · 共 ${this.obMarksTotal || all.length} 条</span>
+                <span class="ob-section-title">微信读书热门划线 · 共 ${this.obMarksTotal || all.length} 条</span>
                 <div class="ob-marks-switch" id="obMarksSwitch">
                     <button type="button" class="ob-sort-btn${mode === 'count' ? ' active' : ''}" data-ob-marks-sort="count" title="按标记人数排序，查看被划线最多的句子">标记人数</button>
                     <button type="button" class="ob-sort-btn${mode === 'chapter' ? ' active' : ''}" data-ob-marks-sort="chapter" title="按章节顺序查看各章热度分布">章节顺序</button>
@@ -17765,8 +17856,9 @@ ${head}
         const head = `书籍信息：
 - 书名：${book.title}
 - 作者：${book.author || '（未知）'}
-- 类别：${book.category || '原版书'}
-- 微信读书推荐值：${book.rating || '（暂无）'}${book.ratingTitle ? `（${book.ratingTitle}）` : ''}
+- 类别：${(book.subjects || []).slice(0, 3).join('、') || book.category || '英文原著'}
+- 古登堡计划编号：${book.gid ? 'No.' + book.gid : '（未知）'}
+- 全站下载量：${book.downloads || '（暂无）'}
 - 榜单排名：第 ${book.rank || '?'} 名
 - 简介：${intro || '（无）'}`;
 
@@ -20370,6 +20462,37 @@ ${head}
     // 原生select保留为值载体（value读取/change事件兼容），外包装自绘trigger+panel
     initSettingSelects() {
         const self = this;
+
+        // 封面控制面板里的下拉浮层（词单/详情/聚类 + 自绘典雅下拉）：
+        // 1) 同一时刻只展开一个；
+        // 2) 展开后按触发器实时位置覆盖显示（见 _placeCoverPanel）。
+        // 触发器的点击处理都会 stopPropagation，冒泡阶段的全局收起逻辑收不到这些点击，
+        // 只能在捕获阶段处理；而各封面模块自己的展开动作发生在本次事件派发的后半程，
+        // 故量位置要放到微任务里（此时浮层已展开，且仍在同一帧渲染前）
+        if (!this._coverPanelBound) {
+            this._coverPanelBound = true;
+            document.addEventListener('click', (e) => {
+                const t = e.target;
+                if (!t || !t.closest) return;
+                const trigger = t.closest('.nebula-controls .nebula-booktrigger, .nebula-controls .ai-picker-trigger');
+                if (!trigger) return;
+                const controls = trigger.closest('.nebula-controls');
+                // 收起另一类浮层（同类之间由各封面模块自己互斥）
+                if (trigger.classList.contains('nebula-booktrigger')) {
+                    controls.querySelectorAll('.ai-picker-panel').forEach(p => { p.style.display = 'none'; });
+                } else {
+                    controls.querySelectorAll('.nebula-bookpanel').forEach(p => p.classList.add('hidden'));
+                }
+                queueMicrotask(() => this._placeCoverPanel(trigger, controls));
+            }, true);
+            // 控制面板内容滚动时，已展开的浮层要跟着触发器走
+            // （scroll 不冒泡，但捕获阶段仍会经过 document）
+            document.addEventListener('scroll', () => {
+                document.querySelectorAll('.nebula-controls .nebula-booktrigger, .nebula-controls .ai-picker-trigger')
+                    .forEach(tr => this._placeCoverPanel(tr, tr.closest('.nebula-controls')));
+            }, true);
+        }
+
         const selects = document.querySelectorAll('select.setting-select');
         selects.forEach(select => {
             if (select._settingPickerBuilt) {
@@ -20378,6 +20501,52 @@ ${head}
             }
             self._buildSettingPicker(select);
         });
+    }
+
+    // 供封面控制面板等外部模块在程序化回填 select.value 后同步自绘下拉的触发器文字。
+    // 触发器文字只在打开/选中时刷新，业务代码直接改 value 不会自动同步；
+    // 封面模块可能在本类初始化之前或之后回填，故按 _settingPickerBuilt 判断：
+    // 未构建时静默跳过（构建时会读取当时的 value，文字自然正确）
+    refreshSettingPicker(idOrEl) {
+        const select = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
+        if (select && select._settingPickerBuilt) this._refreshSettingPicker(select);
+    }
+
+    // 摆放封面控制面板里的下拉浮层。浮层本身脱离文档流、不影响面板高度（见 CSS），
+    // 位置由这里按触发器的实时位置算出来：浮层要与触发按钮左右对齐（触发器在
+    // 「标签 + 控件」的一行里，宽度不等于卡片内容宽），贴近窗口下沿时还要上翻。
+    // 下方放不下就上翻；上下都放不下（浮层比可视高度还高）时退回向下并压进剩余
+    // 空间，由浮层自身滚动
+    _placeCoverPanel(trigger, controls) {
+        const isBook = trigger.classList.contains('nebula-booktrigger');
+        const wrap = trigger.parentNode;
+        const panel = wrap && wrap.querySelector(isBook ? '.nebula-bookpanel' : '.ai-picker-panel');
+        // offsetParent 为 null 表示浮层没展开（display: none）
+        if (!panel || panel.offsetParent === null) return;
+
+        // 先清掉上一次可能残留的限高，量到的才是自然高度
+        panel.style.maxHeight = '';
+        const hostRect = controls.getBoundingClientRect();
+        const tRect = trigger.getBoundingClientRect();
+        // 左右与触发器对齐（含面板滚动条占位），top 换算到浮层包含块（.nebula-controls）的坐标
+        panel.style.left = (tRect.left - hostRect.left) + 'px';
+        panel.style.right = (hostRect.right - tRect.right) + 'px';
+
+        // CSS 给了浮层一点 margin-top 做兜底间距，写 top 时要把它抵掉，否则间距翻倍
+        const gap = 6;
+        const m = parseFloat(getComputedStyle(panel).marginTop) || 0;
+        // 可视下边界：窗口底边，以及控制面板所在封面层的底边（封面不一定铺满窗口）
+        const host = controls.offsetParent;
+        const hostBottom = host ? host.getBoundingClientRect().bottom : 0;
+        const limit = Math.min(window.innerHeight, hostBottom || window.innerHeight) - 8;
+        let vTop = tRect.bottom + gap;          // 期望的浮层视口坐标
+        if (vTop + m + panel.offsetHeight > limit) {
+            const above = tRect.top - gap - panel.offsetHeight;
+            // 上方放得下就上翻；上下都放不下（浮层比可视高度还高）时压进下方空间自行滚动
+            if (above >= 8) vTop = above;
+            else panel.style.maxHeight = Math.max(80, limit - tRect.bottom - gap - m) + 'px';
+        }
+        panel.style.top = (vTop - hostRect.top - m) + 'px';
     }
 
     // 构建单个设置下拉的自绘UI（复用 ai-picker 样式，保持与AI模型下拉一致）
@@ -20398,6 +20567,9 @@ ${head}
         const trigger = document.createElement('button');
         trigger.type = 'button';
         trigger.className = 'ai-picker-trigger';
+        // 原生 select 上的 title 会随元素被隐藏而失效（悬停提示不再显示），
+        // 转到自绘触发器上保留这份说明文字
+        if (select.title) trigger.title = select.title;
         wrapper.insertBefore(trigger, select);
 
         // 面板

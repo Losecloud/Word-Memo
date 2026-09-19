@@ -4,6 +4,7 @@
 //  1. 扫描 data/ 目录下所有 *-dict.js 词典文件，供浏览页动态加载
 //  2. 提供 /dict-list.json 接口返回词典清单 {name, varName, file, size, count}
 //  3. 静态文件服务（浏览页/词典脚本）
+//  4. 提供 POST /weread 转发微信读书官方 Agent Gateway（供「英文原著榜」拉取热门划线，密钥经 X-Weread-Key 头传入）
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -27,7 +28,7 @@ const VAR_RE = /var\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*=\s*\{/u;
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Weread-Key');
 }
 
 function sanitizeVarName(varName) {
@@ -100,25 +101,36 @@ http.createServer((req, res) => {
     return;
   }
 
-  // 跨域代理：/proxy?url=<encodeURIComponent(http地址)> → 转发远程 JSON
-  // 供主程序拉取微信读书榜单/热门划线等未开放 CORS 的接口（仅放行微信读书域名）
-  if (url === '/proxy') {
-    const raw = (req.url.split('?')[1] || '');
-    const target = new URLSearchParams(raw).get('url') || '';
-    let host = '';
-    try { host = new URL(target).host; } catch (e) { host = ''; }
-    if (!target || host !== 'weread.qq.com') {
-      res.writeHead(400, { 'Content-Type': MIME['.json'] });
-      res.end(JSON.stringify({ error: '仅允许代理 weread.qq.com' }));
-      return;
-    }
-    const mod = target.startsWith('https:') ? require('https') : require('http');
-    mod.get(target, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://weread.qq.com/' } }, up => {
-      res.writeHead(up.statusCode || 502, { 'Content-Type': 'application/json; charset=utf-8' });
-      up.pipe(res);
-    }).on('error', e => {
-      res.writeHead(502, { 'Content-Type': MIME['.json'] });
-      res.end(JSON.stringify({ error: '代理请求失败: ' + e.message }));
+  // 微信读书 Agent Gateway 转发：POST /weread
+  // 请求体为官方网关的 JSON（{"api_name":"/store/search", ...业务参数}），密钥经 X-Weread-Key 头传入。
+  // 官方网关 https://i.weread.qq.com/api/agent/gateway 的 CORS 仅放行 weread.qq.com，
+  // 浏览器无法直连，故由本服务代填 Authorization 后转发。
+  if (url === '/weread') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1024 * 1024) req.destroy(); });
+    req.on('end', () => {
+      const key = String(req.headers['x-weread-key'] || '').trim();
+      if (key.indexOf('wrk-') !== 0) {
+        res.writeHead(400, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ errcode: -1, errmsg: '缺少微信读书 API Key（X-Weread-Key，格式 wrk-xxxxxxxx）' }));
+        return;
+      }
+      const up = require('https').request('https://i.weread.qq.com/api/agent/gateway', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + key,
+          'Content-Length': Buffer.byteLength(body)
+        }
+      }, upstream => {
+        res.writeHead(upstream.statusCode || 502, { 'Content-Type': 'application/json; charset=utf-8' });
+        upstream.pipe(res);
+      });
+      up.on('error', e => {
+        res.writeHead(502, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ errcode: -1, errmsg: '转发微信读书失败: ' + e.message }));
+      });
+      up.end(body);
     });
     return;
   }

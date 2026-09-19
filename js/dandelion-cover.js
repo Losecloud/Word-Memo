@@ -12,7 +12,6 @@
     var Storage = global.Storage;
     var TAU = Math.PI * 2;
 
-    var MAX_NODES = 360;        // 单次渲染的最大词条数（保证力导向与绘制流畅）
     var MAX_FLOAT_SEEDS = 10;   // 空中飘散种子（未掌握词）上限
     var FLOAT_SEED_MARGIN = 70; // 种子回卷边界相对视野外扩的世界单位（略出屏即从对侧回卷）
     var ROOT_X = 10;            // 蒲公英根部世界坐标
@@ -23,6 +22,8 @@
     var STEM_BASE_WORDS = 100;
     var STEM_MAX_SCALE = 2.2;   // 茎长放大上限（约 480 词触及）
     var CANOPY_REF = 300;       // 花冠（外圈）参考半径，用于取景与茎长比例
+    // 花冠尺寸的基准词量：词数正好这么多时花冠保持原先调好的尺寸（layoutScale = 1）
+    var LAYOUT_BASE_WORDS = 360;
     var CORE_R = 52;            // 花托圆盘半径
     var FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
@@ -468,6 +469,10 @@
         viewTouched: false,     // 用户是否手动平移/缩放过视角
         panning: false,
         panStart: null,
+        // 多点触控：pointerId → 该指最近的画布坐标。双指同时按下时进入
+        // pinch 手势（间距变化缩放、中点移动平移），见 applyPinch
+        pointers: {},
+        pinch: null,
         dragNode: null,
         clusters: [],
         clusterAngleMap: {},
@@ -475,9 +480,24 @@
         // 配置（按用户持久化）
         selected: [],
         layout: 'dandelion-cluster',
-        // 忘记词（空中飘散种子）的取词口径：proficiency / ebbinghaus / error
+        // 忘记词（空中飘散种子）的取词口径：proficiency / ebbinghaus / error / favorite
         forgetMode: 'proficiency',
-        forgotten: [],          // 本次重建挑出的忘记词（按紧急度排序，见 pickForgotten）
+        forgotten: [],          // 本次重建挑出的忘记词（按紧急度排序，见 computeForgotten）
+        floatWords: [],         // 其中真正会飘到空中的那几颗（与花头节点互斥）
+        // 拖拽产生的会话级覆盖：仅本次打开有效，刷新即清空（收藏结果本身已落盘）。
+        // 键为 wordKey，值为 true
+        forcedOut: {},          // 手动拽出花头 → 强制飘在空中（并收藏）
+        forcedIn: {},           // 手动拽回花头 → 强制不再飘（并取消收藏）
+        dragSeed: null,         // 正在拖拽的飘散种子
+        dragMoved: false,       // 本次按下是否已拖出足够距离（区分点击与拖拽）
+        dragStart: null,
+        dragGrab: null,         // 抓取时指针与节点中心的偏移（世界坐标），拖动时保持它不跳位
+        dragPointer: null,      // 拖拽中的指针屏幕坐标（画落点提示环用）
+        // 花头在世界坐标中的中心与半径（每帧由 render/drawReceptacle 写入，拖拽落点判定用）
+        headX: 0,
+        headY: 0,
+        headRadius: 0,
+        nodeSeq: 0,             // 拖回花头时新增节点的 id 序号
         showClusterLabels: true,// 是否绘制外圈分类徽标（类别名称），可由控制面板关闭
         gravity: 2.5,
         repulsion: -55,
@@ -615,19 +635,37 @@
     }
 
     /* ---------------- 忘记词：空中飘散种子取自哪些词（可由控制面板切换口径） ----------------
-       三种口径都只影响「哪些词飘在空中」这个复习提示，不影响星团聚类与节点本身：
+       几种口径都只影响「哪些词飘在空中」这个复习提示，不影响星团聚类与节点本身：
          proficiency 熟练度低（默认）：正确率推得的熟练度 <= 2，含尚无练习记录的词。
                      词书刚导入时几乎全是它，属于"还没背"而非真的"忘了"
          ebbinghaus  艾宾浩斯到期：SM-2 记忆表里已到期的词（nextReviewDate 早于今日零点，
                       含逾期），按到期时间升序 —— 最该复习的排最前，封面即复习清单。
                       取法刻意与 Storage.getDueWords 一致：封面提示的词，在「待复习」里
                       一定数得出来，否则两边对不上会让人以为封面在乱标
-         error       错误率最高 10%：只统计真正练过的词，同错误率时练习次数多的更可信 */
-    var FORGET_MODES = ['proficiency', 'ebbinghaus', 'error'];
+         error       错误率最高 10%：只统计真正练过的词，同错误率时练习次数多的更可信
+         favorite    收藏单词：用户主动加星的词。收藏这个动作本身就说明"这个我记不住"，
+                      与练习数据无关，故不过滤、不排序，沿用 list 的难词优先次序
+
+       口径之外还可直接拖拽（见 dropNodeToSeed / dropSeedToNode）：
+       把花头里的词拽到花头外松手 = 收藏并让它随风飘走；把空中的种子拽回花头内松手
+       = 取消收藏并归位。这两个动作只覆盖本次会话（state.forcedOut / forcedIn），
+       刷新即失效、恢复成上面各口径的挑选结果；但收藏/取消收藏本身已写入收藏表，
+       是长期生效的 —— 刷新后若正好用 favorite 口径，拽出过的词会照样飘在空中 */
+    var FORGET_MODES = ['proficiency', 'ebbinghaus', 'error', 'favorite'];
+
+    // 词形归一化：收藏表、记忆表、拖拽覆盖集都以它作键，
+    // 避免大小写与首尾空格差异让同一个词在两处认不出是同一个
+    function wordKey(v) {
+        var s = (v && typeof v === 'object') ? (v.word || v.name || '') : v;
+        return String(s || '').trim().toLowerCase();
+    }
 
     // 池子中按当前口径挑出忘记词，并按紧急度排序（createMeadowScene 再截到 MAX_FLOAT_SEEDS）
     function pickForgotten(list) {
         var mode = state.forgetMode;
+        if (mode === 'favorite') {
+            return list.filter(function (w) { return w.favorite === true; });
+        }
         if (mode === 'ebbinghaus') {
             var today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -644,6 +682,33 @@
             return practiced.slice(0, Math.ceil(practiced.length * 0.1));
         }
         return list.filter(function (w) { return w.proficiency <= 2; });
+    }
+
+    // 口径挑选 + 会话级手动覆盖，得到最终「会飘在空中」的候选（顺序即截断优先级）。
+    // 手动拖拽只改本次会话的归位结果，故不写配置、不落盘：刷新后回到纯口径挑选；
+    // 但收藏本身已写入收藏表，长期有效
+    function computeForgotten(list) {
+        var byKey = {};
+        list.forEach(function (w) { byKey[wordKey(w)] = w; });
+        var picked = {};
+        var out = [];
+        // 1. 手动拽出的词排最前：MAX_FLOAT_SEEDS 截断时优先保住用户亲手挑的那几个
+        for (var k in state.forcedOut) {
+            if (!state.forcedOut.hasOwnProperty(k)) continue;
+            var w = byKey[k];
+            // 词不在当前词池（换了词单）或已被手动拽回时，覆盖失效
+            if (!w || state.forcedIn[k]) continue;
+            picked[k] = true;
+            out.push(w);
+        }
+        // 2. 口径挑出的词依次追加，跳过已入列与被手动拽回的
+        pickForgotten(list).forEach(function (w) {
+            var key = wordKey(w);
+            if (picked[key] || state.forcedIn[key]) return;
+            picked[key] = true;
+            out.push(w);
+        });
+        return out;
     }
 
     // 词条自带标签规范化：旧标签迁移到当前分类树，对不上的一律丢弃（返回空串）
@@ -725,6 +790,16 @@
             }
         } catch (e) { /* 记忆表不可用时退化为无到期词 */ }
 
+        // 收藏词集合：独立于「词单选择」是否勾了收藏 —— 收藏词可能同时也属于某个词书，
+        // 那种情况下它由词书的 push 进入列表，若不单独标记就认不出它被收藏过
+        var favSet = {};
+        try {
+            (Storage.loadFavoriteItems() || []).forEach(function (f) {
+                var fk = String((f && f.word) || '').trim().toLowerCase();
+                if (fk) favSet[fk] = true;
+            });
+        } catch (e) { /* 收藏表不可用时视为无收藏 */ }
+
         function push(w, bookId, idx) {
             var key = String(w.word || w.name || '').trim().toLowerCase();
             if (!key || seen[key]) return;
@@ -756,6 +831,8 @@
                 proficiency: proficiencyOf(total, wrong, learned),
                 // 重点难词：练过且错误率偏高（"专供难词"的视觉重心）
                 isHotspot: total >= 2 && errRate >= 50,
+                // 是否被收藏（忘记词的 favorite 口径据此挑选）
+                favorite: favSet[key] === true,
                 // 与 buildClusters 的星团名保持同一口径：无分类统一落为「未分类」，
                 // 否则空串既对不上星团名（徽标高亮失效），也取不到角向目标（词会堆向 0 弧度）
                 cluster: category || UNCLASSIFIED
@@ -771,20 +848,45 @@
             if (book) (book.words || []).forEach(function (w, i) { push(w, book.id, i); });
         });
 
-        // 优先展示难词：重点难词 > 陌生词；超出上限时截断，保证渲染流畅
+        // 排序只为视觉重心与点击优先级：重点难词（红点、更大的种子）排前面先画，
+        // 于是它们落在他词之下不被遮挡；同时也让难词在命中检测里排在最后、优先被点到
         list.sort(function (a, b) {
             if (a.isHotspot !== b.isHotspot) return a.isHotspot ? -1 : 1;
             if (a.proficiency !== b.proficiency) return a.proficiency - b.proficiency;
             return 0;
         });
-        // 词量以「所选词单的完整词数」计（截断前），茎长按它自适应增高；
-        // 截断只影响画多少颗种子，不应让大词单的茎反而变短
         state.wordCount = list.length;
-        // 忘记词在截断前挑选：大词单里真正该复习的词可能排在 MAX_NODES 之外，
-        // 截断只该决定"画多少颗种子"（createMeadowScene 取 MAX_FLOAT_SEEDS），
-        // 不该把待复习的词一起截掉
-        state.forgotten = pickForgotten(list);
-        return list.slice(0, MAX_NODES);
+        updateScaleWarn(state.wordCount);
+        // 忘记词挑选（口径见 FORGET_MODES）
+        state.forgotten = computeForgotten(list);
+        // 真正会飘到空中的那几颗（顺序即优先级，createMeadowScene 也按同一上限取）
+        state.floatWords = state.forgotten.slice(0, MAX_FLOAT_SEEDS);
+        // 一个词要么在花头、要么在空中，不能两边都有：把要飘的词从节点里摘掉。
+        // 摘的是「已飘出来的那几颗」而非整个遗忘候选 —— 熟练度口径下候选可能覆盖
+        // 全表，照单全摘会让花头一个词都不剩
+        var floating = {};
+        state.floatWords.forEach(function (w) { floating[wordKey(w)] = true; });
+        // 不截断：选中的词全部上图。词条越多花冠按 layoutScale 越大（见 makeNode），
+        // 节点密度因此不随词量变化，既不重叠也不会让力导向的开销暴涨
+        return list.filter(function (w) { return !floating[wordKey(w)]; });
+    }
+
+    // 程序化回填下拉值后，同步自绘下拉（setting-select）的触发器文字。
+    // 封面模块可能早于 app.js 初始化，故存在性判断后再调用
+    function syncPicker(idOrEl) {
+        if (window.app && window.app.refreshSettingPicker) window.app.refreshSettingPicker(idOrEl);
+    }
+
+    // 词量过大的静默提示：只说明可能掉帧，无需任何操作
+    function updateScaleWarn(total) {
+        var el = document.getElementById('dandelionScaleWarn');
+        if (!el) return;
+        if (total > 1000) {
+            el.textContent = '已选 ' + total + ' 词。单词量超过 1000 个同时显示时，可能会降低动画帧率与体验效果';
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
     }
 
     // 构建聚类：分类为星团，角度均布
@@ -846,55 +948,72 @@
         return STEM_LEN * (stemScale() - 1);
     }
 
-    // 画面内容的世界纵向范围（花冠顶 → 地面下沿），随茎长增长，用于取景
+    /* ---------------- 花冠尺寸自适应（按词量，不截断词条） ----------------
+       词条全量上图，节点就不能永远挤在同一个盘里：盘的面积要随词量增长，
+       半径才只需随 √N 增长。以 LAYOUT_BASE_WORDS 为基准（该词量下 = 原先的尺寸），
+       下限锁在 1，小词单保持原样、不会被缩小。
+       副作用是节点密度不随词量变化 —— 力导向的邻域开销也就不会随词量暴涨 */
+    function layoutScale() {
+        var n = Math.max(LAYOUT_BASE_WORDS, state.wordCount || 0);
+        return Math.sqrt(n / LAYOUT_BASE_WORDS);
+    }
+
+    // 画面内容的世界纵向范围（花冠顶 → 地面下沿），随茎长与花冠增长，用于取景
     function contentBounds() {
-        var top = -(stemLift() + CANOPY_REF);
+        var top = -(stemLift() + CANOPY_REF * layoutScale());
         var bottom = ROOT_Y + 80;
         return { top: top, bottom: bottom, center: (top + bottom) * 0.5, height: bottom - top };
     }
 
     // 适屏缩放：整朵蒲公英（含茎与花冠）刚好铺满屏幕的比例。
-    // 1.216 为取景留白系数（沿用原先 h/1180 相对内容高 970 的留白比例）
+    // 1.216 为取景留白系数（沿用原先 h/1180 相对内容高 970 的留白比例）。
+    // 下限压到 0.12：词单很大时花冠会显著变大，若沿用 0.22 会被夹住导致取景装不下
     function computeFitZoom(w, h) {
         var b = contentBounds();
-        return Math.max(0.22, Math.min(1.15, Math.min(w / 1150, h / (b.height * 1.216))));
+        return Math.max(0.12, Math.min(1.15, Math.min(w / 1150, h / (b.height * 1.216))));
+    }
+
+    // 由词条构造一个力导向节点：径向目标距离与角向目标按当前排布算出。
+    // buildSimulation 批量建点与「拖回花头」即时补点共用，避免两处公式走偏
+    function makeNode(w, id, prev) {
+        var gs = gravityScale();
+        var ls = layoutScale();
+        var angleBase = state.clusterAngleMap[w.cluster] || 0;
+        var hash = hashWord(w.word);
+        var distOffset = (Math.abs(hash) % 120) - 60;
+        var targetDist = (240 + distOffset) * gs * ls;
+        if (state.layout === 'proficiency-radial') {
+            targetDist = (80 + (6 - w.proficiency) * 45 + (Math.abs(hash) % 25)) * gs * ls;
+        } else if (state.layout === 'frequency-gravity') {
+            targetDist = (75 + (100 - w.frequency) * 2.4 + (Math.abs(hash) % 18)) * gs * ls;
+        }
+        targetDist = Math.max(CORE_R + 6, targetDist);
+
+        var baseRadius = 6 + (w.frequency / 100) * 11;
+        var radius = w.isHotspot ? baseRadius * 1.35 : baseRadius;
+        var angle = angleBase + ((hash % 100) / 100 - 0.5) * 0.9;
+
+        return {
+            id: id,
+            x: prev ? prev.x : Math.cos(angle) * targetDist * 0.8,
+            y: prev ? prev.y : Math.sin(angle) * targetDist * 0.8,
+            vx: prev ? prev.vx : 0,
+            vy: prev ? prev.vy : 0,
+            radius: radius,
+            word: w,
+            targetDistance: targetDist,
+            targetAngle: angle,
+            isHotspot: w.isHotspot
+        };
     }
 
     function buildSimulation() {
         var words = state.words || [];
-        var gs = gravityScale();
         var old = {};
         state.nodes.forEach(function (n) { old[n.id] = n; });
 
         var nodes = words.map(function (w, i) {
-            var angleBase = state.clusterAngleMap[w.cluster] || 0;
-            var hash = hashWord(w.word);
-            var distOffset = (Math.abs(hash) % 120) - 60;
-            var targetDist = (240 + distOffset) * gs;
-            if (state.layout === 'proficiency-radial') {
-                targetDist = (80 + (6 - w.proficiency) * 45 + (Math.abs(hash) % 25)) * gs;
-            } else if (state.layout === 'frequency-gravity') {
-                targetDist = (75 + (100 - w.frequency) * 2.4 + (Math.abs(hash) % 18)) * gs;
-            }
-            targetDist = Math.max(CORE_R + 6, targetDist);
-
-            var baseRadius = 6 + (w.frequency / 100) * 11;
-            var radius = w.isHotspot ? baseRadius * 1.35 : baseRadius;
-            var angle = angleBase + ((hash % 100) / 100 - 0.5) * 0.9;
-            var prev = old['n' + i];
-
-            return {
-                id: 'n' + i,
-                x: prev ? prev.x : Math.cos(angle) * targetDist * 0.8,
-                y: prev ? prev.y : Math.sin(angle) * targetDist * 0.8,
-                vx: prev ? prev.vx : 0,
-                vy: prev ? prev.vy : 0,
-                radius: radius,
-                word: w,
-                targetDistance: targetDist,
-                targetAngle: angle,
-                isHotspot: w.isHotspot
-            };
+            return makeNode(w, 'n' + i, old['n' + i]);
         });
 
         state.nodes = nodes;
@@ -945,7 +1064,13 @@
         }
 
         // 2. 电荷斥力（均匀网格邻域加速，避免 O(n²) 全量遍历）
-        var cell = 190;
+        // cell 与 distanceMax 必须一同取小：搜索固定只看 3×3 个格子，若 cell 明显小于
+        // distanceMax，作用距离内的邻点会被漏掉（力的方向随格子边界跳变，节点会抖）。
+        // 两值又共同决定每个节点要考察多少邻点（≈ 9·cell²·词密度）。花冠面积随词量
+        // 增长、密度恒定，而网格按世界坐标划分，于是这个邻点数与词量无关 ——
+        // 单帧开销随词量线性增长。取 80 是为了让单帧邻点数落在百这个量级：
+        // 原先 380 超过整片花冠的半径，等于每个节点都和全表两两配对，词量一大就卡
+        var cell = 80;
         var grid = {};
         for (i = 0; i < nlen; i++) {
             n = nodes[i];
@@ -954,7 +1079,7 @@
             var key = gx + ',' + gy;
             (grid[key] || (grid[key] = [])).push(n);
         }
-        var distanceMax = 380;
+        var distanceMax = 80;
         for (i = 0; i < nlen; i++) {
             n = nodes[i];
             var cx = Math.floor(n.x / cell);
@@ -1392,12 +1517,17 @@
         var spanY = Math.max(1, viewBottom - viewTop);
         for (var i = 0; i < list.length; i++) {
             var s = list[i];
-            s.x += s.vx + wind * 0.7 * breeze;
-            s.y += s.vy + Math.sin(time + s.phase) * 0.15;
-            s.rotation += s.rotSpeed;
-            // 越界回卷：右侧出界即从最左侧重新进入，上下同理，保证始终横穿当前视野
-            s.x = viewLeft + (((s.x - viewLeft) % spanX) + spanX) % spanX;
-            s.y = viewTop + (((s.y - viewTop) % spanY) + spanY) % spanY;
+            // 拖拽中的种子跟随指针：暂停风漂与越界回卷，否则它会被"折"回对侧、跑离手指
+            if (s.dragging) {
+                // 位置由 onPointerMove 直接写入，这里什么都不做
+            } else {
+                s.x += s.vx + wind * 0.7 * breeze;
+                s.y += s.vy + Math.sin(time + s.phase) * 0.15;
+                s.rotation += s.rotSpeed;
+                // 越界回卷：右侧出界即从最左侧重新进入，上下同理，保证始终横穿当前视野
+                s.x = viewLeft + (((s.x - viewLeft) % spanX) + spanX) % spanX;
+                s.y = viewTop + (((s.y - viewTop) % spanY) + spanY) % spanY;
+            }
 
             ctx.save();
             ctx.translate(s.x, s.y);
@@ -1555,6 +1685,8 @@
         // 当前激活的聚类：其外圈徽标同步高亮
         var activeCluster = activeClusterName();
         var gs = gravityScale();
+        // 圈层与徽标随花冠一起按词量放大，才能与节点的落位半径保持对齐（见 layoutScale）
+        var ls = layoutScale();
 
         // 同心圈定义（与节点目标半径层级一致）
         var ringDefs = [{ radius: CORE_R, label: '' }];
@@ -1568,7 +1700,7 @@
                 { prof: 1, baseR: 305, name: '1★ 待复习' }
             ];
             profTiers.forEach(function (tier) {
-                ringDefs.push({ radius: Math.max(tier.baseR * gs, CORE_R + (6 - tier.prof) * 16), label: tier.name });
+                ringDefs.push({ radius: Math.max(tier.baseR * gs * ls, CORE_R + (6 - tier.prof) * 16), label: tier.name });
             });
         } else if (state.layout === 'frequency-gravity') {
             var freqTiers = [
@@ -1579,7 +1711,7 @@
                 { baseR: 380, name: '0-14% 低频词' }
             ];
             freqTiers.forEach(function (tier, i2) {
-                ringDefs.push({ radius: Math.max(tier.baseR * gs, CORE_R + (i2 + 1) * 18), label: tier.name });
+                ringDefs.push({ radius: Math.max(tier.baseR * gs * ls, CORE_R + (i2 + 1) * 18), label: tier.name });
             });
         } else {
             var clusterTiers = [
@@ -1589,13 +1721,16 @@
                 { baseR: 360, name: 'PERIPHERY 边缘星丛' }
             ];
             clusterTiers.forEach(function (tier, i3) {
-                ringDefs.push({ radius: Math.max(tier.baseR * gs, CORE_R + (i3 + 1) * 20), label: tier.name });
+                ringDefs.push({ radius: Math.max(tier.baseR * gs * ls, CORE_R + (i3 + 1) * 20), label: tier.name });
             });
         }
 
         var maxRing = 0;
         ringDefs.forEach(function (r) { if (r.radius > maxRing) maxRing = r.radius; });
-        var outerRadius = Math.max(maxRing + 42, 380 * gs + 25);
+        // 整式同乘 ls：词量正好为基准时与原先逐像素一致
+        var outerRadius = Math.max(maxRing + 42 * ls, (380 * gs + 25) * ls);
+        // 花冠外圈半径：拖拽时用来判定落点在不在花头范围内（见 insideHead）
+        state.headRadius = outerRadius;
 
         if (ringLineAlpha > 0.02) {
             // 1. 花托背后的柔和辐射光晕
@@ -1694,7 +1829,7 @@
         for (idx = 0; idx < clusters.length; idx++) {
             var c = clusters[idx];
             var angle = c.targetAngle;
-            var clusterDist = Math.max(75, 250 * gs);
+            var clusterDist = Math.max(75, 250 * gs * ls);
             var clusterX = Math.cos(angle) * clusterDist;
             var clusterY = Math.sin(angle) * clusterDist;
             var isActive = !!activeCluster && c.name === activeCluster;
@@ -1711,10 +1846,10 @@
                 ctx.lineWidth = isActive ? 2 : 1.1;
                 ctx.stroke();
 
-                var bristleBase = Math.max(30, 90 * gs);
+                var bristleBase = Math.max(30, 90 * gs * ls);
                 for (var b = 0; b < 22; b++) {
                     var bAngle = angle + ((b - 11) / 11) * 0.75;
-                    var bLen = bristleBase + ((b * 17) % Math.max(15, 55 * gs));
+                    var bLen = bristleBase + ((b * 17) % Math.max(15, 55 * gs * ls));
                     ctx.beginPath();
                     ctx.moveTo(clusterX, clusterY);
                     ctx.lineTo(clusterX + Math.cos(bAngle) * bLen, clusterY + Math.sin(bAngle) * bLen);
@@ -1963,6 +2098,132 @@
         return null;
     }
 
+    // 命中飘动种子。种子本体只有几个世界单位、缩得小远小于节点，故按屏幕像素判定：
+    // 以种子在屏幕上的位置为心、至少 16px 半径，够手指与鼠标点中；重叠时取最近的一颗。
+    // 只认带词的种子（装饰性种子不是真的词，拖它没有语义）
+    function seedAtPoint(screenX, screenY) {
+        var list = state.meadow ? state.meadow.seeds : [];
+        var tr = state.transform;
+        var best = null;
+        var bestD = Infinity;
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            if (!s.word) continue;
+            var sx = tr.x + s.x * tr.k;
+            var sy = tr.y + s.y * tr.k;
+            var dx = screenX - sx;
+            var dy = screenY - sy;
+            var d = dx * dx + dy * dy;
+            var r = Math.max(16, 30 * tr.k);
+            if (d <= r * r && d < bestD) { bestD = d; best = s; }
+        }
+        return best;
+    }
+
+    // 指针是否落在花头范围内：落点用世界坐标判定，故缩放平移都不影响手感。
+    // 半径取花冠外圈（花头里放节点的那片区域），拽到花朵上松手才算"归位"
+    function insideHead(p) {
+        if (!p) return false;
+        var tr = state.transform;
+        var r = state.headRadius || (380 * gravityScale() + 25) * layoutScale();
+        var dx = (p.x - tr.x) / tr.k - state.headX;
+        var dy = (p.y - tr.y) / tr.k - state.headY;
+        return dx * dx + dy * dy <= r * r;
+    }
+
+    /* ---------------- 拖拽：花头 ↔ 空中，改写忘记词的归位（并收藏/取消收藏） ----------------
+       两个方向共用的约定：
+         · 会话级覆盖写在 state.forcedOut / forcedIn，不进配置，刷新即恢复口径结果；
+         · 收藏本身走 Storage 落盘，长期有效；
+         · 节点的增删立即生效（不整场重建），拖完就能看到结果，也不会把已摆好的阵型打散。
+       注意 MAX_FLOAT_SEEDS 仍是空中种子的总上限，手工拽出很多个时超出部分会在
+       下次重建时被截断（收藏记录不受影响） */
+
+    // 花头里的词被拖到花头外松手：摘出花头、转为飘散种子，并标记收藏
+    function dropNodeToSeed(node, p) {
+        var w = node.word;
+        if (!w) return;
+        var key = wordKey(w);
+        var tr = state.transform;
+
+        var ni = state.nodes.indexOf(node);
+        if (ni >= 0) state.nodes.splice(ni, 1);
+        for (var i = state.words.length - 1; i >= 0; i--) {
+            if (wordKey(state.words[i]) === key) state.words.splice(i, 1);
+        }
+        if (state.selectedWord === w) hideCard();
+
+        state.forcedOut[key] = true;
+        delete state.forcedIn[key];
+        state.forgotten.push(w);
+        state.floatWords.push(w);
+
+        // 就地生成种子：位置即松手处，速度沿用自动种子的量级，松手后自然随风起漂
+        var hash = Math.abs(hashWord(w.word));
+        state.meadow.seeds.push({
+            x: (p.x - tr.x) / tr.k,
+            y: (p.y - tr.y) / tr.k,
+            vx: 0.20 + (hash % 4) * 0.04,
+            vy: -0.04 + ((hash % 3) * 0.03),
+            scale: 0.85 + (w.frequency / 250),
+            rotation: (hash % 360) * (Math.PI / 180),
+            rotSpeed: (hash % 2 === 0 ? 1 : -1) * 0.003,
+            phase: (hash % 10) * 0.6,
+            word: w
+        });
+        setFavorite(w, true);
+        notify('⭐ 已收藏，' + w.word + ' 随风飘走', 'success');
+    }
+
+    // 空中的种子被拖回花头内松手：归位成节点，并取消收藏
+    function dropSeedToNode(seed) {
+        var w = seed.word;
+        if (!w) return;
+        var key = wordKey(w);
+
+        var si = state.meadow.seeds.indexOf(seed);
+        if (si >= 0) state.meadow.seeds.splice(si, 1);
+        [state.floatWords, state.forgotten].forEach(function (arr) {
+            for (var i = arr.length - 1; i >= 0; i--) {
+                if (wordKey(arr[i]) === key) arr.splice(i, 1);
+            }
+        });
+        state.forcedIn[key] = true;
+        delete state.forcedOut[key];
+
+        // 该词可能本就被别的口径摆在空中（未在花头），已在则只改归位、不重复补点
+        var exists = state.nodes.some(function (n) { return wordKey(n.word) === key; });
+        if (!exists) {
+            var node = makeNode(w, 'm' + (state.nodeSeq++), null);
+            // 落在松手处（世界坐标 → 花头局部坐标），让力导向把它收进阵型，
+            // 而不是在花心突然冒出来
+            node.x = seed.x - state.headX;
+            node.y = seed.y - state.headY;
+            state.nodes.push(node);
+            state.words.push(w);
+            // 给一点温度把新点推进阵型；已有扰动时不打扰
+            if (state.sim.alpha < 0.35) state.sim.alpha = 0.35;
+        }
+        setFavorite(w, false);
+        notify('✓ ' + w.word + ' 已回到蒲公英，标记为熟悉', 'info');
+    }
+
+    // 拖拽种子经过花头时，在花冠范围描一圈虚线环：示意"松手即可归位"
+    function drawDropHint(ctx) {
+        if (!state.dragSeed || !state.headRadius || !insideHead(state.dragPointer)) return;
+        var t = theme();
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.translate(state.headX, state.headY);
+        ctx.beginPath();
+        ctx.arc(0, 0, state.headRadius, 0, TAU);
+        ctx.setLineDash([12, 9]);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = t.seed.high;
+        ctx.stroke();
+        ctx.restore();
+    }
+
     /* ========================================================
        词卡（点击种子附近弹出，样式与单词星云/混沌星云共用）
        ======================================================== */
@@ -2121,43 +2382,51 @@
     }
 
     function isFavorite(word) {
-        var lower = String(word || '').trim().toLowerCase();
+        var lower = wordKey(word);
         return (Storage.loadFavoriteItems() || []).some(function (f) {
-            return String(f.word || '').trim().toLowerCase() === lower;
+            return wordKey(f) === lower;
         });
     }
 
-    function toggleCardFav(node) {
-        var w = node.word || {};
-        var lower = String(w.word || '').trim().toLowerCase();
-        if (!lower) return;
+    // 统一的收藏写入：按词形去重，on 为 true 表示收藏、false 表示取消。
+    // 词卡按钮与拖拽（拽出=收藏 / 拽回=取消）共用，保证两条路径口径一致
+    function setFavorite(w, on) {
+        var key = wordKey(w);
+        if (!key) return;
         var favs = Storage.loadFavoriteItems() || [];
         var idx = -1;
         for (var i = 0; i < favs.length; i++) {
-            if (String(favs[i].word || '').trim().toLowerCase() === lower) { idx = i; break; }
+            if (wordKey(favs[i]) === key) { idx = i; break; }
         }
-        var added;
-        if (idx >= 0) {
-            favs.splice(idx, 1);
-            added = false;
-        } else {
+        if (on) {
+            if (idx >= 0) return;
             favs.push({
                 word: w.word,
                 phonetic: w.phonetic || '',
                 definitions: [{ meaning: w.meaning || '', example: '' }],
                 createdAt: new Date().toISOString()
             });
-            added = true;
+        } else {
+            if (idx < 0) return;
+            favs.splice(idx, 1);
         }
         Storage.saveFavoriteItems(favs);
+        // 收藏表是各封面与词书列表的公共数据源，改完要让它们刷新
+        if (global.app && typeof global.app.renderBookList === 'function') global.app.renderBookList();
+    }
+
+    function notify(msg, type) {
+        if (global.app && typeof global.app.showToast === 'function') global.app.showToast(msg, type || 'info');
+    }
+
+    function toggleCardFav(node) {
+        var w = node.word || {};
+        if (!wordKey(w)) return;
+        var added = !isFavorite(w.word);
+        setFavorite(w, added);
         var favBtn = document.getElementById('dandelionCardFav');
         if (favBtn) favBtn.classList.toggle('favorited', added);
-        if (global.app) {
-            if (typeof global.app.renderBookList === 'function') global.app.renderBookList();
-            if (typeof global.app.showToast === 'function') {
-                global.app.showToast(added ? '⭐ 已收藏' : '已取消收藏', added ? 'success' : 'info');
-            }
-        }
+        notify(added ? '⭐ 已收藏' : '已取消收藏', added ? 'success' : 'info');
     }
 
     /* ========================================================
@@ -2166,6 +2435,63 @@
     function pointerPos(e) {
         var rect = state.canvas.getBoundingClientRect();
         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    // ---- 双指手势（触屏）----
+    function pointerCount() { return Object.keys(state.pointers).length; }
+
+    // 取当前两根手指的间距与中点（画布坐标，与 transform 同一坐标系）
+    function pinchSnapshot() {
+        var ids = Object.keys(state.pointers);
+        if (ids.length < 2) return { valid: false, dist: 0, midX: 0, midY: 0 };
+        var a = state.pointers[ids[0]];
+        var b = state.pointers[ids[1]];
+        var dx = a.x - b.x;
+        var dy = a.y - b.y;
+        return {
+            valid: true,
+            dist: Math.sqrt(dx * dx + dy * dy),
+            midX: (a.x + b.x) / 2,
+            midY: (a.y + b.y) / 2
+        };
+    }
+
+    // 两指间距变化 → 以两指中点为锚缩放；中点移动 → 平移
+    function applyPinch() {
+        var cur = pinchSnapshot();
+        var prev = state.pinch;
+        if (!cur.valid || !prev || !prev.valid) return;
+        var tr = state.transform;
+        if (prev.dist > 0 && cur.dist > 0) {
+            var k = Math.min(3.5, Math.max(0.3, tr.k * (cur.dist / prev.dist)));
+            var r = k / tr.k;
+            // 锚点取「上一帧的两指中点」：缩放这一步只负责比例，中点的位移在下面
+            // 统一平移。两步合起来恰好等价于"旧中点下的世界点跟到新中点"，
+            // 若这里改用当前中点，位移会被算两遍，手指移动距离会翻倍
+            tr.x = prev.midX - (prev.midX - tr.x) * r;
+            tr.y = prev.midY - (prev.midY - tr.y) * r;
+            tr.k = k;
+        }
+        tr.x += cur.midX - prev.midX;
+        tr.y += cur.midY - prev.midY;
+        state.viewTouched = true;
+        state.pinch = cur;
+    }
+
+    // 抬起/离开时把该指移出手势表；不足两指即结束手势，
+    // 否则剩下的单指会带着陈旧的 pinch 基准继续缩放
+    function forgetPointer(e) {
+        delete state.pointers[e.pointerId];
+        if (pointerCount() < 2) state.pinch = null;
+        // 手势后还剩一指：以它为新起点接着单指平移，手指不必抬起重按
+        var ids = Object.keys(state.pointers);
+        if (ids.length === 1) {
+            var rect = state.canvas.getBoundingClientRect();
+            var p = state.pointers[ids[0]];
+            state.dragStart = null;
+            state.panning = true;
+            state.panStart = { x: p.x + rect.left, y: p.y + rect.top, tx: state.transform.x, ty: state.transform.y };
+        }
     }
 
     // 命中外圈分类标签（坐标为画布 CSS 像素，与渲染时记录的一致）
@@ -2180,6 +2506,16 @@
 
     function onPointerDown(e) {
         var p = pointerPos(e);
+        // 第二根手指落下：转入手势模式。先把单指动作就地收尾（allowDrop=false，
+        // 否则拖拽中的种子/节点会当场掉落），再记录手势初值
+        if (pointerCount() + 1 >= 2) {
+            if (state.dragSeed || state.dragNode) onPointerUp(e, false);
+            state.panning = false;
+            state.pointers[e.pointerId] = p;
+            state.pinch = pinchSnapshot();
+            return;
+        }
+        state.pointers[e.pointerId] = p;
         // 分类标签优先于词节点：命中则锁定该聚类（再次点同一标签取消）
         var badge = badgeAtPoint(p.x, p.y);
         if (badge) {
@@ -2189,15 +2525,47 @@
             state.hoveredBadge = '';
             return;
         }
+        state.dragStart = { x: e.clientX, y: e.clientY };
+        state.dragPointer = p;
+        state.dragMoved = false;
+        // 飘动种子先于花头节点判定：种子更小更难命中，且它一定在花头之外，
+        // 两者不会重叠，先测种子不会抢走节点的点击
+        var seed = seedAtPoint(p.x, p.y);
+        if (seed) {
+            state.pinnedCluster = '';
+            hideCard();
+            state.hoveredWord = null;
+            state.dragSeed = seed;
+            seed.dragging = true;
+            state.canvas.style.cursor = 'grabbing';
+            if (state.canvas.setPointerCapture) {
+                try { state.canvas.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+            }
+            return;
+        }
         var hit = nodeAtPoint(p.x, p.y);
         if (hit) {
             // 点词即切到该词所属聚类，撤销标签锁定以免两者冲突
             state.pinnedCluster = '';
             state.dragNode = hit;
-            hit.fx = hit.x;
-            hit.fy = hit.y;
-            state.sim.alphaTarget = 0.3;
-            if (state.sim.alpha < 0.3) state.sim.alpha = 0.3;
+            // 钉在「当前渲染位置」而非 sim 位置：渲染位置含风力偏移，
+            // 从它起拖才不会在按下的一瞬先弹回无风位置
+            var hx = hit.renderX !== undefined ? hit.renderX : hit.x;
+            var hy = hit.renderY !== undefined ? hit.renderY : hit.y;
+            hit.fx = hx;
+            hit.fy = hy;
+            // 记下抓取点与节点中心的偏移，拖动全程保持它：
+            // 否则节点会在第一次移动时"吸附"到指针正下方，跳一下才开始跟手
+            var trg = state.transform;
+            state.dragGrab = {
+                dx: (p.x - trg.x) / trg.k - hx,
+                dy: (p.y - trg.y) / trg.k - hy
+            };
+            // 拖拽期间不加热力导向：以前把 alpha 顶在 0.3，整朵花冠会持续互相
+            // 排斥、所有词一起挪动，手感就像被"吸"着乱晃。这里只把目标温度归零，
+            // 让力导向自然冷却（若上一轮收敛还没结束，就让它平静地跑完）。
+            // 被拖节点的跟手不依赖力导向积分：onPointerMove 会直接写它的 x/y
+            state.sim.alphaTarget = 0;
             openCard(hit);
         } else {
             // 点击空白处：收起词卡并解除标签锁定
@@ -2211,17 +2579,46 @@
         }
     }
 
+    // 是否已把指针拖出足够距离：用来区分「点一下打开词卡」与「真的在拖拽」
+    function dragDistanceExceeded(e) {
+        if (!state.dragStart) return false;
+        var dx = e.clientX - state.dragStart.x;
+        var dy = e.clientY - state.dragStart.y;
+        return dx * dx + dy * dy > 16;   // 4px 阈值，避开手抖
+    }
+
     function onPointerMove(e) {
         var p = pointerPos(e);
+        if (state.pointers[e.pointerId]) state.pointers[e.pointerId] = p;
+        // 双指手势优先：缩放/平移由两指的间距与中点决定，不走单指分支
+        if (state.pinch && pointerCount() >= 2) {
+            applyPinch();
+            return;
+        }
+        if (state.dragSeed) {
+            state.dragPointer = p;
+            if (!state.dragMoved) state.dragMoved = dragDistanceExceeded(e);
+            var tr0 = state.transform;
+            var ds = state.dragSeed;
+            ds.x = (p.x - tr0.x) / tr0.k;
+            ds.y = (p.y - tr0.y) / tr0.k;
+            return;
+        }
         if (state.dragNode) {
+            if (!state.dragMoved) state.dragMoved = dragDistanceExceeded(e);
+            state.dragPointer = p;
             var tr = state.transform;
             var node = state.dragNode;
-            var wx = (p.x - tr.x) / tr.k;
-            var wy = (p.y - tr.y) / tr.k;
-            var curX = node.renderX !== undefined ? node.renderX : node.x;
-            var curY = node.renderY !== undefined ? node.renderY : node.y;
-            node.fx = wx - (curX - node.x);
-            node.fy = wy - (curY - node.y);
+            var grab = state.dragGrab || { dx: 0, dy: 0 };
+            // 直接钉到指针位置（保留按下时的抓取偏移）。该节点在渲染时已排除风力摇曳，
+            // 指针的世界坐标就是它的落点，不必再像以前那样补偿渲染偏移 ——
+            // 补偿值逐帧随风力变化，正是拖动手感发飘的来源
+            node.fx = (p.x - tr.x) / tr.k - grab.dx;
+            node.fy = (p.y - tr.y) / tr.k - grab.dy;
+            // 同时直接写 x/y：拖拽期间力导向是冷却的（不跑积分），
+            // 靠这里赋值才能保证每一帧都精确跟手
+            node.x = node.fx;
+            node.y = node.fy;
             return;
         }
         if (state.panning) {
@@ -2245,14 +2642,35 @@
         }
     }
 
-    function onPointerUp() {
+    // allowDrop：只有真正的 pointerup 才判定落点；pointerleave 只做收尾，
+    // 避免指针滑出画布时误把词转成种子
+    function onPointerUp(e, allowDrop) {
+        if (state.dragSeed) {
+            var seed = state.dragSeed;
+            seed.dragging = false;
+            state.dragSeed = null;
+            // 拖进花头范围松手 → 归位为花头里的词，并取消收藏
+            if (allowDrop && state.dragMoved && insideHead(state.dragPointer)) dropSeedToNode(seed);
+        }
         if (state.dragNode) {
-            state.dragNode.fx = null;
-            state.dragNode.fy = null;
+            var node = state.dragNode;
+            node.fx = null;
+            node.fy = null;
             state.dragNode = null;
             state.sim.alphaTarget = 0;
+            // 松手给一次收敛脉冲：被拖走的词停在松手处，需要弹簧把它收回自己的
+            // 位置，并把腾出的空位填好，随后自然冷却回静止。
+            // 只按不拖（原地点击看词卡）不打扰已经静止的阵型
+            if (state.dragMoved) state.sim.alpha = Math.max(state.sim.alpha, 0.4);
+            // 拖到花头之外松手 → 收藏该词并让它飘走
+            if (allowDrop && state.dragMoved && !insideHead(state.dragPointer)) dropNodeToSeed(node, state.dragPointer);
         }
         state.panning = false;
+        state.dragStart = null;
+        state.dragGrab = null;
+        state.dragPointer = null;
+        state.dragMoved = false;
+        if (state.canvas) state.canvas.style.cursor = 'grab';
     }
 
     function onWheel(e) {
@@ -2292,8 +2710,12 @@
         canvas._dandelionBound = true;
         canvas.addEventListener('pointerdown', onPointerDown);
         canvas.addEventListener('pointermove', onPointerMove);
-        canvas.addEventListener('pointerup', onPointerUp);
-        canvas.addEventListener('pointerleave', onPointerUp);
+        // 松手才判定拖拽落点；指针滑出画布只做收尾（见 onPointerUp 的 allowDrop）。
+        // 顺序不能反：onPointerUp 会把 panning 归零，forgetPointer 再按"还剩一指"
+        // 重新起头，双指手势后剩下的那根手指才能接着平移
+        canvas.addEventListener('pointerup', function (e) { onPointerUp(e, true); forgetPointer(e); });
+        canvas.addEventListener('pointercancel', function (e) { onPointerUp(e, false); forgetPointer(e); });
+        canvas.addEventListener('pointerleave', function (e) { onPointerUp(e, false); forgetPointer(e); });
         canvas.addEventListener('wheel', onWheel, { passive: false });
     }
 
@@ -2405,6 +2827,9 @@
         var headAngle = Math.atan2(headSwayX * 1.45, stemLen);
         var cosA = Math.cos(headAngle);
         var sinA = Math.sin(headAngle);
+        // 花头中心的世界坐标：花托/同心圈都是以它为中心画的，拖拽落点判定要用
+        state.headX = headSwayX;
+        state.headY = headSwayY;
 
         // 逐节点叠加刚性偏转 + 弹性微颤（越靠外越柔）
         var nodes = state.nodes;
@@ -2413,6 +2838,11 @@
             var bx = n.x || 0;
             var by = n.y || 0;
             if (breeze === 0) { n.renderX = bx; n.renderY = by; continue; }
+
+            // 拖拽中的节点直接钉在指针落点，不参与后续的风力摇曳与弹性微颤。
+            // 它已被 fx 钉在指针处，若这里再叠加逐帧变化的风力偏移，渲染坐标每帧
+            // 都会从指针偏开一点再被下一帧拉回 —— 手势上就是"发飘、乱晃、像被吸附"
+            if (n === state.dragNode) { n.renderX = bx; n.renderY = by; continue; }
 
             var rigidX = headSwayX + (bx * cosA - by * sinA);
             var rigidY = headSwayY + (bx * sinA + by * cosA);
@@ -2456,6 +2886,8 @@
         drawCalyx(ctx, headSwayX, headSwayY, headAngle);
         drawReceptacle(ctx, headSwayX, headSwayY, headAngle, tr.k);
         drawFilaments(ctx, headSwayX, headSwayY);
+        // 落点提示环画在花头与节点之间：既盖住同心圈，又不遮挡词的标签
+        drawDropHint(ctx);
         drawNodes(ctx, tr.k);
 
         ctx.restore();
@@ -2482,6 +2914,15 @@
         setLoaderVisible(false);
         hideCard();
         state.hoveredWord = null;
+        // 拖拽中途离开封面时收尾，否则被拖的那颗种子会一直停在 dragging、不再随风漂
+        if (state.dragSeed) state.dragSeed.dragging = false;
+        state.dragSeed = null;
+        state.dragNode = null;
+        state.dragStart = null;
+        state.dragGrab = null;
+        state.dragPointer = null;
+        state.dragMoved = false;
+        state.panning = false;
     }
 
     /* ========================================================
@@ -2500,7 +2941,8 @@
             'layout=' + state.layout,
             // 忘记词口径决定空中飘散的是哪些词，属可见输出，变了就得重建
             'forget=' + state.forgetMode,
-            // 词量影响茎长：即便截断后的词表相同，词数变了也要重建
+            // 词量影响茎长与花冠尺寸（见 stemScale / layoutScale），
+            // 同一份词表因口径不同也会让词数变化，故词数变了就要重建
             'n=' + (state.wordCount || 0)
         ];
         (words || []).forEach(function (w) {
@@ -2517,10 +2959,12 @@
         buildClusters(state.words);
         // 先定取景再建草地：飘散种子的生成范围取自当前视野（见 createMeadowScene），
         // 若沿用上一次的取景就会撒在旧视野里，只能靠回卷"折"回来、分布变乱。
-        // contentBounds 只依赖词量推出的茎长（state.wordCount 已在 collectWords 写入），
-        // 与聚类、草地无关，故提前调用不会少算
+        // contentBounds 只依赖词量推出的茎长与花冠尺寸（state.wordCount 已在
+        // collectWords 写入），与聚类、草地无关，故提前调用不会少算
         if (!state.viewTouched) computeTransform();
-        state.meadow = createMeadowScene(state.forgotten);
+        // 用已定好的 floatWords 而非整个忘记词候选：节点列表正是照它摘掉了对应词，
+        // 两边取同一份数据才能保证同一个词不会既在花头又飘在空中
+        state.meadow = createMeadowScene(state.floatWords);
         buildSimulation();
         state.lastBuildKey = inputKey(words);
     }
@@ -2786,9 +3230,9 @@
         var b = document.getElementById('dandelionBreeze');
         if (b) { b.value = state.breeze; setText('dandelionBreezeValue', formatBreeze(state.breeze)); }
         var l = document.getElementById('dandelionLayout');
-        if (l) l.value = state.layout;
+        if (l) { l.value = state.layout; syncPicker(l); }
         var fm = document.getElementById('dandelionForgetMode');
-        if (fm) fm.value = state.forgetMode;
+        if (fm) { fm.value = state.forgetMode; syncPicker(fm); }
         var lb = document.getElementById('dandelionLabelToggle');
         if (lb) lb.checked = state.showClusterLabels;
         var w = document.getElementById('dandelionWindBtn');

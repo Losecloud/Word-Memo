@@ -295,7 +295,6 @@
        常量与状态
        ======================================================== */
 
-    var MAX_NODES = 300;        // DOM 词节点上限（超出按星团轮询截取，保证各星团均有代表）
     var MAX_CLUSTERS = 14;      // 语义星团上限（超出归入「其他」）
     var MAX_LINKS = 6;          // 单次高亮显示的语义连线上限
     var CLUSTER_RADIUS = 320;   // 星团中心到原点的距离
@@ -326,6 +325,8 @@
         showLinks: true,
         fontSize: 15,
         dragging: false, dragMode: null, prevX: 0, prevY: 0,
+        // 触屏双指手势：手势初值快照与扭动累积量（见 applyTouchGesture）
+        touchGesture: null, touchTwist: 0,
         theta: 0, phi: Math.PI / 2.35, radius: 820,
         tTheta: 0, tPhi: Math.PI / 2.35, tRadius: 820,
         lookAt: null, tLookAt: null,
@@ -521,7 +522,10 @@
         return { clusters: clusters, map: map, merged: merged };
     }
 
-    // 选取参与渲染的词（各星团轮询取样，避免大词单挤占同一星团）
+    // 选取参与渲染的词：选中的词全量上图，不做数量截断。
+    // 仍按星团轮询展开：相邻数组下标落在不同星团，而近邻互斥只在相邻下标间
+    // 取样（见 updatePhysics 第 5 步），轮询可让这种近似配对尽量跨星团、
+    // 避免同团词被成片硬挤在一起
     function pickNodes(words) {
         var buckets = {};
         var order = [];
@@ -530,20 +534,13 @@
             if (!buckets[n]) { buckets[n] = []; order.push(n); }
             buckets[n].push(w);
         });
+        var maxLen = 0;
+        order.forEach(function (k) { if (buckets[k].length > maxLen) maxLen = buckets[k].length; });
         var picked = [];
-        var i = 0;
-        while (picked.length < MAX_NODES) {
-            var added = false;
+        for (var i = 0; i < maxLen; i++) {
             for (var b = 0; b < order.length; b++) {
-                var arr = buckets[order[b]];
-                if (i < arr.length) {
-                    picked.push(arr[i]);
-                    added = true;
-                    if (picked.length >= MAX_NODES) break;
-                }
+                if (i < buckets[order[b]].length) picked.push(buckets[order[b]][i]);
             }
-            if (!added) break;
-            i++;
         }
         return picked;
     }
@@ -1551,22 +1548,57 @@
             if (!nonDraggable(e.target)) e.preventDefault();
         });
 
+        // 触屏：单指平移（沿用桌面左键语义）；双指捏合缩放、双指中点平移、
+        // 双指扭动环绕旋转 —— 桌面上的中键旋转在触屏上无从触发，由扭动补上
         root.addEventListener('touchstart', function (e) {
             if (nonDraggable(e.target) || !e.touches.length) return;
+            if (e.touches.length >= 2) {
+                state.dragging = false;
+                state.movedFar = true;      // 手势不算点击，避免顺带收起词卡
+                state.touchTwist = 0;
+                state.touchGesture = touchSnapshot(e);
+                return;
+            }
+            state.touchGesture = null;
             state.dragging = true;
             state.movedFar = false;
             state.dragMode = 'pan';
             state.prevX = e.touches[0].clientX;
             state.prevY = e.touches[0].clientY;
+            state.downX = e.touches[0].clientX;
+            state.downY = e.touches[0].clientY;
         }, { passive: true });
 
         root.addEventListener('touchmove', function (e) {
+            if (e.touches.length >= 2 && state.touchGesture) {
+                e.preventDefault();
+                applyTouchGesture(e);
+                return;
+            }
             if (!state.dragging || !e.touches.length) return;
             var t = e.touches[0];
             moveDrag(t.clientX, t.clientY);
-        }, { passive: true });
+        }, { passive: false });
 
-        root.addEventListener('touchend', function () { onUp(); });
+        root.addEventListener('touchend', function (e) {
+            if (e.touches.length >= 2) return;
+            state.touchGesture = null;
+            state.touchTwist = 0;
+            if (!e.touches.length) { onUp(); return; }
+            // 手势后还剩一指：就地接着单指平移，手指不必抬起重按
+            state.dragging = true;
+            state.dragMode = 'pan';
+            state.prevX = e.touches[0].clientX;
+            state.prevY = e.touches[0].clientY;
+            state.downX = e.touches[0].clientX;
+            state.downY = e.touches[0].clientY;
+        });
+        root.addEventListener('touchcancel', function (e) {
+            if (e.touches.length >= 2) return;
+            state.touchGesture = null;
+            state.touchTwist = 0;
+            if (!e.touches.length) onUp();
+        });
 
         root.addEventListener('click', function (e) {
             // 点击空白处：优先关闭词卡，其次取消选中并清除连线
@@ -1644,6 +1676,54 @@
     function onUp() {
         state.dragging = false;
         state.dragMode = null;
+    }
+
+    // 取两指的间距、中点与夹角（屏幕坐标）
+    function touchSnapshot(e) {
+        var a = e.touches[0];
+        var b = e.touches[1];
+        var dx = a.clientX - b.clientX;
+        var dy = a.clientY - b.clientY;
+        return {
+            dist: Math.sqrt(dx * dx + dy * dy),
+            midX: (a.clientX + b.clientX) / 2,
+            midY: (a.clientY + b.clientY) / 2,
+            angle: Math.atan2(dy, dx)
+        };
+    }
+
+    // 双指手势：捏合 → 缩放（拉开放大）；中点移动 → 平移；扭动 → 环绕旋转
+    function applyTouchGesture(e) {
+        var cur = touchSnapshot(e);
+        var prev = state.touchGesture;
+        state.touchGesture = cur;
+        if (!prev) return;
+
+        // 捏合缩放：两指拉开则半径变小（放大），与滚轮同一套限幅
+        if (prev.dist > 0 && cur.dist > 0) {
+            state.tRadius = Math.max(260, Math.min(2200, state.tRadius * (prev.dist / cur.dist)));
+        }
+        // 中点位移：复用单指平移的换算（沿相机当前切面移动视点焦点）
+        var mdx = cur.midX - prev.midX;
+        var mdy = cur.midY - prev.midY;
+        var panFactor = (state.tRadius / 900) * 0.95;
+        var rx = Math.cos(state.theta);
+        var rz = -Math.sin(state.theta);
+        state.tLookAt.x -= rx * mdx * panFactor;
+        state.tLookAt.z -= rz * mdx * panFactor;
+        state.tLookAt.y += mdy * panFactor;
+
+        // 扭动旋转：夹角变化 → 环绕旋转（对应桌面中键拖拽）。
+        // 夹角在 ±π 处会跳变，先归一化；捏合时两指难免轻微错动，
+        // 用一个小死区累积后再施加，避免缩放时视角自己慢慢漂走
+        var dAngle = cur.angle - prev.angle;
+        if (dAngle > Math.PI) dAngle -= Math.PI * 2;
+        if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+        state.touchTwist += dAngle;
+        if (Math.abs(state.touchTwist) > 0.06) {
+            state.tTheta -= state.touchTwist;
+            state.touchTwist = 0;
+        }
     }
 
     /* ========================================================
@@ -1791,10 +1871,21 @@
     }
 
     function updateStatLine(total) {
-        var shown = state.nodes.length;
         var clusters = state.clusters.length;
-        setText('chaosStat', '共 ' + total + ' 词 · ' + clusters + ' 个语义星团' +
-            (shown < total ? ' · 展示 ' + shown + ' 词' : ''));
+        setText('chaosStat', '共 ' + total + ' 词 · ' + clusters + ' 个语义星团');
+        updateScaleWarn(total);
+    }
+
+    // 词量过大的静默提示：只说明可能掉帧，无需任何操作
+    function updateScaleWarn(total) {
+        var el = document.getElementById('chaosScaleWarn');
+        if (!el) return;
+        if (total > 1000) {
+            el.textContent = '已选 ' + total + ' 词。单词量超过 1000 个同时显示时，可能会降低动画帧率与体验效果';
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
     }
 
     function bindControls() {

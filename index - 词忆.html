@@ -822,9 +822,10 @@
                                 <div class="nebula-bookpanel hidden" id="nebulaBookSelect"></div>
                             </div>
                         </div>
+                        <div class="nebula-scale-warn hidden" id="nebulaScaleWarn"></div>
                         <div class="nebula-ctrl-group">
                             <label>等级类别</label>
-                            <select id="nebulaSortBy">
+                            <select class="setting-select" id="nebulaSortBy">
                                 <option value="cefr">CEFR等级</option>
                                 <option value="error">错误率</option>
                                 <option value="time">加入时间</option>
@@ -839,7 +840,7 @@
                         </div>
                         <div class="nebula-ctrl-group">
                             <label>排布风格</label>
-                            <select id="nebulaLayout">
+                            <select class="setting-select" id="nebulaLayout">
                                 <option value="natural">自然（无序错开）</option>
                                 <option value="spiral">螺旋 Spiral</option>
                             </select>
@@ -951,6 +952,7 @@
                                 <div class="nebula-bookpanel hidden" id="chaosBookSelect"></div>
                             </div>
                         </div>
+                        <div class="nebula-scale-warn hidden" id="chaosScaleWarn"></div>
                         <div class="nebula-ctrl-group">
                             <div class="nebula-range-labels">
                                 <label>流场速度</label>
@@ -1066,9 +1068,10 @@
                                 <div class="nebula-bookpanel hidden" id="dandelionBookSelect"></div>
                             </div>
                         </div>
+                        <div class="nebula-scale-warn hidden" id="dandelionScaleWarn"></div>
                         <div class="nebula-ctrl-group">
                             <label>排布风格</label>
-                            <select id="dandelionLayout">
+                            <select class="setting-select" id="dandelionLayout">
                                 <option value="dandelion-cluster">蒲公英聚类</option>
                                 <option value="proficiency-radial">熟练度辐射圈</option>
                                 <option value="frequency-gravity">词频重力圈</option>
@@ -1076,10 +1079,11 @@
                         </div>
                         <div class="nebula-ctrl-group">
                             <label>忘记词</label>
-                            <select id="dandelionForgetMode" title="空中飘散种子的取词口径，用来提示哪些词生疏需要复习">
+                            <select class="setting-select" id="dandelionForgetMode" title="空中飘散种子的取词口径，用来提示哪些词生疏需要复习。也可直接拖拽：把花头里的词拖到空中松手即收藏并飘走，把空中种子拖回花头松手即取消收藏并归位（拖拽只影响本次浏览）">
                                 <option value="proficiency">熟练度低（含未练习）</option>
                                 <option value="ebbinghaus">艾宾浩斯到期复习</option>
                                 <option value="error">错误率最高 10%</option>
+                                <option value="favorite">收藏单词</option>
                             </select>
                         </div>
                         <div class="nebula-ctrl-group">
@@ -1566,7 +1570,7 @@
                         <div class="workshop-app-card" data-app="original" data-cat="tool">
                             <div class="workshop-app-icon"><img src="static/cover/英文原著榜.png" alt="英文原著榜" loading="lazy"></div>
                             <h3 class="workshop-app-title">英文原著榜</h3>
-                            <p class="workshop-app-desc">通过拉取微信读书、豆瓣等读书社区获取最新流行的英文原版书籍，并推荐阅读方法</p>
+                            <p class="workshop-app-desc">拉取古登堡计划英文原著榜（按下载量排序），并为每本书生成可执行的阅读方法</p>
                             <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.9.15</span></div>
                         </div>
 
@@ -1793,7 +1797,7 @@
 
                         <div class="form-actions">
                             <button class="btn-primary btn-generate" id="generateStoryBtn">
-                                <span class="generate-icon">✨</span>
+                                <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                 生成
                             </button>
                             <button class="btn-secondary" id="useDemoStoryBtn">
@@ -1927,7 +1931,7 @@
                                     <!-- 底部：两个均分按钮（生成 / 设置） -->
                                     <div class="topic-actions">
                                         <button class="btn-secondary topic-action-btn" id="generateWritingBtn">
-                                            <span class="generate-icon">✨</span>
+                                            <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                             AI生成
                                         </button>
                                         <button class="btn-secondary topic-action-btn" id="writingSettingsBtn" title="写作AI设置">
@@ -2093,7 +2097,7 @@
 
                             <div class="form-actions">
                                 <button class="btn-primary btn-generate" id="generateGameBtn">
-                                    <span class="generate-icon">✨</span>
+                                    <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                     Start Game
                                 </button>
                                 <button class="btn-secondary" id="useDemoGameBtn">
@@ -2581,7 +2585,7 @@
                                         <option value="vocab">关键词汇 + 高分表达</option>
                                     </select>
                                     <button class="btn-primary" id="oralGenerateBtn" disabled>
-                                        <span class="generate-icon">✨</span>
+                                        <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                         AI生成
                                     </button>
                                 </div>
@@ -2596,7 +2600,7 @@
                         <div class="ai-feature-header">
                             <div class="ai-feature-header-text">
                                 <h3>🏆 英文原著榜</h3>
-                                <p class="ai-feature-desc">拉取微信读书英文原版/原版书等榜单，挑一本原著，查看热门划线并让 AI 给出阅读方法</p>
+                                <p class="ai-feature-desc">拉取古登堡计划（Gutenberg）英文原著榜（按下载量排序），挑一本原著，查看微信读书大众热门划线并让 AI 给出阅读方法</p>
                             </div>
                             <button class="ai-close-btn" id="closeObWorkshopBtn" title="返回AI工坊菜单页">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -2610,22 +2614,22 @@
                             <!-- 左：榜单书籍清单 -->
                             <div class="ob-list-panel">
                                 <div class="ob-panel-head">
-                                    <span class="ob-panel-title">英文原版榜</span>
+                                    <span class="ob-panel-title">古登堡计划 · 英文原著</span>
                                     <div class="ob-panel-head-right">
                                         <div class="ob-source-tabs hidden" id="obSourceTabs"></div>
                                         <span class="ob-list-count" id="obListCount">0 本</span>
                                     </div>
                                 </div>
                                 <div class="ob-book-list" id="obBookList">
-                                    <div class="ob-empty">点击「拉取榜单」，将按排名展示微信读书英文原版书籍</div>
+                                    <div class="ob-empty">点击「拉取榜单」，按下载量展示古登堡计划英文原著</div>
                                 </div>
 
                                 <!-- 工具栏：排序方式 + 拉取按钮（置于面板内侧底部） -->
                                 <div class="ob-toolbar">
                                     <div class="ob-sort-group" id="obSortGroup">
-                                        <button class="ob-sort-btn active" data-ob-sort="hot" title="按今日阅读人数排序">热度</button>
-                                        <button class="ob-sort-btn" data-ob-sort="rating" title="按微信读书推荐值排序">评分</button>
-                                        <button class="ob-sort-btn" data-ob-sort="reviews" title="按评价人数排序">书评数</button>
+                                        <button class="ob-sort-btn active" data-ob-sort="hot" title="按古登堡计划累计下载量排序">下载量</button>
+                                        <button class="ob-sort-btn" data-ob-sort="title" title="按书名 A→Z 排序">书名</button>
+                                        <button class="ob-sort-btn" data-ob-sort="classic" title="按古登堡计划编号（收录先后）排序">经典序</button>
                                     </div>
                                     <button class="btn-primary ob-load-btn" id="obLoadBtn">
                                         <i class="fi-rr-refresh"></i>
@@ -2662,7 +2666,7 @@
                                         <option value="full">完整阅读指南</option>
                                     </select>
                                     <button class="btn-primary" id="obGenerateBtn" disabled>
-                                        <span class="generate-icon">✨</span>
+                                        <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                         AI生成
                                     </button>
                                 </div>
@@ -3682,6 +3686,20 @@
                                     <div class="dict-picker-list" id="settingsDictDisabled"></div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">微信读书 API Key</label>
+                        <input type="password" class="setting-input" id="obWereadKey" placeholder="wrk-xxxxxxxx（选填）">
+                        <div class="setting-hint">
+                            用于「英文原著榜」中拉取古登堡书目对应的微信读书大众热门划线。Key 在 <a href="https://weread.qq.com/r/weread-skills" target="_blank" rel="noopener">微信读书 Skills 配置页</a> 扫码获取，仅保存在本机浏览器中，不会上传到其它服务。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">划线转发地址</label>
+                        <input type="text" class="setting-input" id="obWereadProxy" placeholder="http://127.0.0.1:8377/weread（默认本地网关）">
+                        <div class="setting-hint">
+                            微信读书官方网关不允许浏览器跨域直连，需由转发层代填密钥后转发。默认使用本机网关（在项目根目录运行 <code>node tools/serve.js</code>）；若已有远程转发服务，可在此填写其完整地址（POST，接收 JSON 与 X-Weread-Key 请求头）。
                         </div>
                     </div>
                 </div>

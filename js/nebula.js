@@ -34,6 +34,7 @@
         dragging: false, // 中键拖拽旋转状态
         dragX: 0,
         dragY: 0,
+        touchMoved: false, // 触屏本次按下是否已拖动过（用于区分点击与旋转手势）
         zoom: 1, // 滚轮缩放倍率（仅影响星云结构，不影响文字大小）
         zoomTextScale: 1, // 文字补偿系数，抵消整体缩放
         details: [], // 显示详情：phonetic/meaning/example（单词为基础行，星云/词卡始终显示）
@@ -168,7 +169,7 @@
             if (cfg && Array.isArray(cfg.selected) && cfg.selected.length) {
                 state.selected = cfg.selected.slice();
                 var sortSelect = document.getElementById('nebulaSortBy');
-                if (sortSelect && cfg.sort) sortSelect.value = cfg.sort;
+                if (sortSelect && cfg.sort) { sortSelect.value = cfg.sort; syncPicker(sortSelect); }
             } else {
                 // 新用户/游客默认：选中内置“示例单词”词单（不存在则自动创建）
                 var demo = ensureDemoBook();
@@ -381,6 +382,24 @@
             }
         });
         return words;
+    }
+
+    // 程序化回填下拉值后，同步自绘下拉（setting-select）的触发器文字。
+    // 封面模块可能早于 app.js 初始化，故存在性判断后再调用
+    function syncPicker(id) {
+        if (window.app && window.app.refreshSettingPicker) window.app.refreshSettingPicker(id);
+    }
+
+    // 词量过大的静默提示：只说明可能掉帧，无需任何操作
+    function updateScaleWarn(total) {
+        var el = document.getElementById('nebulaScaleWarn');
+        if (!el) return;
+        if (total > 1000) {
+            el.textContent = '已选 ' + total + ' 词。单词量超过 1000 个同时显示时，可能会降低动画帧率与体验效果';
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
     }
 
     // 依据排序计算每个词离核心的远近（closeness，越大越靠里）
@@ -1009,6 +1028,7 @@
         state.lastBuildKey = makeBuildKey(words, sortBy);
         computeCloseness(words, sortBy);
         var count = words.length;
+        updateScaleWarn(count);
 
         // 核心：词库名（无描边）
         var ct = coreText();
@@ -1262,6 +1282,7 @@
             window.addEventListener('resize', resize);
             bindDrag(canvas);
             bindWheel(canvas);
+            bindTouch(canvas);
             bindClick(canvas);
             bindOutsideClick(canvas);
             bindHover(canvas);
@@ -1297,6 +1318,17 @@
         state.camera.updateProjectionMatrix();
     }
 
+    // 轨道球旋转：旋转施加于世界空间（四元数左乘），使星云表面始终跟随手指/鼠标方向，
+    // 与当前视角无关——无论星云转到哪个朝向，往右拖都看到表面向右转
+    function orbitBy(dx, dy) {
+        if (!state.group) return;
+        _dragQ.identity();
+        if (dx) { _yAxisQ.setFromAxisAngle(_AXIS_Y, dx * 0.006); _dragQ.multiply(_yAxisQ); }
+        if (dy) { _yAxisQ.setFromAxisAngle(_AXIS_X, dy * 0.006); _dragQ.multiply(_yAxisQ); }
+        state.group.quaternion.premultiply(_dragQ);
+        // 完全无限制，允许任意旋转角度
+    }
+
     // 鼠标中键（按下）拖拽旋转星云
     function bindDrag(canvas) {
         if (!canvas) return;
@@ -1318,13 +1350,7 @@
             var dy = e.clientY - state.dragY;
             state.dragX = e.clientX;
             state.dragY = e.clientY;
-            // 轨道球拖拽：旋转施加于世界空间（四元数左乘），使星云表面始终跟随鼠标方向，
-            // 与当前视角无关——无论星云转到哪个朝向，往右拖都看到表面向右转
-            _dragQ.identity();
-            if (dx) { _yAxisQ.setFromAxisAngle(_AXIS_Y, dx * 0.006); _dragQ.multiply(_yAxisQ); }
-            if (dy) { _yAxisQ.setFromAxisAngle(_AXIS_X, dy * 0.006); _dragQ.multiply(_yAxisQ); }
-            state.group.quaternion.premultiply(_dragQ);
-            // 完全无限制，允许任意旋转角度
+            orbitBy(dx, dy);
         });
 
         window.addEventListener('mouseup', function (e) {
@@ -1350,11 +1376,66 @@
         }, { passive: false });
     }
 
+    // 触屏：单指拖动旋转（对应桌面中键拖拽），双指捏合缩放（对应滚轮）
+    function bindTouch(canvas) {
+        if (!canvas) return;
+        var pinchDist = 0;      // 双指手势上一帧的间距
+
+        function twoFingerDist(e) {
+            var dx = e.touches[0].clientX - e.touches[1].clientX;
+            var dy = e.touches[0].clientY - e.touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        canvas.addEventListener('touchstart', function (e) {
+            if (e.touches.length >= 2) {
+                pinchDist = twoFingerDist(e);
+                state.touchMoved = true;    // 手势不算点击，避免顺带打开词卡
+                return;
+            }
+            pinchDist = 0;
+            state.touchMoved = false;
+            state.dragX = e.touches[0].clientX;
+            state.dragY = e.touches[0].clientY;
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', function (e) {
+            e.preventDefault();
+            if (e.touches.length >= 2) {
+                var d = twoFingerDist(e);
+                // 两指拉开 → 放大。与滚轮共用 updateZoom，缩放范围一致
+                if (pinchDist > 0 && d > 0) updateZoom(state.zoom * (d / pinchDist));
+                pinchDist = d;
+                return;
+            }
+            var t = e.touches[0];
+            var dx = t.clientX - state.dragX;
+            var dy = t.clientY - state.dragY;
+            state.dragX = t.clientX;
+            state.dragY = t.clientY;
+            if (Math.abs(dx) + Math.abs(dy) > 1) state.touchMoved = true;
+            orbitBy(dx, dy);
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', function (e) {
+            if (e.touches.length < 2) pinchDist = 0;
+            // 只剩一指时重新对位，否则接着拖会跳一下
+            if (e.touches.length === 1) {
+                state.dragX = e.touches[0].clientX;
+                state.dragY = e.touches[0].clientY;
+            }
+        });
+        canvas.addEventListener('touchcancel', function () { pinchDist = 0; });
+    }
+
     // 左键点击单词：在原处显示该词完整卡片，1 分钟后恢复精简词条显示
     function bindClick(canvas) {
         if (!canvas) return;
         canvas.addEventListener('click', function (e) {
             if (e.button !== 0 || !state.renderer || !state.camera || !state.group) return;
+            // 触屏上旋转/缩放手势之后浏览器仍会补发 click，
+            // 用移动标记把它挡掉，避免转一下视角就弹出词卡
+            if (state.touchMoved) { state.touchMoved = false; return; }
             var rect = canvas.getBoundingClientRect();
             var ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             var ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -2006,6 +2087,7 @@
         var layoutSelect = document.getElementById('nebulaLayout');
         if (layoutSelect) {
             layoutSelect.value = state.layout === 'spiral' ? 'spiral' : 'natural';
+            syncPicker(layoutSelect);
             layoutSelect.addEventListener('change', function () {
                 state.layout = layoutSelect.value === 'spiral' ? 'spiral' : 'natural';
                 saveConfig({ selected: state.selected.slice(), sort: sortSelect.value, details: state.details.slice(), fontSize: state.fontSize, speed: state.speed });
