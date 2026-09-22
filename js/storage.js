@@ -896,6 +896,7 @@ const Storage = {
             totalReviews: 0,
             totalCorrect: 0,
             totalWrong: 0,
+            blacklist: false, // 「太简单」标记：不再进入复习
             history: [] // [{date, quality, mode}]
         };
     },
@@ -928,6 +929,27 @@ const Storage = {
         const key = `${bookId}:${word}`;
         map[key] = memory;
         this.saveAllMemory(map);
+    },
+
+    /** 标记「太简单」：标记后该词不再进入复习队列 */
+    markWordTooEasy(bookId, word) {
+        const map = this.loadAllMemory();
+        const key = `${bookId}:${word}`;
+        const mem = map[key] || this._defaultMemory();
+        mem.blacklist = true;
+        mem.nextReviewDate = null; // 立即移出待复习队列
+        map[key] = mem;
+        this.saveAllMemory(map);
+    },
+
+    /** 获取「太简单」黑名单集合（元素为 `${bookId}:${word}`），供学习清单一次性过滤 */
+    loadTooEasySet() {
+        const set = new Set();
+        const map = this.loadAllMemory();
+        for (const [key, mem] of Object.entries(map)) {
+            if (mem && mem.blacklist) set.add(key);
+        }
+        return set;
     },
 
     /**
@@ -1010,6 +1032,7 @@ const Storage = {
 
         for (const [key, mem] of Object.entries(map)) {
             if (!mem.nextReviewDate) continue;
+            if (mem.blacklist) continue; // 「太简单」的词不再进入复习
             const [keyBookId, word] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
             if (bookId && keyBookId !== bookId) continue;
 

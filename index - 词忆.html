@@ -608,7 +608,7 @@
     <header class="header">
         <div class="header-container">
             <div class="header-left">
-                <div class="logo">
+                <div class="logo" id="appLogo" title="关于词忆" role="button" tabindex="0">
                     <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                         <path d="M2 17l10 5 10-5"/>
@@ -1265,8 +1265,15 @@
                                 <div class="word-meta">
                                     <span class="word-pos" id="wordPos">n.</span>
                                     <span class="word-stats" id="wordStats" style="display: none;"></span>
-                                    <button class="btn-favorite" id="favoriteBtn1" title="收藏/取消收藏">
-                                        <span class="favorite-icon favorite-gray">⭐</span>
+                                    <span class="word-book-info" id="wordBookInfo1" title="所属词书"></span>
+                                </div>
+                                <!-- 单词快捷操作：太简单（不再复习）/ 收藏 -->
+                                <div class="word-options">
+                                    <button class="btn-word-option" id="tooEasyBtn1" title="太简单，不再复习该词">
+                                        <i class="fi-rr-ban"></i><span>不再学习</span>
+                                    </button>
+                                    <button class="btn-word-option" id="favoriteBtn1" title="收藏该词">
+                                        <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
                                     </button>
                                 </div>
                             </div>
@@ -1301,7 +1308,7 @@
                                         <div class="word-meta-inline">
                                             <span class="meaning-pos" id="meaningPos">A1</span>
                                             <button class="btn-favorite" id="favoriteBtn2" title="收藏/取消收藏">
-                                                <span class="favorite-icon favorite-gray">⭐</span>
+                                                <i class="favorite-icon fi-rr-star favorite-gray"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -1344,8 +1351,15 @@
                                 <p class="word-phonetic" id="rememberWordPhonetic">/ˈæpl/</p>
                                 <div class="word-meta">
                                     <span class="word-pos" id="rememberWordPos">n.</span>
-                                    <button class="btn-favorite" id="favoriteBtn3" title="收藏/取消收藏">
-                                        <span class="favorite-icon favorite-gray">⭐</span>
+                                    <span class="word-book-info" id="wordBookInfo3" title="所属词书"></span>
+                                </div>
+                                <!-- 单词快捷操作：太简单（不再复习）/ 收藏 -->
+                                <div class="word-options">
+                                    <button class="btn-word-option" id="tooEasyBtn3" title="太简单，不再复习该词">
+                                        <i class="fi-rr-ban"></i><span>不再学习</span>
+                                    </button>
+                                    <button class="btn-word-option" id="favoriteBtn3" title="收藏该词">
+                                        <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
                                     </button>
                                 </div>
                             </div>
@@ -1361,6 +1375,11 @@
                                     <div class="example-label">📝 例句</div>
                                     <p class="remember-example-text" id="rememberExampleText"></p>
                                 </div>
+                            </div>
+                            <!-- 记得么模式：word-display 与 remember-actions 之间的空白热区
+                                 桌面端悬浮 / 移动端点击 → 浮现例句（不发音），辅助用户由例句回想释义 -->
+                            <div class="remember-hint-zone" id="rememberHintZone">
+                                <p class="remember-hint-example" id="rememberHintExample"></p>
                             </div>
                             <div class="remember-actions">
                                 <button class="btn-secondary btn-remember" id="rememberBtn">记得
@@ -1570,7 +1589,7 @@
                         <div class="workshop-app-card" data-app="original" data-cat="tool">
                             <div class="workshop-app-icon"><img src="static/cover/英文原著榜.png" alt="英文原著榜" loading="lazy"></div>
                             <h3 class="workshop-app-title">英文原著榜</h3>
-                            <p class="workshop-app-desc">拉取古登堡计划英文原著榜（按下载量排序），并为每本书生成可执行的阅读方法</p>
+                            <p class="workshop-app-desc">拉取古登堡计划英文原著榜，并生成可执行的阅读方法</p>
                             <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.9.15</span></div>
                         </div>
 
@@ -1614,7 +1633,7 @@
                 <div class="ai-feature-card">
                     <div class="ai-feature-header">
                         <div class="ai-feature-header-text">
-                            <h3>📖 阅读联想记忆</h3>
+                            <h3><i class="fi-rr-book-open-reader"></i>阅读联想记忆</h3>
                             <p class="ai-feature-desc">根据收藏的单词生成阅读考题，在阅读中记忆单词</p>
                         </div>
                         <button class="ai-close-btn" id="closeAiWorkshopBtn" title="返回AI工坊菜单页">
@@ -1906,7 +1925,7 @@
                     <div class="ai-feature-card">
                         <div class="ai-feature-header">
                             <div class="ai-feature-header-text">
-                                <h3>✍️ CEFR写作</h3>
+                                <h3><i class="fi-rr-pencil"></i>CEFR写作</h3>
                                 <p class="ai-feature-desc">输入或让AI生成英文段落，实时高亮CEFR词汇等级颜色</p>
                             </div>
                             <button class="ai-close-btn" id="closeAiWorkshopBtnWriting" title="返回AI工坊菜单页">
@@ -1925,7 +1944,13 @@
                                     <div class="topic-head">
                                         <i class="fi-rr-question-square topic-icon"></i>
                                         <div class="topic-content" id="writingTopicContent">
-                                            点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。
+                                            <div class="topic-text" id="writingTopicText">点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。</div>
+                                            <!-- 默认态下的补充说明（灰字）：生成题目后自动隐藏 -->
+                                            <div class="topic-intro" id="writingTopicIntro">
+                                                <p><b>使用教程</b>：在下方编辑区写下英文段落（或点「AI生成」取题），系统会实时按 CEFR 等级给每个单词着色。顶部徽章显示各级别词数与预估等级，点徽章可聚焦该级别，点 Beg./Int./Adv. 可按范围筛选；「AI设置」里可调目标等级、文体与实时纠正。</p>
+                                                <p><b>关于 CEFR </b>：欧洲语言共同参考框架(Common European Framework Reference)把语言能力划为 A1–C2 六级。本应用的单词等级主要来自 Cambridge CEFR 词表，极个别单词的不同释义可能存在不同CEFR等级，所以本实例为便于实时渲染采用了官方分级标注每个词的平均难度，仅供参考。</p>
+                                                <p><b>应用致敬</b>：本应用的分级着色思路致敬已于2023年关站的 Duolingo CEFR Test —— 它曾以同样的方式，让学习者直观看见自己的词汇水平。</p>
+                                            </div>
                                         </div>
                                     </div>
                                     <!-- 底部：两个均分按钮（生成 / 设置） -->
@@ -2030,7 +2055,7 @@
                     <div class="ai-feature-card">
                         <div class="ai-feature-header">
                             <div class="ai-feature-header-text">
-                                <h3>🎭 文字游戏</h3>
+                                <h3><i class="fi-rr-gamepad"></i>文字游戏</h3>
                                 <p class="ai-feature-desc">通过对话扮演主角，与AI旁白互动展开趣味剧情</p>
                             </div>
                             <button class="ai-close-btn" id="closeAiWorkshopBtnTextGame" title="返回AI工坊菜单页">
@@ -2307,7 +2332,7 @@
                     <div class="ai-feature-card">
                     <div class="ai-feature-header">
                         <div class="ai-feature-header-text">
-                            <h3>🔄 同义替换练习</h3>
+                            <h3><i class="fi-rr-exchange"></i>同义替换练习</h3>
                             <p class="ai-feature-desc">从混合选项中选出正确的同义词/替换词（每题3个干扰项），提升词汇替换能力</p>
                         </div>
                         <button class="ai-close-btn" id="closeAiWorkshopBtnSynonym" title="返回AI工坊菜单页">
@@ -2520,7 +2545,7 @@
                     <div class="ai-feature-card">
                         <div class="ai-feature-header">
                             <div class="ai-feature-header-text">
-                                <h3>🎤 口语角话题</h3>
+                                <h3><i class="fi-rr-microphone"></i>口语角话题</h3>
                                 <p class="ai-feature-desc">选择日期搜索热点榜单，按热度排名挑选话题，再由 AI 生成英语角讨论题、高分表达与追问方向</p>
                             </div>
                             <button class="ai-close-btn" id="closeOralWorkshopBtn" title="返回AI工坊菜单页">
@@ -2599,7 +2624,7 @@
                     <div class="ai-feature-card">
                         <div class="ai-feature-header">
                             <div class="ai-feature-header-text">
-                                <h3>🏆 英文原著榜</h3>
+                                <h3><i class="fi-rr-trophy"></i>英文原著榜</h3>
                                 <p class="ai-feature-desc">拉取古登堡计划（Gutenberg）英文原著榜（按下载量排序），挑一本原著，查看微信读书大众热门划线并让 AI 给出阅读方法</p>
                             </div>
                             <button class="ai-close-btn" id="closeObWorkshopBtn" title="返回AI工坊菜单页">
@@ -2656,18 +2681,14 @@
                                     </div>
                                 </div>
 
-                                <!-- 底部操作行：模型 / 方法类型 / 生成 -->
+                                <!-- 底部操作行：设置（AI模型/方法类型/微信读书Key 收进弹窗） + 生成 -->
                                 <div class="ob-detail-actions">
-                                    <select class="form-select" id="obAiModel" title="AI模型" data-ai-model-select data-short-label="true"></select>
-                                    <select class="setting-select" id="obMethodType">
-                                        <option value="plan">分级阅读计划</option>
-                                        <option value="vocab">生词与表达预习</option>
-                                        <option value="quiz">理解自测题</option>
-                                        <option value="full">完整阅读指南</option>
-                                    </select>
+                                    <button class="ob-settings-btn" id="obSettingsBtn" title="原著榜设置">
+                                        <i class="fi-rr-menu-burger"></i>
+                                    </button>
                                     <button class="btn-primary" id="obGenerateBtn" disabled>
                                         <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
-                                        AI生成
+                                        生成
                                     </button>
                                 </div>
                             </div>
@@ -2680,7 +2701,7 @@
                     <div class="ai-feature-card">
                     <div class="ai-feature-header">
                         <div class="ai-feature-header-text">
-                            <h3>🎯 熟词僻义练习</h3>
+                            <h3><i class="fi-rr-target"></i>熟词僻义练习</h3>
                             <p class="ai-feature-desc">根据单词、音标和英文例句，从多个释义中选出正确的一项（每题3个干扰项），提升对熟词僻义的掌握</p>
                         </div>
                         <button class="ai-close-btn" id="closeLiyiWorkshopBtn" title="返回AI工坊菜单页">
@@ -2784,7 +2805,7 @@
                                         <span class="word-pos" id="liyiWordPos"></span>
                                         <span class="word-stats" id="liyiWordStats" style="display: none;"></span>
                                         <button class="btn-favorite" id="liyiFavoriteBtn" title="收藏/取消收藏">
-                                            <span class="favorite-icon favorite-gray">⭐</span>
+                                            <i class="favorite-icon fi-rr-star favorite-gray"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -2899,13 +2920,20 @@
             <div class="word-list-screen hidden" id="wordListScreen">
                 <div class="word-list-header">
                     <div class="word-list-title-section">
-                        <h2 class="word-list-title">
-                            <span class="word-list-icon" id="wordListIcon">📖</span>
-                            <span id="wordListBookName">词书名称</span>
-                        </h2>
-                        <p class="word-list-subtitle">
-                            共 <span id="wordListTotalCount">0</span> 个单词
-                        </p>
+                        <div class="word-list-title-main">
+                            <h2 class="word-list-title">
+                                <span class="word-list-icon" id="wordListIcon">📖</span>
+                                <span id="wordListBookName">词书名称</span>
+                            </h2>
+                            <p class="word-list-subtitle">
+                                共 <span id="wordListTotalCount">0</span> 个单词
+                            </p>
+                        </div>
+                        <!-- 收藏词单切换下拉（仅浏览收藏词单时显示）：切换/新建/重命名收藏词单 -->
+                        <div class="ai-picker fav-list-picker hidden" id="favListPicker">
+                            <button type="button" class="ai-picker-trigger" id="favListPickerTrigger"></button>
+                            <div class="ai-picker-panel" id="favListPickerPanel"></div>
+                        </div>
                     </div>
                     <!-- AI补充进度显示 -->
                     <div class="ai-progress-container hidden" id="aiProgressContainer">
@@ -2962,19 +2990,19 @@
                                 <th class="word-list-col-index">序号</th>
                                 <th class="word-list-col-word" data-col="word">
                                     单词
-                                    <button class="word-list-col-delete-btn" data-col="word" title="清空所有单词">🗑</button>
+                                    <button class="word-list-col-delete-btn" data-col="word" title="清空所有单词"><i class="fi-rr-trash"></i></button>
                                 </th>
                                 <th class="word-list-col-phonetic" data-col="phonetic">
                                     音标
-                                    <button class="word-list-col-delete-btn" data-col="phonetic" title="清空所有音标">🗑</button>
+                                    <button class="word-list-col-delete-btn" data-col="phonetic" title="清空所有音标"><i class="fi-rr-trash"></i></button>
                                 </th>
                                 <th class="word-list-col-meaning" data-col="meaning">
                                     释义
-                                    <button class="word-list-col-delete-btn" data-col="meaning" title="清空所有释义">🗑</button>
+                                    <button class="word-list-col-delete-btn" data-col="meaning" title="清空所有释义"><i class="fi-rr-trash"></i></button>
                                 </th>
                                 <th class="word-list-col-example" data-col="example">
                                     例句
-                                    <button class="word-list-col-delete-btn" data-col="example" title="清空所有例句">🗑</button>
+                                    <button class="word-list-col-delete-btn" data-col="example" title="清空所有例句"><i class="fi-rr-trash"></i></button>
                                 </th>
                                 <th class="word-list-col-category">
                                     <span class="word-list-cat-header">场景类别</span>
@@ -2999,7 +3027,7 @@
                                 </th>
                                 <th class="word-list-col-similar" data-col="similar">
                                     形近词
-                                    <button class="word-list-col-delete-btn" data-col="similar" title="清空所有形近词">🗑</button>
+                                    <button class="word-list-col-delete-btn" data-col="similar" title="清空所有形近词"><i class="fi-rr-trash"></i></button>
                                 </th>
                             </tr>
                         </thead>
@@ -3689,13 +3717,6 @@
                         </div>
                     </div>
                     <div class="setting-group">
-                        <label class="setting-label">微信读书 API Key</label>
-                        <input type="password" class="setting-input" id="obWereadKey" placeholder="wrk-xxxxxxxx（选填）">
-                        <div class="setting-hint">
-                            用于「英文原著榜」中拉取古登堡书目对应的微信读书大众热门划线。Key 在 <a href="https://weread.qq.com/r/weread-skills" target="_blank" rel="noopener">微信读书 Skills 配置页</a> 扫码获取，仅保存在本机浏览器中，不会上传到其它服务。
-                        </div>
-                    </div>
-                    <div class="setting-group">
                         <label class="setting-label">划线转发地址</label>
                         <input type="text" class="setting-input" id="obWereadProxy" placeholder="http://127.0.0.1:8377/weread（默认本地网关）">
                         <div class="setting-hint">
@@ -4218,6 +4239,49 @@
         </div>
     </div>
 
+    <!-- 英文原著榜：设置弹窗（AI 模型 / 方法类型 / 微信读书 API Key） -->
+    <div class="modal hidden" id="obSettingsModal">
+        <div class="modal-overlay" data-close-modal="obSettingsModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>原著榜设置</h3>
+                <button class="btn-icon" data-close-modal="obSettingsModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="ob-settings-form">
+                    <div class="ws-field">
+                        <label for="obAiModel">AI 模型</label>
+                        <select class="form-select" id="obAiModel" title="AI模型" data-ai-model-select data-short-label="true"></select>
+                    </div>
+                    <div class="ws-field">
+                        <label for="obMethodType">方法类型</label>
+                        <select class="form-select setting-select" id="obMethodType" title="方法类型">
+                            <option value="plan">分级阅读计划</option>
+                            <option value="vocab">生词与表达预习</option>
+                            <option value="quiz">理解自测题</option>
+                            <option value="full">完整阅读指南</option>
+                        </select>
+                    </div>
+                    <div class="ws-field">
+                        <label for="obWereadKey">微信读书 API Key</label>
+                        <input type="password" class="form-input" id="obWereadKey" placeholder="wrk-xxxxxxxx（选填）">
+                        <div class="setting-hint">
+                            用于拉取古登堡书目对应的微信读书大众热门划线。Key 在 <a href="https://weread.qq.com/r/weread-skills" target="_blank" rel="noopener">微信读书 Skills 配置页</a> 扫码获取，仅保存在本机浏览器中，不会上传到其它服务。
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" data-close-modal="obSettingsModal">完成</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 贡献插件弹窗 -->
     <div class="modal hidden" id="contributePluginModal">
         <div class="modal-overlay" data-close-modal="contributePluginModal"></div>
@@ -4256,6 +4320,27 @@
         </div>
     </div>
 
+    <!-- 关于词忆弹窗（markdown 阅读器，内容来自根目录 README.md） -->
+    <div class="modal hidden" id="aboutModal">
+        <div class="modal-overlay" data-close-modal="aboutModal"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>关于词忆</h3>
+                <button class="btn-icon" data-close-modal="aboutModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="md-reader" id="aboutMdContent">
+                    <div class="md-loading">正在加载说明文档…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript -->
     <script src="lib/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -4269,6 +4354,7 @@
     <script src="data/englishwords-dict.js"></script>
     <script src="data/word-roots-dict.js"></script>
     <script src="data/dict-manifest.js"></script>
+    <script src="data/about-readme.js"></script>
     <script src="data/uicons-icons.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>

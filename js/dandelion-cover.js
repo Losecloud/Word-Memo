@@ -2383,6 +2383,10 @@
 
     function isFavorite(word) {
         var lower = wordKey(word);
+        // 首选为自建收藏词单时，收藏态以该词单为准
+        if (global.app && typeof global.app.getFavoriteTargetList === 'function' && global.app.getFavoriteTargetList()) {
+            return !!global.app.isFavoriteInTarget(lower);
+        }
         return (Storage.loadFavoriteItems() || []).some(function (f) {
             return wordKey(f) === lower;
         });
@@ -2393,6 +2397,16 @@
     function setFavorite(w, on) {
         var key = wordKey(w);
         if (!key) return;
+        // 首选为自建收藏词单时，收藏写入该词单（并静默同步到已链接的欧路生词本）
+        if (global.app && typeof global.app.getFavoriteTargetList === 'function' && global.app.getFavoriteTargetList()) {
+            global.app.setFavoriteInTarget({
+                word: w.word,
+                phonetic: w.phonetic || '',
+                definitions: [{ meaning: w.meaning || '', example: '' }]
+            }, on);
+            if (typeof global.app.renderBookList === 'function') global.app.renderBookList();
+            return;
+        }
         var favs = Storage.loadFavoriteItems() || [];
         var idx = -1;
         for (var i = 0; i < favs.length; i++) {
@@ -2412,6 +2426,7 @@
         }
         Storage.saveFavoriteItems(favs);
         // 收藏表是各封面与词书列表的公共数据源，改完要让它们刷新
+        if (global.app && typeof global.app.scheduleEudicSync === 'function') global.app.scheduleEudicSync();
         if (global.app && typeof global.app.renderBookList === 'function') global.app.renderBookList();
     }
 

@@ -587,6 +587,8 @@ if (typeof window.define !== 'function') {
     try { localStorage.setItem('knownDicts', JSON.stringify(arr)); } catch (e) { /* 无痕模式忽略 */ }
   }
   function isEnabled(varName) { return getEnabledDicts().includes(varName); }
+  // 首次进入默认应用的词典（其余默认卸载，可在 AI 工坊的词典卡片上按需「应用」）
+  const DEFAULT_ENABLED_VARS = ['OALDPE_DICT', 'COLLINS_DICT', '英语词根词缀词频_DICT'];
 
   // ---- 词典清单持久化：进入网页直接加载已启用的词典，跳过每次清单扫描 ----
   // 仅持久化 URL 模式（text 模式词典跨会话无法复用）。统一用相对路径 ../data/，
@@ -751,12 +753,17 @@ if (typeof window.define !== 'function') {
     if (!metas.length) return;
     let enabledArr = getEnabledDicts();
     let known = getKnownDicts();
+    let changed = false;
     if (!known.length) {
       // 首次升级（尚无 knownDicts）：当前扫描到的全部视为已见过，保持 enabledDicts 现状，
       // 避免把用户已禁用的词典重新加回
       known = metas.map(m => m.varName);
+      // 首次进入（从无启用记录）：默认只应用三本常用词典，其余保持卸载以减少加载时间
+      if (localStorage.getItem('enabledDicts') === null) {
+        enabledArr = known.filter(v => DEFAULT_ENABLED_VARS.includes(v));
+        changed = true;
+      }
     }
-    let changed = false;
     for (const meta of metas) {
       if (!known.includes(meta.varName)) {
         // 新发现的词典：默认启用，并记入 known
@@ -1882,11 +1889,11 @@ if (typeof window.define !== 'function') {
         return;
       }
       // 首次访问（无持久化清单）：走清单 / 目录扫描
-      // 查询模式（主页 iframe）下不弹目录选择：直接就绪，由主页提示无词库
-      if (LOOKUP) { post({ type: 'ready' }); return; }
       showLoading('正在加载词典清单…');
       let list = await loadManifest();
       if (!list.length) {
+        // 查询模式（主页 iframe）下不弹目录选择：直接就绪，由主页提示无词库
+        if (LOOKUP) { post({ type: 'ready' }); return; }
         // file:// 无清单时：自动请求目录权限扫描
         showLoading('未找到词典清单，请在弹出的窗口中选择词典目录（含 *-dict.js）…');
         let files;

@@ -125,6 +125,17 @@ body {
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--primary-color);
+    cursor: pointer;
+    user-select: none;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.logo:hover {
+    opacity: 0.8;
+}
+
+.logo:active {
+    transform: scale(0.97);
 }
 
 .logo-icon {
@@ -390,6 +401,66 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
     flex-shrink: 0;
 }
 
+/* 左下角收藏词单的欧路同步按钮：无底无边，仅 40% 透明图标，空闲 ic-ok，悬浮/同步中 ic-refresh */
+.fav-sync-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+/* 卡片选中（primary 底色）时改用白色图标 */
+.book-item.active .fav-sync-btn {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.fav-sync-btn.hidden {
+    display: none;
+}
+
+.fav-sync-btn .svg-ic {
+    width: 0.85rem;
+    height: 0.85rem;
+}
+
+.fav-sync-btn .fav-sync-refresh {
+    display: none;
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.fav-sync-btn:hover,
+.fav-sync-btn.is-syncing {
+    color: var(--primary-color);
+}
+
+.book-item.active .fav-sync-btn:hover,
+.book-item.active .fav-sync-btn.is-syncing {
+    color: #fff;
+}
+
+.fav-sync-btn:hover .fav-sync-ok,
+.fav-sync-btn.is-syncing .fav-sync-ok {
+    display: none;
+}
+
+.fav-sync-btn:hover .fav-sync-refresh,
+.fav-sync-btn.is-syncing .fav-sync-refresh {
+    display: inline-block;
+}
+
+.fav-sync-btn.is-syncing .fav-sync-refresh {
+    animation: spin 2s linear infinite;
+}
+
 .book-item-progress {
     font-size: 0.75rem;
     opacity: 0.7;
@@ -401,6 +472,18 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
     opacity: 0.6;
     margin-top: var(--spacing-xs);
     font-style: italic;
+}
+
+/* 收藏词单介绍（侧栏入口内） */
+.book-item-desc {
+    font-size: 0.72rem;
+    opacity: 0.75;
+    margin-top: var(--spacing-xs);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .book-item-actions {
@@ -704,6 +787,23 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
 .summary-icon .svg-ic { width: 2rem; height: 2rem; color: var(--primary-color); }
 .chart-sheet-tab .svg-ic { width: 1rem; height: 1rem; margin-right: 5px; }
 .memory-modal-cell h4 .svg-ic { width: 1rem; height: 1rem; margin-right: 5px; }
+
+/* uicon 极简图标垂直居中修正
+   1) 盒子内部：字形是 1em 见方且完全位于基线上方（字体 ascent=1em、descent=0），而 <i>
+      若是普通 inline，其盒子高度取的是继承来的正文字体度量（Inter/Arial），会在基线下为
+      下伸部预留空白——图标用不到这块空白，于是墨迹偏上（实测 16px 字号偏上约 1.5px）。
+      厂商 CSS 只给 ::before 设了 line-height，管不到 <i> 本身，故这里把 <i> 做成
+      1em 见方、内部居中的盒子（实测盒内墨迹中心偏差 1.5px → 0.1px）。
+   2) 与相邻文字：图标满 1em，比文字的字面中心高，若用 vertical-align:middle 会被推低
+      约 0.09em（实测 20px 下偏下 2.5px），用 -0.125em 补偿后与中英文文字的视觉中心差
+      < 1px。 */
+i[class^="fi-"], i[class*=" fi-"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    vertical-align: -0.125em;
+}
 
 .stat-icon {
     font-size: 1.5rem;
@@ -2373,7 +2473,7 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
 }
 
 .nebula-controls .ai-picker-item-active {
-    background: color-mix(in srgb, var(--primary-color, #667eea) 30%, transparent);
+    background: color-mix(in srgb, var(--primary-color) 30%, transparent);
     color: var(--nc-ink);
     font-weight: 600;
 }
@@ -2387,7 +2487,7 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
 .nebula-range {
     width: 100%;
     margin: 0;
-    accent-color: var(--primary-color, #667eea);
+    accent-color: var(--primary-color);
     cursor: pointer;
 }
 
@@ -3468,7 +3568,7 @@ body.nebula-word-themed .nebula-card {
 }
 
 .btn-favorite-badge:hover .favorite-gray {
-    opacity: 0.6;
+    color: var(--text-secondary);
 }
 
 @keyframes slideInFromTop {
@@ -4690,6 +4790,365 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     min-width: 200px;
 }
 
+/* 主词单页（#wordListScreen）标题区：标题块 + 收藏词单切换下拉 左右排布 */
+#wordListScreen .word-list-title-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-lg);
+}
+
+.word-list-title-main {
+    min-width: 0;
+}
+
+/* 收藏词单切换下拉：置于标题区右侧 */
+.fav-list-picker {
+    flex-shrink: 0;
+    min-width: 200px;
+    max-width: 280px;
+}
+
+.fav-list-picker .ai-picker-panel {
+    left: auto;
+    right: 0;
+    min-width: 240px;
+}
+
+/* 收藏词单条目：悬浮时右侧浮出「设置」按钮 */
+.fav-list-item .ai-picker-item-id {
+    flex: 1;
+    min-width: 0;
+}
+
+.fav-list-item .fav-list-item-settings,
+.fav-list-item .fav-list-item-delete {
+    flex-shrink: 0;
+    display: none;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    padding: 0;
+    cursor: pointer;
+}
+
+.fav-list-item:hover .fav-list-item-settings,
+.fav-list-item:hover .fav-list-item-delete {
+    display: inline-flex;
+}
+
+/* 重命名编辑态：屏蔽悬浮出现的「设置 / 垃圾桶」按钮 */
+.fav-list-item.fav-list-item-editing .fav-list-item-settings,
+.fav-list-item.fav-list-item-editing .fav-list-item-delete {
+    display: none;
+}
+
+.fav-list-item .fav-list-item-settings:hover {
+    background: var(--primary-light);
+    color: var(--primary-color);
+}
+
+.fav-list-item .fav-list-item-delete:hover {
+    background: color-mix(in srgb, var(--error, #EF4444) 14%, transparent);
+    color: var(--error, #EF4444);
+}
+
+/* 重命名编辑态：输入框 + 勾号确认 */
+.fav-list-item-edit {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fav-list-item-edit-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 7px;
+    border: 1px solid var(--primary-color);
+    border-radius: 5px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: var(--surface);
+    outline: none;
+}
+
+.fav-list-item-edit-ok {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 5px;
+    background: var(--primary-color);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+
+/* 收藏词单设置弹窗：重命名 + 首选开关 */
+.fav-list-set-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.fav-list-set-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.fav-list-set-text {
+    min-width: 0;
+}
+
+.fav-list-set-hint {
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.fav-list-set-optional {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-tertiary);
+}
+
+.fav-list-desc-input {
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 56px;
+}
+
+/* 收藏词单设置：链接欧路词典版块 */
+.eudic-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding-top: var(--spacing-md);
+    border-top: 1px dashed var(--border-color);
+}
+
+.eudic-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+}
+
+.eudic-badge {
+    flex-shrink: 0;
+    padding: 0.1rem 0.55rem;
+    border-radius: var(--radius-full);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    background: var(--background);
+    border: 1px solid var(--border-color);
+}
+
+.eudic-badge.linked {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.eudic-token-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.eudic-token-row .setting-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.85rem;
+}
+
+.eudic-btn {
+    flex-shrink: 0;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius-md);
+    border: 1.5px solid var(--primary-color);
+    background: var(--primary-color);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.eudic-btn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+
+.eudic-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.eudic-btn-ghost {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.eudic-hint {
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+}
+
+.eudic-hint-ok { color: var(--success, #22C55E); }
+.eudic-hint-error { color: var(--error, #EF4444); }
+
+.eudic-cats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 230px;
+    overflow-y: auto;
+}
+
+.eudic-cat {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--spacing-sm);
+    padding: 0.4rem 0.5rem 0.4rem 0.7rem;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.eudic-cat-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 生词本单词数，紧贴名称右侧 */
+.eudic-cat-count {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+.eudic-cat .eudic-btn {
+    margin-left: auto;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+}
+
+.eudic-linked {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--spacing-sm);
+    padding: 0.5rem 0.5rem 0.5rem 0.7rem;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.eudic-linked-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.eudic-linked-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.eudic-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.eudic-icon-btn:hover:not(:disabled) {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.eudic-icon-btn.eudic-spin {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.eudic-icon-btn.eudic-spin i {
+    display: inline-block;
+    animation: spin 0.8s linear infinite;
+}
+
+.eudic-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+}
+
+.eudic-page-btn {
+    padding: 0.2rem 0.6rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.eudic-page-btn:hover:not(:disabled) {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.eudic-page-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.eudic-page-info {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
 /* AI补充进度显示 */
 .ai-progress-container {
     flex: 0 1 auto;
@@ -5807,15 +6266,29 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: color-mix(in srgb, var(--error) 10%, transparent);
 }
 
-.favorite-gray {
-    filter: grayscale(100%) ;
-    opacity: 0.35;
-    transition: all var(--transition-fast);
-    
+/* 删除图标（uicon）：常态基础色，悬停转错误红 */
+.delete-btn i {
+    color: var(--text-secondary);
+    transition: color var(--transition-fast);
+}
+
+.delete-btn:hover i {
+    color: var(--error);
+}
+
+/* 收藏星标（uicon）：已收藏为金色实心，未收藏为 favorite-gray 基础线条样式 */
+.favorite-icon {
+    font-style: normal;
+    color: #FFC83D;
+    transition: color var(--transition-fast);
+}
+
+.favorite-icon.favorite-gray {
+    color: var(--text-tertiary);
 }
 
 .btn-favorite:hover .favorite-gray {
-    opacity: 0.6;
+    color: var(--text-secondary);
 }
 
 /* 学习模式中的收藏按钮 */
@@ -5870,6 +6343,72 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .btn-favorite:hover .favorite-icon {
     transform: rotate(15deg);
+}
+
+/* word-meta 内的所属词书标签（原收藏按钮的位置） */
+.word-book-info {
+    display: inline-flex;
+    align-items: center;
+    max-width: 12rem;
+    padding: 0.25rem 0.625rem;
+    background: color-mix(in srgb, var(--hover-bg) 30%, transparent);
+    color: var(--text-tertiary);
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 单词卡片快捷操作栏：太简单（不再复习）/ 收藏该词 */
+.word-options {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+}
+
+.btn-word-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.75rem;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.btn-word-option i {
+    font-size: 0.875rem;
+    line-height: 1;
+}
+
+.btn-word-option:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.btn-word-option:focus {
+    outline: none;
+}
+
+.btn-word-option:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* 已收藏：仅把星标填充为金色，按钮本身不做高亮 */
+.btn-word-option.is-favorite i {
+    color: #FFC83D;
 }
 
 /* ============================================
@@ -5931,6 +6470,20 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     max-width: 1400px;
     margin: 20px auto 0 auto;
     animation: fadeIn 0.3s ease-out;
+}
+
+/* AI工坊应用页宽度分两类：
+   · 宽幅型 1400px：CEFR写作、英文原著榜、口语角话题 —— 沿用上方 .ai-workshop-screen 的默认宽度，无需声明
+   · 标准型 1000px：阅读联想记忆、文字游戏、同义替换、熟词僻义 —— 如下收窄并居中。
+   双页展示模式（.dual-view-mode / body.textgame-dual-view）各有 max-width:none !important
+   覆盖，宽于此处优先级，故不受影响。 */
+.ai-workshop-screen .reading-app-container,
+.ai-workshop-screen .textgame-app-container,
+.ai-workshop-screen .synonym-app-container,
+.ai-workshop-screen .liyi-app-container {
+    max-width: 1000px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 /* 仅在工坊菜单页（应用网格可见时）启用满屏布局：
@@ -6114,7 +6667,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     line-height: 1;
     text-align: center;
     flex-shrink: 0;
-    margin-top: var(--spacing-xs)
 }
 
 /* 菜单下方筛选器 */
@@ -6442,6 +6994,45 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     opacity: 0.6;
 }
 
+/* 词典卡片底部：应用/卸载（应用后刷新页面才会加载该词典，减少加载时间） */
+.dict-apply-row {
+    margin-top: auto;
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.dict-apply-btn {
+    width: 100%;
+    height:35px;
+    padding: 0.32rem 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 10px;
+    border: 1.5px solid var(--primary-color);
+    background: var(--primary-color);
+    color: #fff;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.dict-apply-btn:hover {
+    opacity: 0.75;
+}
+
+.dict-apply-btn.applied:hover {
+    opacity: 0.55;
+    border-color: var(--error) !important;
+    color: var(--error) !important;
+}
+
+.dict-apply-btn.applied {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
 .ai-workshop-title {
     display: flex;
     align-items: center;
@@ -6481,6 +7072,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 1.5rem;
     font-weight: 600;
     margin-bottom: var(--spacing-sm);
+}
+
+/* 标题前的极简图标：与文字间留出间距（垂直居中由全局 uicon 规则统一处理） */
+.ai-feature-header h3 i {
+    margin-right: 0.6rem;
 }
 
 .ai-feature-desc {
@@ -8686,6 +9282,113 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* 内容区块纵向排布并统一留白 */
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+/* 内容超出时保持各区块自身高度（滚动而非被压缩） */
+.modal-body > * {
+    flex-shrink: 0;
+}
+
+/* 关于词忆：README markdown 阅读器 */
+.md-reader {
+    font-size: 0.95rem;
+    line-height: 1.75;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+.md-reader .md-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: var(--spacing-xl) 0;
+}
+.md-reader h1,
+.md-reader h2,
+.md-reader h3,
+.md-reader h4,
+.md-reader h5,
+.md-reader h6 {
+    font-weight: 700;
+    line-height: 1.35;
+    color: var(--text-primary);
+    margin: var(--spacing-lg) 0 var(--spacing-sm);
+}
+.md-reader h1 { font-size: 1.6rem; margin-top: 0; }
+.md-reader h2 { font-size: 1.3rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--border-color); }
+.md-reader h3 { font-size: 1.1rem; }
+.md-reader h4 { font-size: 1rem; }
+.md-reader h5,
+.md-reader h6 { font-size: 0.95rem; color: var(--text-secondary); }
+.md-reader p { margin: var(--spacing-sm) 0; }
+.md-reader ul,
+.md-reader ol {
+    margin: var(--spacing-sm) 0;
+    padding-left: 1.5rem;
+}
+.md-reader li { margin: 0.25rem 0; }
+.md-reader li.md-task {
+    list-style: none;
+    margin-left: -1.25rem;
+}
+.md-reader a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+.md-reader a:hover { text-decoration: underline; }
+.md-reader strong { font-weight: 700; }
+.md-reader em { font-style: italic; }
+.md-reader code {
+    background: var(--hover-bg);
+    padding: 0.1rem 0.35rem;
+    border-radius: var(--radius-sm);
+    font-family: Consolas, Monaco, 'Courier New', monospace;
+    font-size: 0.88em;
+}
+.md-reader pre {
+    background: var(--hover-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    overflow-x: auto;
+    margin: var(--spacing-sm) 0;
+}
+.md-reader pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+.md-reader blockquote {
+    border-left: 3px solid var(--primary-color);
+    padding: 0.25rem 0 0.25rem var(--spacing-md);
+    margin: var(--spacing-sm) 0;
+    color: var(--text-secondary);
+}
+.md-reader hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: var(--spacing-lg) 0;
+}
+.md-reader img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+}
+.md-reader .md-center { text-align: center; }
+.md-reader .md-center img { max-width: 140px; }
+.md-reader table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--spacing-sm) 0;
+}
+.md-reader th,
+.md-reader td {
+    border: 1px solid var(--border-color);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
 }
 
 /* 词书设置菜单 */
@@ -9075,6 +9778,34 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--text-primary);
     line-height: 1.6;
     font-style: italic;
+}
+
+/* 记得么模式：word-display 与 remember-actions 之间的空白热区
+   桌面端悬浮 / 移动端点击 → 浮现例句（不发音），辅助用户由例句回想释义
+   仅作展示，pointer-events: none 不拦截任何交互 */
+.remember-hint-zone {
+    position: absolute;
+    bottom: calc(100px + 4rem + 10px); /* 与 remember-meaning-display 同区，位于按钮上方 */
+    left: var(--spacing-xl);
+    right: var(--spacing-xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+.remember-hint-example {
+    margin: 0;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    font-size: 1.1rem;
+    font-style: italic;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+.remember-hint-zone.show .remember-hint-example {
+    opacity: 1;
 }
 
 /* 快捷键设置 */
@@ -11295,25 +12026,51 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border-top: 1px solid var(--border-color);
 }
 
-.ob-detail-actions .setting-picker,
-.ob-detail-actions .ai-picker {
-    flex: 1 1 0;
-    min-width: 0;
-    width: auto;
-}
-
-/* 底部操作行的下拉向上展开，避免超出面板底边 */
-.ob-detail-actions .ai-picker-panel {
-    top: auto;
-    bottom: calc(100% + 6px);
-}
-
 .ob-detail-actions .btn-primary {
     flex: 0 0 auto;
+    margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     white-space: nowrap;
+}
+
+/* 设置按钮（三条杠）：把 AI模型 / 方法类型 / 微信读书 Key 收进弹窗 */
+.ob-settings-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.95rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--background);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.ob-settings-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* 原著榜设置弹窗内的表单 */
+.ob-settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+/* 原著榜设置的下拉浮层用 position: fixed，脱离 modal-body 的 overflow 裁剪、真正覆盖显示
+   （与 #bookSettingsModal 同法；left/top/宽度由 JS 按触发器实时位置写入） */
+#obSettingsModal .ai-picker-panel {
+    position: fixed;
+    z-index: 10000;
+    width: auto;
+    min-width: 0;
+    max-width: none;
 }
 
 /* 空态 / 加载态 / 错误提示 */
@@ -12381,6 +13138,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .topic-content {
+    position: relative;
     flex: 1;
     color: var(--text-secondary);
     font-size: 1.2rem;
@@ -12403,6 +13161,30 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border-radius: 3px;
 }
 
+/* 默认态补充说明（灰字）：小字号、更淡的灰，与题目正文拉开层次 */
+.topic-intro {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.7;
+    color: var(--text-tertiary);
+}
+
+.topic-intro p {
+    margin: 0 0 0.5rem;
+}
+
+.topic-intro p:last-child {
+    margin-bottom: 0;
+}
+
+.topic-intro b {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
 /* 命题刷新旋转动画 */
 .topic-content.topic-refreshing {
     opacity: 0.4;
@@ -12410,15 +13192,17 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 .topic-content.topic-refreshing::after {
     content: '';
+    /* 绝对定位：旋转元素的变换后包围盒会被计入滚动区，内联时会把 scrollHeight 顶高、令滚动条高频闪动 */
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
     display: inline-block;
     width: 16px;
     height: 16px;
-    margin-left: 8px;
     border: 2px solid var(--border-color);
     border-top-color: var(--primary, #3b82f6);
     border-radius: 50%;
     animation: topic-spin 0.8s linear infinite;
-    vertical-align: middle;
 }
 @keyframes topic-spin {
     to { transform: rotate(360deg); }
@@ -12603,10 +13387,21 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     width: var(--bar-sq, 26px);
     height: var(--bar-sq, 26px);
     background: var(--bar-color);
-    border-radius: 6px;
-    transition: height 0.5s ease;
+    border-radius: 10px;
+    transition: height 0.5s ease, background-color 0.25s ease;
     position: relative;
     margin-top: auto;
+    cursor: pointer;
+}
+
+/* 点选模式：被点选的柱子保留等级色并加一圈同色描边，其余柱子统一置灰 */
+.cefr-bar.pick-on .bar-fill {
+    outline: 2px solid var(--bar-color);
+    outline-offset: 2px;
+}
+
+.cefr-bar.pick-off .bar-fill {
+    background: var(--text-tertiary);
 }
 
 /* 等级标签：始终在正中心 */
@@ -12873,6 +13668,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .writing-editor .cefr-word.dimmed {
     color: var(--text-tertiary) !important;
+}
+
+/* 点选渲染模式：仅被点选级别的单词保留等级色，其余（含标点/数字/未知词）回落默认色 */
+.writing-editor.cefr-picking span:not(.pick-on) {
+    color: inherit !important;
 }
 
 .writing-editor .cefr-word.unknown {
@@ -15302,7 +16102,7 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
 .ai-picker-item {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 3px;
     width: 100%;
     box-sizing: border-box;
     padding: 7px 10px;
@@ -15356,8 +16156,9 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
     font-weight: 600;
 }
 
-/* 写作设置弹窗内的自绘下拉（撑满整行） */
-.writing-settings-form .ai-picker {
+/* 写作 / 原著榜设置弹窗内的自绘下拉（撑满整行） */
+.writing-settings-form .ai-picker,
+.ob-settings-form .ai-picker {
     display: block;
     width: 100%;
     min-width: 0;

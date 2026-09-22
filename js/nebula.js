@@ -2355,6 +2355,10 @@
     function isWordFavorited(word) {
         if (!word) return false;
         var key = String(word).trim().toLowerCase();
+        // 首选为自建收藏词单时，收藏态以该词单为准
+        if (global.app && typeof global.app.getFavoriteTargetList === 'function' && global.app.getFavoriteTargetList()) {
+            return !!global.app.isFavoriteInTarget(key);
+        }
         // 全局收藏
         var globals = Storage.loadFavoriteItems() || [];
         for (var i = 0; i < globals.length; i++) {
@@ -2375,6 +2379,20 @@
     function toggleCardFavorite(w, favBtn) {
         if (!w || !w.word) return;
         var lower = String(w.word).trim().toLowerCase();
+        // 首选为自建收藏词单时，收藏写入该词单（并静默同步到已链接的欧路生词本）
+        if (global.app && typeof global.app.getFavoriteTargetList === 'function' && global.app.getFavoriteTargetList()) {
+            var addedT = global.app.toggleFavoriteInTarget({
+                word: w.word,
+                phonetic: w.phonetic || '',
+                definitions: (w.definitions && w.definitions.length) ? w.definitions : [{ meaning: w.meaning || '', example: w.example || '' }]
+            });
+            if (favBtn) {
+                favBtn.classList.toggle('favorited', !!addedT);
+                favBtn.title = addedT ? '取消收藏' : '收藏';
+            }
+            if (typeof global.app.renderBookList === 'function') global.app.renderBookList();
+            return;
+        }
         var favs = Storage.loadFavoriteItems() || [];
         var idx = -1;
         for (var i = 0; i < favs.length; i++) {
@@ -2422,6 +2440,7 @@
         }
         // 同步主应用视图（收藏侧栏等），若存在
         try {
+            if (global.app && typeof global.app.scheduleEudicSync === 'function') global.app.scheduleEudicSync();
             if (global.app && typeof global.app.loadBooks === 'function') global.app.loadBooks();
         } catch (e) {}
     }
