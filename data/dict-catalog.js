@@ -1,6 +1,6 @@
 // 由 tools/web2ob.py 自动生成：词典数据安装清单（AI 工坊「词典」类目按此渲染）
 var DICT_CATALOG = {
- "updated": "2026-09-24",
+ "updated": "2026-09-25",
  "dicts": [
   {
    "file": "englishwords-dict.json",

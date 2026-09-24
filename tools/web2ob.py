@@ -8,7 +8,7 @@
 
 流程：
   1. 采集 web 应用核心（入口页 / 查词引擎页 / js / css / lib / static / data/internal）
-  2. 打成自定义容器（WMB1）→ gzip → base64
+  2. 打成自定义容器（WMB1）→ brotli → base64
   3. 生成 tools/word-memo/main.js = 内嵌包常量 + src/plugin.js 宿主源码
   4. 复制 styles.css，并把 main.js / styles.css / manifest.json 同步到
      .obsidian/plugins/word-memo/（Obsidian 实际加载目录）
@@ -19,7 +19,6 @@ data/*-dict.json：纯数据、由 fetch + JSON.parse 读取、不进内嵌包�
 
 import argparse
 import base64
-import gzip
 import json
 import re
 import struct
@@ -27,6 +26,11 @@ import sys
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
+
+try:
+    import brotli  # 内嵌包用 brotli 压缩：比 gzip 小约 20%，让 main.js 压在 Obsidian Sync 的 5MB 单文件上限内
+except ImportError:
+    raise SystemExit("缺少 brotli 模块，请先执行：python -m pip install brotli")
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "tools" / "word-memo"
@@ -290,7 +294,8 @@ def main():
 
     items = collect()
     raw = pack(items)
-    blob = base64.b64encode(gzip.compress(raw, 9)).decode("ascii")
+    packed = brotli.compress(raw, quality=11)
+    blob = base64.b64encode(packed).decode("ascii")
 
     source = (SRC_DIR / "plugin.js").read_text(encoding="utf-8")
     header = (
@@ -298,7 +303,7 @@ def main():
         " * 词忆 (Word Memo) — Obsidian 插件。本文件由 tools/web2ob.py 自动生成，请勿手改。\n"
         " *\n"
         " * WM_APP_BUNDLE 是「词忆」web 应用（入口页 / js / css / lib / static / 核心 data）的打包产物：\n"
-        " * 先按 WMB1 容器格式顺序拼接，再 gzip 压缩，最后 base64 编码为单个字符串常量。\n"
+        " * 先按 WMB1 容器格式顺序拼接，再 brotli 压缩，最后 base64 编码为单个字符串常量。\n"
         " * 其中不含加密或混淆，仅为把多文件应用合并成一个可随插件分发的字符串；\n"
         " * 运行时由 extractAppBundle() 解压到 vault 的 .word-memo/ 目录，再经本地 127.0.0.1 服务加载。\n"
         " *\n"
@@ -319,8 +324,8 @@ def main():
         (LIVE_DIR / name).write_bytes((OUT_DIR / name).read_bytes())
 
     total = sum(len(d) for _, d in items)
-    print("已打包 %d 个文件：原始 %.1f MB → gzip %.1f MB → 内嵌(base64) %.1f MB"
-          % (len(items), total / 1048576, len(gzip.compress(raw, 9)) / 1048576, len(blob) / 1048576))
+    print("已打包 %d 个文件：原始 %.1f MB → brotli %.1f MB → 内嵌(base64) %.1f MB"
+          % (len(items), total / 1048576, len(packed) / 1048576, len(blob) / 1048576))
     print("  产物：%s" % (OUT_DIR / "main.js"))
     print("  同步：%s" % LIVE_DIR)
     return 0
