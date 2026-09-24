@@ -9545,6 +9545,10 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('autoNextTime').value = this.settings.autoNextTime || 3;
         document.getElementById('autoNextTimeValue').textContent = (this.settings.autoNextTime || 3).toFixed(1);
 
+        // 英语角热点榜单 Key（选填，tianapi）：侧栏模式下无此控件，做存在性判断
+        const oralTianKeyEl = document.getElementById('oralTianKey');
+        if (oralTianKeyEl) oralTianKeyEl.value = this.settings.oralTianKey || '';
+
         // 加载语速设置
         const voiceRate = this.settings.voiceRate || 1.0;
         document.getElementById('voiceRate').value = voiceRate;
@@ -9855,6 +9859,7 @@ ${example ? `- 例句：${example}` : ''}
             hoverLookup: document.getElementById('hoverLookup').checked, // Obsidian 悬浮取词
             selectionTranslate: document.getElementById('selectionTranslate').checked, // Obsidian 划词右键「翻译」
             hideSidebarImport: document.getElementById('hideSidebarImport').checked, // Obsidian 隐藏右侧栏导入词典拖入区
+            oralTianKey: String((document.getElementById('oralTianKey') || {}).value || '').trim(), // 英语角热点榜单 Key（tianapi，选填）
             obWereadKey: String(this.settings.obWereadKey || ''), // 已移至「原著榜设置」弹窗，此处仅沿用
             obWereadProxy: String(this.settings.obWereadProxy || '') // 已移至「微信读书设置」弹窗，此处仅沿用
         };
@@ -9906,6 +9911,7 @@ ${example ? `- 例句：${example}` : ''}
                 aiApiFormat: 'openai', // AI API 格式（openai/anthropic）
                 aiApiBaseUrl: '', // AI API 自定义请求地址
                 aiApiKey: '', // 默认为空，用户需要自己配置
+                oralTianKey: '', // 英语角热点榜单 Key（tianapi，选填）
                 aiProviders: [{ name: '未命名', baseUrl: '', apiFormat: 'openai', apiKey: '', models: [] }], // AI 多厂商配置
                 aiActiveProviderIndex: 0, // 当前激活厂商索引
                 hotkeys: {
@@ -19098,7 +19104,9 @@ When including options, each must have an "impact" field. Use the available keyw
 
     // 热点数据源（与 CEFR Shadow_uni 云函数 fetchNetHot 一致，全部并发拉取，页面可切换查看）
     getOralHotSources() {
-        const tianKey = 'cb9382d787ef9eee4bc0487ba74bce25';
+        // tianapi 的 Key 由用户自填（设置 → AI → 英语角热点榜单 Key）。
+        // 不在源码里内置第三方密钥：公开仓库会泄露密钥并白耗额度
+        const tianKey = String((this.settings && this.settings.oralTianKey) || '').trim();
         // tianapi 通用解析：字段名各接口略有差异，这里做容错
         const parseTian = (d) => {
             const list = d && d.result && Array.isArray(d.result.list) ? d.result.list : null;
@@ -19110,7 +19118,7 @@ When including options, each must have an "impact" field. Use the available keyw
                 desc: String(it.hotwordtip || it.tip || it.desc || '').trim()
             }));
         };
-        return [
+        const sources = [
             {
                 id: 'weibo', name: '微博热搜', short: '微博',
                 url: 'https://zj.v.api.aa1.cn/api/weibo-rs/',
@@ -19130,24 +19138,30 @@ When including options, each must have an "impact" field. Use the available keyw
                     hot: String(it.hot || '').trim(),
                     desc: String(it.desc || '').trim()
                 })) : []
-            },
-            {
-                id: 'douyin', name: '抖音热搜', short: '抖音',
-                url: `https://apis.tianapi.com/douyinhot/index?key=${tianKey}`,
-                parse: d => {
-                    const list = d && d.result && Array.isArray(d.result.list) ? d.result.list : null;
-                    if (!list) return [];
-                    return list.map((it, i) => ({
-                        rank: i + 1,
-                        title: String(it.word || it.hotword || '').trim(),
-                        hot: String(it.hotindex || '').trim(),
-                        desc: ''
-                    }));
-                }
-            },
-            { id: 'weibo_tian', name: '微博热搜（备用）', short: '微博备', url: `https://apis.tianapi.com/weibohot/index?key=${tianKey}`, parse: parseTian },
-            { id: 'baidu_tian', name: '百度热搜（备用）', short: '百度备', url: `https://apis.tianapi.com/nethot/index?key=${tianKey}`, parse: parseTian }
+            }
         ];
+        // 抖音与两路备用榜单走 tianapi.com，需自备 Key；未配置则跳过，避免必然失败的请求
+        if (tianKey) {
+            sources.push(
+                {
+                    id: 'douyin', name: '抖音热搜', short: '抖音',
+                    url: `https://apis.tianapi.com/douyinhot/index?key=${tianKey}`,
+                    parse: d => {
+                        const list = d && d.result && Array.isArray(d.result.list) ? d.result.list : null;
+                        if (!list) return [];
+                        return list.map((it, i) => ({
+                            rank: i + 1,
+                            title: String(it.word || it.hotword || '').trim(),
+                            hot: String(it.hotindex || '').trim(),
+                            desc: ''
+                        }));
+                    }
+                },
+                { id: 'weibo_tian', name: '微博热搜（备用）', short: '微博备', url: `https://apis.tianapi.com/weibohot/index?key=${tianKey}`, parse: parseTian },
+                { id: 'baidu_tian', name: '百度热搜（备用）', short: '百度备', url: `https://apis.tianapi.com/nethot/index?key=${tianKey}`, parse: parseTian }
+            );
+        }
+        return sources;
     }
 
     // 请求单个热点源，返回归一化后的清单（失败则抛出可读错误）
