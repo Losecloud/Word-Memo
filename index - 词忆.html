@@ -60,9 +60,8 @@
     <link rel="stylesheet" href="static/flaticon-uicons-main/src/uicons/css/solid/rounded.css">
     <link rel="stylesheet" href="static/flaticon-uicons-main/src/uicons/css/bold/rounded.css">
     <link rel="stylesheet" href="static/flaticon-uicons-main/src/uicons/css/thin/rounded.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- 字体走系统栈（styles.css 的 font-family 已含 -apple-system / Segoe UI / Microsoft YaHei 兜底）。
+         原先经 Google Fonts 远程加载 Inter，属运行时外部请求，会影响离线可用性与插件审查，故移除。 -->
     <style>
         /* ===== 查单词：输入框 + 下拉结果 + 详情面板（引擎为 tools/browse-dict.html?mode=lookup） ===== */
         /* 整栏改三列网格：左（logo+AI工坊）| 中（查词输入框）| 右（操作区），两侧 1fr 等宽 → 输入框精确居整栏正中，且不与 AI工坊重叠 */
@@ -5072,8 +5071,10 @@
 
     <!-- JavaScript -->
     <script src="lib/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- 导入解析库本地化：xlsx / mammoth 原先从 cdnjs 远程加载并执行，
+         违反 Obsidian「禁止运行时下载执行远程代码」政策，且离线不可用，故随包内置 -->
+    <script src="lib/xlsx.full.min.js"></script>
+    <script src="lib/mammoth.browser.min.js"></script>
     <!-- 内置数据（词单/分类树/词根表）与生成产物，均非可下载词典，见 data/internal 与 lib -->
     <script src="data/internal/cefr-data.js"></script>
     <script src="data/internal/synonym-538-data.js"></script>

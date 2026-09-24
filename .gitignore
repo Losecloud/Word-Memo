@@ -68,3 +68,9 @@ examples/index.html
 tools/微信读书_划线与想法导出_实现教程.md
 tools/欧路词典API调用指南.md
 tools/__pycache__/web2ob.cpython-313.pyc
+
+tools/word-memo/
+
+# 牛津10双解词典（约320MB）：体积超 GitHub 限制，改由 word-memo 的 Release(dict-v1) 分发，
+# 仓库内不留副本（data/dict-catalog.js 的 url 指向该 Release）
+data/oaldpe-dict.json
