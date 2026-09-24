@@ -158,6 +158,11 @@ reciting/
 └── README.md               # 说明文档
 ```
 
+> **关于 `data/*-dict.json`**：这些是**词典数据文件**，内容为纯 JSON 文本，不含可执行代码，
+> 也未做任何加密或混淆；应用通过 `fetch` + `JSON.parse` 读取，不使用 `<script>` 执行。
+> 文件名统一为 `<名称>-dict.json`，对应的变量名（如 `COLLINS_DICT`）记录在同目录的
+> `dict-manifest.js` 与 `dict-catalog.js` 中。词典数据按需下载，也可自行放入该目录。
+
 ## 🎯 路线图
 
 - [ ] 更多学习模式（听写、造句等）

@@ -1,7 +1,7 @@
 // ============================================
 // 混沌星云封面（原生 Three.js 移植自 js/word-nebula---单词混沌星云）
 // 核心：WebGL 流场粒子（Curl Noise）+ 3D 弹性阻尼物理 + 语义星团聚类 + 语义动态连线
-// 数据：用户词书/收藏；语义星团取自 data/englishwords-dict.js 的词义分类路径
+// 数据：用户词书/收藏；语义星团取自 data/englishwords-dict.json 的词义分类路径
 // 依赖：lib/three.min.js、Storage
 // 独立模块，避免污染主应用类
 // ============================================
@@ -329,6 +329,7 @@
         touchGesture: null, touchTwist: 0,
         theta: 0, phi: Math.PI / 2.35, radius: 820,
         tTheta: 0, tPhi: Math.PI / 2.35, tRadius: 820,
+        pendingView: null, // 预置视口（封面视窗恢复视角用）：在初始化完成时套用，避免先默认视角再跳变
         lookAt: null, tLookAt: null,
         mouse3D: null, mouseActive: false, raycaster: null, planeZ: null,
         hoverId: null, selectedId: null,
@@ -616,6 +617,19 @@
 
         build();
         state.initialized = true;
+
+        // 封面视窗恢复视角：预置视角在初始化完成时立即套用，首帧即缓存视角（避免跳变）
+        if (state.pendingView) {
+            var pv = state.pendingView;
+            state.pendingView = null;
+            state.tTheta = state.theta = pv.theta;
+            state.tPhi = state.phi = pv.phi;
+            state.tRadius = state.radius = pv.radius;
+            if (pv.lookAt && state.lookAt) {
+                state.tLookAt.set(pv.lookAt[0], pv.lookAt[1], pv.lookAt[2]);
+                state.lookAt.set(pv.lookAt[0], pv.lookAt[1], pv.lookAt[2]);
+            }
+        }
 
         if (!state.raf) animate();
     }
@@ -2107,6 +2121,8 @@
        ======================================================== */
 
     function currentCover() {
+        // 封面视窗（?wmView=cover）覆盖当前封面：只内存生效，不写回用户配置
+        if (global.__wmCoverOverride) return global.__wmCoverOverride;
         try {
             var cfg = Storage.getUserConfig();
             if (cfg && cfg.basicSettings && cfg.basicSettings.defaultCover) {
@@ -2205,6 +2221,8 @@
         init: init,
         stop: stop,
         refresh: refresh,
-        getState: getState
+        getState: getState,
+        // 预置视口（封面视窗恢复视角用）：在下次初始化完成时套用
+        primeView: function (v) { state.pendingView = v || null; }
     };
 })(window);

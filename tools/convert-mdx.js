@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // ============================================================
-// MDX → JS 词典转换工具（一次性）
+// MDX → JSON 词典转换工具（一次性）
 // 支持 MDX v1.2（LZO1X 压缩 key block）与 v2.0（zlib 压缩 +
-// 高位加密 RIPEMD-128）格式，输出为词忆可用的全局 JS 数据文件。
+// 高位加密 RIPEMD-128）格式，输出为词忆可用的纯 JSON 词典数据文件（不含可执行代码）。
 //
-// 用法: node tools/convert-mdx.js <input.mdx> <output.js> [--key <字段名>] [--value <phon|mean|defs>]
+// 用法: node tools/convert-mdx.js <input.mdx> <output.json> [--value <phon|mean|defs>]
 //
 // 注意：LZO 需 pure-LZO 实现（本文件内置 lzo1x_decompress），
 // RIPEMD-128 为内置实现（用于解密 v2.0 的 key-block-info）。
@@ -76,7 +76,7 @@ function parseHeader(buf) {
 }
 
 // ---------------- 主转换 ----------------
-function convert(inputFile, outputFile, keyVar, valueMode) {
+function convert(inputFile, outputFile, valueMode) {
   const buf = fs.readFileSync(inputFile);
   const { attrs, offset: o0 } = parseHeader(buf);
 
@@ -242,7 +242,8 @@ function convert(inputFile, outputFile, keyVar, valueMode) {
   console.log(`  decoded entries: ${Object.keys(dict).length}`);
 
   // ---- 输出 ----
-  const out = `// 由 MDX 自动导出：${path.basename(inputFile)}\n// 转换时间: ${new Date().toISOString()}\nvar ${keyVar} = ${JSON.stringify(dict)};\n`;
+  // 输出纯 JSON 数据（不含可执行代码）：变量名由文件名按约定推导，不再写 var 声明
+  const out = JSON.stringify(dict);
   fs.writeFileSync(outputFile, out, 'utf8');
   console.log(`  → ${outputFile} (${(fs.statSync(outputFile).size / 1048576).toFixed(2)} MB)`);
 
@@ -427,12 +428,19 @@ function updateManifest(mddDirs) {
   const list = [];
   if (fs.existsSync(dataDir)) {
     for (const f of fs.readdirSync(dataDir)) {
-      if (!/^[\w\-（）()]+-dict\.js$/i.test(f) || f === 'dict-manifest.js') continue;
-      let head = '';
-      try { head = fs.readFileSync(path.join(dataDir, f), 'utf8').slice(0, 4096); } catch (e) { continue; }
-      const m = VAR_RE.exec(head);
-      if (!m) continue;
-      const item = { file: f, name: f.replace(/-dict\.js$/i, ''), varName: m[1] };
+      if (!/^.+?-dict\.(js|json)$/i.test(f) || f === 'dict-manifest.js') continue;
+      let varName = '';
+      if (/-dict\.json$/i.test(f)) {
+        // JSON 词典无 var 声明，按文件名约定推导（与浏览器端 varNameFromFile 一致）
+        varName = f.replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
+      } else {
+        let head = '';
+        try { head = fs.readFileSync(path.join(dataDir, f), 'utf8').slice(0, 4096); } catch (e) { continue; }
+        const m = VAR_RE.exec(head);
+        if (!m) continue;
+        varName = m[1];
+      }
+      const item = { file: f, name: f.replace(/-dict\.(js|json)$/i, ''), varName: varName };
       // 关联同名资源目录（若 data/<name>/ 是目录）
       const cand = path.join(dataDir, item.name);
       if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) item.mdd = item.name;
@@ -475,19 +483,17 @@ if (mddIdx >= 0) {
 
 const input = args[0];
 const output = args[1];
-let keyVar = 'YOUCI_DICT';
 let valueMode = 'defs';
 for (let i = 2; i < args.length; i++) {
-  if (args[i] === '--key' && args[i + 1]) { keyVar = args[i + 1]; i++; }
   if (args[i] === '--value' && args[i + 1]) { valueMode = args[i + 1]; i++; }
 }
 if (!input || !output) {
-  console.error('用法: node tools/convert-mdx.js <input.mdx> <output.js> [--key NAME] [--value phon|mean|defs]');
+  console.error('用法: node tools/convert-mdx.js <input.mdx> <output.json> [--value phon|mean|defs]');
   console.error('  MDD 资源: node tools/convert-mdx.js --mdd <input.mdd> --outdir <data/词典目录>');
   process.exit(1);
 }
 try {
-  convert(input, output, keyVar, valueMode);
+  convert(input, output, valueMode);
 } catch (e) {
   console.error('转换失败:', e.message);
   if (e.stack) console.error(e.stack.split('\n').slice(0, 6).join('\n'));

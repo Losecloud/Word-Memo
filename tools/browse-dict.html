@@ -407,7 +407,7 @@
   <h1>词典数据浏览</h1>
   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
     <button id="importBtn" title="导入 MDX 词库" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#2563eb; color:#fff; cursor:pointer; font-weight:600;">📥 导入</button>
-    <button id="scan" title="选择文件夹扫描 *-dict.js" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;">📁 扫描</button>
+    <button id="scan" title="选择文件夹扫描 *-dict.json" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;">📁 扫描</button>
     <button id="reload" title="刷新页面" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;">⟳</button>
   </div>
   <div class="dict-picker" id="dictPicker" title="选择词库">
@@ -1389,12 +1389,12 @@ if (typeof window.define !== 'function') {
 
   // 手动扫描文件夹并合并词典
   async function doScan() {
-    showLoading('请在弹出的窗口中选择词典所在文件夹（含 *-dict.js，建议选 data 目录）…');
+    showLoading('请在弹出的窗口中选择词典所在文件夹（含 *-dict.json，建议选 data 目录）…');
     let files;
     try { files = await scanFolders(); }
     catch (e) { showLoading('扫描已取消或失败: ' + e.message); return; }
     const metas = metasFromFiles(files);
-    if (!metas.length) { showLoading('所选目录中未找到 *-dict.js 词典文件'); return; }
+    if (!metas.length) { showLoading('所选目录中未找到 *-dict.json 词典文件'); return; }
     await applyMetas(metas);
     finishLoad();
   }
@@ -1968,7 +1968,7 @@ if (typeof window.define !== 'function') {
   }
 
   // 后台对账 dict-manifest.js：补齐本地缓存 dictMetas 缺失的词典（含 mdd 资源目录）。
-  // 手动放回 data/ 的词典文件（如恢复 oaldpe-dict.js）不在缓存里，快速路径不会识别，需借此补注册
+  // 手动放回 data/ 的词典文件（如恢复 oaldpe-dict.json）不在缓存里，快速路径不会识别，需借此补注册
   function reconcileManifest(saved) {
     loadManifest().then(list => {
       if (!list || !list.length) return;
@@ -2008,13 +2008,13 @@ if (typeof window.define !== 'function') {
         // 查询模式（主页 iframe）下不弹目录选择：直接就绪，由主页提示无词库
         if (LOOKUP) { post({ type: 'ready' }); return; }
         // file:// 无清单时：自动请求目录权限扫描
-        showLoading('未找到词典清单，请在弹出的窗口中选择词典目录（含 *-dict.js）…');
+        showLoading('未找到词典清单，请在弹出的窗口中选择词典目录（含 *-dict.json）…');
         let files;
         try { files = await scanFolders(); }
         catch (e) { showLoading('扫描已取消: ' + e.message); return; }
         list = metasFromFiles(files);
       }
-      if (!list.length) { showLoading('未检测到任何 *-dict.js 词典文件，可点击「📁 扫描」选择目录'); return; }
+      if (!list.length) { showLoading('未检测到任何 *-dict.json 词典文件，可点击「📁 扫描」选择目录'); return; }
       await applyMetas(list);
       finishLoad();
     } catch (e) {
@@ -2273,10 +2273,11 @@ if (typeof window.define !== 'function') {
       const { dict, name } = await parseMDX(buf);
       // 词库变量名：保留 Unicode 字母/数字（含中文），其余字符归一为下划线，避免纯中文名被清空导致碰撞
       const varName = baseName.replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toUpperCase() + '_DICT';
-      const jsText = '// 由 MDX 浏览器端导入: ' + file.name + '\n// 转换时间: ' + new Date().toISOString() + '\nvar ' + varName + ' = ' + JSON.stringify(dict) + ';\n';
+      // 词典统一为纯 JSON 文本（不含可执行代码）：不再生成 var 声明，也不 eval 执行
+      const jsonText = JSON.stringify(dict);
 
       // 立即加载进当前页面
-      window.eval(jsText);
+      window[varName] = dict;
       const { redirects, normal } = buildRedirects(window[varName]);
       const d = DICTS[varName] || {};
       d.name = name || baseName;
@@ -2296,7 +2297,7 @@ if (typeof window.define !== 'function') {
       if (hostDriven) {
         // 宿主驱动：解析成功即自动落盘到 data/（仅走本地服务，无用户手势不弹目录选择器）
         importReport('正在写入 data/ 目录…');
-        const saved = await saveDictToData(jsText, baseName, varName, true);
+        const saved = await saveDictToData(jsonText, baseName, varName, true);
         // 通知宿主按当前输入重新检索，让新词典的释义立即出现在结果中
         if (saved) post({ type: 'dicts-updated' });
         importReport(saved ? ('已导入「' + (name || baseName) + '」') : ('已解析但未保存到 data/，请检查本地服务'),
@@ -2306,9 +2307,9 @@ if (typeof window.define !== 'function') {
 
       logActions.style.display = 'flex';
       logActions.innerHTML =
-        '<button id="saveDictBtn" class="primary">💾 保存到 data 目录（生成 ' + varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.js）</button>' +
+        '<button id="saveDictBtn" class="primary">💾 保存到 data 目录（生成 ' + varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.json）</button>' +
         '<button id="skipSaveBtn">仅本次浏览，不保存</button>';
-      $('saveDictBtn').onclick = () => saveDictToData(jsText, baseName, varName);
+      $('saveDictBtn').onclick = () => saveDictToData(jsonText, baseName, varName);
       $('skipSaveBtn').onclick = () => { logActions.style.display = 'none'; setStatus('已载入（未保存）'); };
       setStatus('转换成功 ✓');
     } catch (e) {
@@ -2319,7 +2320,7 @@ if (typeof window.define !== 'function') {
     }
   }
 
-  // 保存词典 JS 到 data 目录并更新清单（File System Access API）
+  // 保存词典 JSON 到 data 目录并更新清单（File System Access API）
   // 保存方式分两级：
   //   1. 优先经本地服务 tools/serve.js 的 POST /save-dict 直接写入项目 data/ 目录（确定性落盘）
   //   2. 服务不可用时，回退浏览器目录选择器（用户需手动选到项目 data 文件夹）
@@ -2327,11 +2328,12 @@ if (typeof window.define !== 'function') {
     // served 模式：同源；file:// 模式：尝试默认端口 8377（tools/serve.js）
     return /^https?:$/.test(location.protocol) ? location.origin : 'http://localhost:8377';
   }
-  async function saveViaServer(jsText, varName) {
+  async function saveViaServer(jsonText, varName, fname) {
     const resp = await fetch(serverBase() + '/save-dict', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ varName: varName, content: jsText })
+      // 显式带上 file，服务端才会按 .json 落盘（否则按变量名推导成旧版 .js）
+      body: JSON.stringify({ varName: varName, content: jsonText, file: fname })
     });
     const data = await resp.json().catch(() => ({ ok: false, error: '响应解析失败' }));
     if (!data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
@@ -2339,8 +2341,8 @@ if (typeof window.define !== 'function') {
   }
 
   // serverOnly：为真时仅尝试本地服务落盘，不做目录选择（宿主驱动、无用户手势时使用）
-  async function saveDictToData(jsText, baseName, varName, serverOnly) {
-    const fname = varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.js';
+  async function saveDictToData(jsonText, baseName, varName, serverOnly) {
+    const fname = varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.json';
     // 保存成功后的收尾：更新内存 meta、持久化清单 dictMetas、刷新下拉/状态
     const applySaved = () => {
       const d = DICTS[varName];
@@ -2355,7 +2357,7 @@ if (typeof window.define !== 'function') {
     // 方式 1：本地服务写入 data/（无需用户选目录）
     try {
       setStatus('保存到 data/ 目录…');
-      const r = await saveViaServer(jsText, varName);
+      const r = await saveViaServer(jsonText, varName, fname);
       ilog('  ✓ 已保存到 data/：' + r.file, 'ok');
       ilog('  ✓ 已更新清单 dict-manifest.js（' + r.count + ' 本词典）', 'ok');
       applySaved();
@@ -2374,19 +2376,26 @@ if (typeof window.define !== 'function') {
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
       const fh = await dir.getFileHandle(fname, { create: true });
       const w = await fh.createWritable();
-      await w.write(jsText);
+      await w.write(jsonText);
       await w.close();
       ilog('  ✓ 已保存: ' + fname, 'ok');
 
-      // 更新 dict-manifest.js（重新扫描该目录下所有 *-dict.js）
+      // 更新 dict-manifest.js（重新扫描该目录下所有 *-dict.js / *-dict.json）
       setStatus('更新清单…');
       const manifest = [];
       for await (const entry of dir.values()) {
-        if (entry.kind !== 'file' || !/^.+?-dict\.js$/i.test(entry.name) || entry.name === 'dict-manifest.js') continue;
-        const f = await entry.getFile();
-        const head = (await f.text()).slice(0, 4096);
-        const mv = /var\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*=\s*\{/u.exec(head);
-        if (mv) manifest.push({ file: entry.name, name: entry.name.replace(/-dict\.js$/i, ''), varName: mv[1] });
+        if (entry.kind !== 'file' || !/^.+?-dict\.(js|json)$/i.test(entry.name) || entry.name === 'dict-manifest.js') continue;
+        let vname = '';
+        if (/-dict\.json$/i.test(entry.name)) {
+          // JSON 词典无 var 声明，按文件名约定推导（与 varNameFromFile 一致）
+          vname = entry.name.replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
+        } else {
+          const f = await entry.getFile();
+          const head = (await f.text()).slice(0, 4096);
+          const mv = /var\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*=\s*\{/u.exec(head);
+          if (mv) vname = mv[1];
+        }
+        if (vname) manifest.push({ file: entry.name, name: entry.name.replace(/-dict\.(js|json)$/i, ''), varName: vname });
       }
       manifest.sort((a, b) => a.name.localeCompare(b.name));
       const mh = await dir.getFileHandle('dict-manifest.js', { create: true });
@@ -2398,7 +2407,7 @@ if (typeof window.define !== 'function') {
       return true;
     } catch (e) {
       ilog('✗ 保存失败: ' + e.message, 'err');
-      ilog('  已加载到当前页面；可将 JS 文件手动放入 data/ 目录后刷新', 'warn');
+      ilog('  已加载到当前页面；可将 JSON 文件手动放入 data/ 目录后刷新', 'warn');
       setStatus('未保存（仅本次浏览）');
       return false;
     }

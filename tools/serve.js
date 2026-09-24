@@ -1,7 +1,7 @@
 // 词忆词典浏览服务器
 // 用法: node tools/serve.js [port]（默认 8377）
 // 功能:
-//  1. 扫描 data/ 目录下所有 *-dict.js 词典文件，供浏览页动态加载
+//  1. 扫描 data/ 目录下所有 *-dict.js / *-dict.json 词典文件，供浏览页动态加载
 //  2. 提供 /dict-list.json 接口返回词典清单 {name, varName, file, size, count}
 //  3. 静态文件服务（浏览页/词典脚本）
 //  4. 提供 POST /weread 转发微信读书官方 Agent Gateway（供「英文原著榜」拉取热门划线，密钥经 X-Weread-Key 头传入）
