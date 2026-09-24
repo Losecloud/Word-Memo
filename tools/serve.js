@@ -35,27 +35,46 @@ function sanitizeVarName(varName) {
   return String(varName || '')
     .replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'DICT';
 }
-// 与浏览器端一致的文件名：varName 去 _DICT 后缀 → 小写 + -dict.js
-function fnameOf(varName) {
-  return sanitizeVarName(varName).replace(/_DICT$/i, '').toLowerCase() + '-dict.js';
+// 与浏览器端一致的文件名：varName 去 _DICT 后缀 → 小写 + -dict.<ext>
+function fnameOf(varName, ext) {
+  return sanitizeVarName(varName).replace(/_DICT$/i, '').toLowerCase() + '-dict.' + (ext === 'json' ? 'json' : 'js');
+}
+// JSON 词典没有 var 声明，按文件名约定推导变量名：word-roots-dict.json → WORD_ROOTS_DICT
+function varNameFromFile(fname) {
+  return String(fname).replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
 }
 
-// 重建 dict-manifest.js（扫描 data/ 下所有 *-dict.js）
-function rebuildManifest() {
+// 更新 dict-manifest.js：只 upsert 本次导入的词典条目，保留其余条目原样。
+// 不用整表重扫，避免抹掉已有条目的 mdd 资源目录（如 oaldpe 的样式/发音）等字段
+// varNameHint：JSON 内容无法解析出变量名，由调用方（/save-dict 请求）显式提供
+function upsertManifest(fname, content, varNameHint) {
   if (!fs.existsSync(DATA_DIR)) return 0;
-  const list = [];
-  for (const f of fs.readdirSync(DATA_DIR)) {
-    if (!/^.+?-dict\.js$/i.test(f) || f === 'dict-manifest.js') continue;
-    const fp = path.join(DATA_DIR, f);
-    let head = '';
-    try { head = fs.readFileSync(fp, 'utf8').slice(0, 4096); } catch (e) { continue; }
-    const m = VAR_RE.exec(head);
-    if (!m) continue;
-    list.push({ file: f, name: f.replace(/-dict\.js$/i, ''), varName: m[1] });
+  let varName = varNameHint || '';
+  if (!varName) {
+    const m = VAR_RE.exec(String(content || '').slice(0, 4096));
+    if (m) varName = m[1];
   }
-  list.sort((a, b) => a.name.localeCompare(b.name));
+  if (!varName && /-dict\.json$/i.test(fname)) varName = varNameFromFile(fname);
+  if (!varName) return 0;
+  const mf = path.join(DATA_DIR, 'dict-manifest.js');
+  let list = [];
+  try {
+    const arr = /\[[\s\S]*\]/.exec(fs.readFileSync(mf, 'utf8'));
+    if (arr) list = JSON.parse(arr[0]);
+  } catch (e) { /* 无清单或格式异常：从空表开始 */ }
+  if (!Array.isArray(list)) list = [];
+  const name = fname.replace(/-dict\.(js|json)$/i, '');
+  const entry = { file: fname, name: name, varName: varName };
+  if (/-dict\.json$/i.test(fname)) entry.format = 'json';
+  // 同名资源目录存在则记录 mdd（词条 HTML 中的图片/音频/CSS 均相对该目录解析）
+  const cand = path.join(DATA_DIR, name);
+  if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) entry.mdd = name;
+  const i = list.findIndex(x => x && x.file === fname);
+  if (i >= 0) list[i] = Object.assign({}, list[i], entry);
+  else list.push(entry);
+  list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const out = '// 自动生成：浏览器导入或 tools/convert-mdx.js 更新，请勿手改\nvar DICT_MANIFEST = ' + JSON.stringify(list, null, 1) + ';\n';
-  fs.writeFileSync(path.join(DATA_DIR, 'dict-manifest.js'), out, 'utf8');
+  fs.writeFileSync(mf, out, 'utf8');
   return list.length;
 }
 
@@ -63,20 +82,24 @@ function scanDicts() {
   if (!fs.existsSync(DATA_DIR)) return [];
   const list = [];
   for (const f of fs.readdirSync(DATA_DIR)) {
-    if (!/^.+?-dict\.js$/i.test(f)) continue;
+    if (!/^.+?-dict\.(js|json)$/i.test(f)) continue;
     const fp = path.join(DATA_DIR, f);
+    const isJson = /-dict\.json$/i.test(f);
     let head = '';
     try { head = fs.readFileSync(fp, 'utf8').slice(0, 4096); } catch (e) { continue; }
     const m = VAR_RE.exec(head);
-    if (!m) continue;
+    // .js 必须有 var 声明；.json 无声明，按文件名约定推导
+    const varName = isJson ? varNameFromFile(f) : (m ? m[1] : '');
+    if (!varName) continue;
     const stat = fs.statSync(fp);
     const item = {
       file: f,
-      name: f.replace(/-dict\.js$/i, ''),
-      varName: m[1],
+      name: f.replace(/-dict\.(js|json)$/i, ''),
+      varName: varName,
       size: stat.size,
       url: '/data/' + encodeURIComponent(f)
     };
+    if (isJson) item.format = 'json';
     // 关联同名资源目录（若 data/<name>/ 是目录）
     const cand = path.join(DATA_DIR, item.name);
     if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) item.mdd = item.name;
@@ -141,11 +164,14 @@ http.createServer((req, res) => {
     req.on('data', c => { body += c; if (body.length > 500 * 1024 * 1024) req.destroy(); });
     req.on('end', () => {
       try {
-        const { varName, content } = JSON.parse(body);
+        const { varName, content, file } = JSON.parse(body);
         if (!varName || typeof content !== 'string') throw new Error('参数缺失');
-        const fname = fnameOf(varName);
+        // 目标文件名：调用方指定优先（须为不含路径分隔符的 -dict.js / -dict.json），否则按变量名推导
+        const safe = typeof file === 'string'
+          && /^[^\\/:*?"<>|]+-dict\.(js|json)$/i.test(file) && file.charAt(0) !== '.' ? file : '';
+        const fname = safe || fnameOf(varName, /-dict\.json$/i.test(String(file || '')) ? 'json' : 'js');
         fs.writeFileSync(path.join(DATA_DIR, fname), content, 'utf8');
-        const count = rebuildManifest();
+        const count = upsertManifest(fname, content, varName);
         res.writeHead(200, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: true, file: fname, count: count }));
       } catch (e) {

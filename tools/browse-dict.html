@@ -571,6 +571,16 @@ if (typeof window.define !== 'function') {
       } catch (e) { res(); }
     }));
   }
+  function idbDelete(k) {
+    return idb().then(db => new Promise((res) => {
+      if (!db) return res();
+      try {
+        const rq = db.transaction('dicts', 'readwrite').objectStore('dicts').delete(k);
+        rq.onsuccess = () => res();
+        rq.onerror = () => res();
+      } catch (e) { res(); }
+    }));
+  }
 
   // 启用状态持久化（localStorage，跨会话记忆；默认全部启用）
   function getEnabledDicts() {
@@ -603,16 +613,17 @@ if (typeof window.define !== 'function') {
       } catch (e) { /* 忽略 */ }
       const list = (metas || [])
         .filter(m => m.url && !m.text)
-        .map(m => ({ name: prevName[m.varName] || m.name, varName: m.varName, file: m.file || (m.url || '').split('/').pop(), mdd: m.mdd, size: m.size || 0 }));
+        .map(m => ({ name: prevName[m.varName] || m.name, varName: m.varName, file: m.file || (m.url || '').split('/').pop(), mdd: m.mdd, format: m.format, size: m.size || 0 }));
       if (list.length) localStorage.setItem('dictMetas', JSON.stringify(list));
     } catch (e) { /* 无痕模式忽略 */ }
   }
   function getSavedMetas() {
     try {
       const list = JSON.parse(localStorage.getItem('dictMetas') || '[]');
-      return Array.isArray(list) ? list
+      if (!Array.isArray(list)) return [];
+      return preferJson(list
         .filter(m => m.file)
-        .map(m => ({ name: m.name, varName: m.varName, mdd: m.mdd, size: m.size || 0, url: '../data/' + m.file })) : [];
+        .map(m => ({ name: m.name, varName: m.varName, mdd: m.mdd, size: m.size || 0, file: m.file, format: m.format, url: '../data/' + m.file })));
     } catch (e) { return []; }
   }
   // 将单条词典写入持久化清单 dictMetas（导入/保存后用，保证下次启动快速路径能加载到）
@@ -633,7 +644,7 @@ if (typeof window.define !== 'function') {
     d.name = meta.name;
     d.mdd = meta.mdd;
     d.size = meta.size || 0;
-    d.meta = { varName: meta.varName, name: meta.name, url: meta.url, text: meta.text, size: meta.size, mdd: meta.mdd };
+    d.meta = { varName: meta.varName, name: meta.name, url: meta.url, text: meta.text, size: meta.size, mdd: meta.mdd, file: meta.file, format: meta.format };
     d.enabled = isEnabled(meta.varName);
     DICTS[meta.varName] = d;
     return d;
@@ -648,6 +659,26 @@ if (typeof window.define !== 'function') {
     delete d.count;
     delete d.sortedKeys;
     try { delete window[varName]; } catch (e) { window[varName] = undefined; }
+  }
+
+  // ---- 词典格式：.js（var 声明 + 脚本注入）与 .json（fetch + JSON.parse，不执行远程代码） ----
+  // 显式 format 优先，其次看文件名/URL 扩展名
+  function isJsonDict(meta) {
+    return meta.format === 'json' || /-dict\.json$/i.test(meta.file || meta.url || '');
+  }
+  // JSON 词典没有 var 声明，按文件名约定推导变量名：collins-dict.json → COLLINS_DICT
+  function varNameFromFile(file) {
+    return String(file).replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
+  }
+  // 同一变量名同时存在 .js 与 .json 时只保留 JSON 版（优先读取 JSON）
+  function preferJson(metas) {
+    const byVar = {};
+    metas.forEach(m => {
+      const cur = byVar[m.varName];
+      if (!cur) { byVar[m.varName] = m; return; }
+      if (isJsonDict(m) && !isJsonDict(cur)) byVar[m.varName] = m;
+    });
+    return metas.filter(m => byVar[m.varName] === m);
   }
 
   // 动态加载词典（支持 URL 脚本 与 已读取文本两种模式）
@@ -675,6 +706,19 @@ if (typeof window.define !== 'function') {
       }
       return Promise.resolve()
         .then(() => {
+          if (isJsonDict(meta)) {
+            // JSON 词典：fetch + JSON.parse（不执行远程代码），解析结果直接挂到全局变量名
+            const p = meta.text != null
+              ? Promise.resolve(JSON.parse(meta.text))
+              : fetch(meta.url, { cache: 'no-cache' }).then(r => {
+                  if (!r.ok) throw new Error('HTTP ' + r.status);
+                  return r.json();
+                });
+            return p.then(obj => {
+              if (!obj || typeof obj !== 'object') throw new Error('内容不是对象');
+              window[meta.varName] = obj;
+            });
+          }
           if (meta.text != null) {
             // Blob URL + <script> 异步加载，避免 window.eval 同步阻塞主线程
             return new Promise((res, rej) => {
@@ -687,9 +731,8 @@ if (typeof window.define !== 'function') {
                 document.head.appendChild(s);
               } catch (e) { rej(e); }
             });
-          } else {
-            return loadScript(meta.url);
           }
+          return loadScript(meta.url);
         })
         .then(() => {
           const data = window[meta.varName];
@@ -1234,7 +1277,7 @@ if (typeof window.define !== 'function') {
     const visit = async (handle, depth) => {
       for await (const entry of handle.values()) {
         if (entry.kind === 'file') {
-          if (/^.+?-dict\.js$/i.test(entry.name)) {
+          if (/^.+?-dict\.(js|json)$/i.test(entry.name)) {
             const file = await entry.getFile();
             found.push({ name: entry.name, text: await file.text() });
           }
@@ -1257,7 +1300,7 @@ if (typeof window.define !== 'function') {
       input.onchange = async () => {
         const found = [];
         for (const file of input.files || []) {
-          if (/^.+?-dict\.js$/i.test(file.name)) {
+          if (/^.+?-dict\.(js|json)$/i.test(file.name)) {
             found.push({ name: file.name, text: await file.text() });
           }
         }
@@ -1279,22 +1322,69 @@ if (typeof window.define !== 'function') {
     return m ? m[1] : '';
   }
 
+  // 扫描结果转词典 meta：.js 从内容解析变量名，.json 按文件名约定推导
+  function metasFromFiles(files) {
+    return files.map(f => {
+      const json = /-dict\.json$/i.test(f.name);
+      return {
+        name: f.name.replace(/-dict\.(js|json)$/i, ''),
+        varName: json ? varNameFromFile(f.name) : parseVarName(f.text),
+        text: f.text,
+        file: f.name,
+        format: json ? 'json' : undefined
+      };
+    }).filter(x => x.varName);
+  }
+
   // 获取词典清单：serve.js 实时扫描 → dict-manifest.js → 目录扫描（弹权限）
+  // 返回数组 = 清单可用（空数组表示一本都没装）；返回 null = 清单不可用
+  // （既无 /dict-list.json 也无 dict-manifest.js），此时不得据此清理缓存
   async function loadManifest() {
     try {
       const resp = await fetch('/dict-list.json');
       if (resp.ok) {
         const list = await resp.json();
-        if (list.length) return list.map(m => ({ name: m.name, varName: m.varName, url: m.url, mdd: m.mdd, size: m.size }));
+        if (list.length) return preferJson(list.map(m => ({ name: m.name, varName: m.varName, url: m.url, mdd: m.mdd, size: m.size, file: m.file, format: m.format })));
       }
     } catch (e) { /* 非服务器模式 */ }
     try {
       await loadScript('../data/dict-manifest.js');
-      if (window.DICT_MANIFEST && window.DICT_MANIFEST.length) {
-        return window.DICT_MANIFEST.map(m => ({ name: m.name, varName: m.varName, url: '../data/' + m.file, mdd: m.mdd }));
+      if (Array.isArray(window.DICT_MANIFEST)) {
+        return preferJson(window.DICT_MANIFEST.map(m => ({ name: m.name, varName: m.varName, url: '../data/' + m.file, mdd: m.mdd, file: m.file, format: m.format })));
       }
     } catch (e) { /* 无清单 */ }
-    return [];
+    return null;
+  }
+
+  // 按磁盘清单清理本地缓存。清单是「词典是否已安装」的唯一真相，而 localStorage 与
+  // IndexedDB 都按 origin 隔离、跨 vault 长期留存：若不清理，删掉词典文件甚至换 vault 后，
+  // 旧缓存仍会让查词照常命中，用户无从察觉词典其实并未安装（也就无法验证按需下载）
+  async function pruneMissingDicts(list) {
+    let saved = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem('dictMetas') || '[]');
+      saved = Array.isArray(raw) ? raw : [];
+    } catch (e) { return; }
+    if (!saved.length) return;
+    const onDisk = {};
+    list.forEach(m => { if (m.varName) onDisk[m.varName] = 1; });
+    const gone = saved.filter(m => m.varName && !onDisk[m.varName]);
+    if (!gone.length) return;
+    const goneVars = {};
+    gone.forEach(m => { goneVars[m.varName] = 1; });
+    try {
+      localStorage.setItem('dictMetas', JSON.stringify(saved.filter(m => !goneVars[m.varName])));
+      const prevEnabled = getEnabledDicts();
+      const nextEnabled = prevEnabled.filter(v => !goneVars[v]);
+      // 启用记录被清空说明这些词典全都已不在磁盘上：删掉键让「首次进入」的默认启用重新生效
+      if (nextEnabled.length || !prevEnabled.length) setEnabledDicts(nextEnabled);
+      else localStorage.removeItem('enabledDicts');
+      // 同步清掉「已见过」记录，使日后重新下载该词典时能按新发现自动启用
+      const nextKnown = getKnownDicts().filter(v => !goneVars[v]);
+      if (nextKnown.length) setKnownDicts(nextKnown);
+      else localStorage.removeItem('knownDicts');
+    } catch (e) { /* 无痕模式忽略 */ }
+    await Promise.all(gone.map(m => idbDelete(m.varName)));
   }
 
   // 手动扫描文件夹并合并词典
@@ -1303,7 +1393,7 @@ if (typeof window.define !== 'function') {
     let files;
     try { files = await scanFolders(); }
     catch (e) { showLoading('扫描已取消或失败: ' + e.message); return; }
-    const metas = files.map(f => ({ name: f.name.replace(/-dict\.js$/i, ''), varName: parseVarName(f.text), text: f.text })).filter(x => x.varName);
+    const metas = metasFromFiles(files);
     if (!metas.length) { showLoading('所选目录中未找到 *-dict.js 词典文件'); return; }
     await applyMetas(metas);
     finishLoad();
@@ -1693,10 +1783,12 @@ if (typeof window.define !== 'function') {
     $('next').disabled = start + PAGE >= filtered.length;
   }
 
-  function showDetail(w, base, favorited, cands) {
+  function showDetail(w, base, favorited, cands, disp) {
     const d = DICTS[cur];
     // 重定向：@@@LINK=xxx → 展示目标词条
     const target = d ? resolveRedirect(cur, w) : w;
+    // 展示用词形：优先用调用方传入的原始大小写（如 Design / DESIGN），检索仍用 target
+    const head = disp || target;
     let html = (d && d.data) ? (d.data[target] != null ? d.data[target] : d.data[w]) : null;
     // 未导入任何词典时：若有基础词典信息，则不显示"无内容"提示，直接以下方基础词典块作为详情
     const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
@@ -1744,7 +1836,7 @@ if (typeof window.define !== 'function') {
         if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">← 你可能要查的是</span>';
       }
     } catch (e) { /* 忽略 */ }
-    box.innerHTML = '<div class="detail-head" title="点击空白处折叠"><h2>' + target + ' <span class="meta">' + ((d && d.name) || (hasBaseInfo ? '基础词典' : '')) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><span class="favorite-icon">⭐</span></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml;
+    box.innerHTML = '<div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((d && d.name) || (hasBaseInfo ? '基础词典' : '')) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><span class="favorite-icon">⭐</span></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml;
     box.style.display = 'block';
     // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮
     beautifyCollins(box, target, cands);
@@ -1768,7 +1860,7 @@ if (typeof window.define !== 'function') {
         // 点击主单词区域 → 通知父页面搜索该词
         if (LOOKUP) {
           e.stopPropagation();
-          post({ type: 'word-click', word: target });
+          post({ type: 'word-click', word: head });
         }
         return;
       }
@@ -1875,8 +1967,28 @@ if (typeof window.define !== 'function') {
     }
   }
 
+  // 后台对账 dict-manifest.js：补齐本地缓存 dictMetas 缺失的词典（含 mdd 资源目录）。
+  // 手动放回 data/ 的词典文件（如恢复 oaldpe-dict.js）不在缓存里，快速路径不会识别，需借此补注册
+  function reconcileManifest(saved) {
+    loadManifest().then(list => {
+      if (!list || !list.length) return;
+      const cached = {};
+      saved.forEach(m => { cached[m.varName] = 1; });
+      if (list.every(m => cached[m.varName])) return; // 清单与缓存一致，无需处理
+      return applyMetas(list).then(() => {
+        renderSelect();
+        broadcastPickerState();
+      });
+    }).catch(() => { /* 忽略 */ });
+  }
+
   async function init() {
     try {
+      // 先按磁盘清单清理失效缓存（旧 vault / 已删词典遗留的 localStorage 与 IndexedDB），
+      // 再决定加载哪些词典——否则陈旧缓存会伪装成「已安装」而绕开按需下载
+      const manifestList = await loadManifest();
+      if (manifestList) await pruneMissingDicts(manifestList);
+
       // 优先直接加载已保存的词典清单（跳过每次进入的清单扫描/目录弹窗）
       // 先同步加载最近用的词典（browseDictCur），其余已启用的后台静默加载
       const saved = getSavedMetas();
@@ -1886,11 +1998,12 @@ if (typeof window.define !== 'function') {
         showLoading('正在加载最近使用的词典…');
         await applyMetas(saved, last);
         finishLoad();
+        reconcileManifest(saved); // 后台对账，不阻塞首屏
         return;
       }
       // 首次访问（无持久化清单）：走清单 / 目录扫描
       showLoading('正在加载词典清单…');
-      let list = await loadManifest();
+      let list = manifestList || [];
       if (!list.length) {
         // 查询模式（主页 iframe）下不弹目录选择：直接就绪，由主页提示无词库
         if (LOOKUP) { post({ type: 'ready' }); return; }
@@ -1899,7 +2012,7 @@ if (typeof window.define !== 'function') {
         let files;
         try { files = await scanFolders(); }
         catch (e) { showLoading('扫描已取消: ' + e.message); return; }
-        list = files.map(f => ({ name: f.name.replace(/-dict\.js$/i, ''), varName: parseVarName(f.text), text: f.text })).filter(x => x.varName);
+        list = metasFromFiles(files);
       }
       if (!list.length) { showLoading('未检测到任何 *-dict.js 词典文件，可点击「📁 扫描」选择目录'); return; }
       await applyMetas(list);
@@ -2141,12 +2254,15 @@ if (typeof window.define !== 'function') {
       input.click();
     });
   }
-  async function importMdx() {
+  async function importMdx(presetFile) {
+    // 宿主（Obsidian 右侧栏拖入区）驱动：文件由宿主经 postMessage 传入，解析后自动落盘，
+    // 进度经 importReport 回传宿主显示，不再走本页的「保存/跳过」按钮流程
+    const hostDriven = !!presetFile;
     // 显示导入状态栏（含日志与「保存到 data 目录」按钮）
     const bar = $('importBar');
     if (bar) bar.style.display = 'block';
     setStatus('选择文件…');
-    const file = await pickMdxFile();
+    const file = presetFile || await pickMdxFile();
     if (!file) { setStatus('已取消'); return; }
     const baseName = file.name.replace(/\.mdx$/i, '');
     logActions.style.display = 'none';
@@ -2177,6 +2293,17 @@ if (typeof window.define !== 'function') {
       finishLoad();
       switchDict(varName);
 
+      if (hostDriven) {
+        // 宿主驱动：解析成功即自动落盘到 data/（仅走本地服务，无用户手势不弹目录选择器）
+        importReport('正在写入 data/ 目录…');
+        const saved = await saveDictToData(jsText, baseName, varName, true);
+        // 通知宿主按当前输入重新检索，让新词典的释义立即出现在结果中
+        if (saved) post({ type: 'dicts-updated' });
+        importReport(saved ? ('已导入「' + (name || baseName) + '」') : ('已解析但未保存到 data/，请检查本地服务'),
+          saved ? '' : 'err', true);
+        return;
+      }
+
       logActions.style.display = 'flex';
       logActions.innerHTML =
         '<button id="saveDictBtn" class="primary">💾 保存到 data 目录（生成 ' + varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.js）</button>' +
@@ -2188,6 +2315,7 @@ if (typeof window.define !== 'function') {
       ilog('✗ 转换失败: ' + e.message, 'err');
       ilog('  troubleshooting: 请确认文件是标准 MDX；或改用 node tools/convert-mdx.js 转换；若为加密词典请查看上方格式信息', 'warn');
       setStatus('失败 ✗');
+      importReport('解析失败：' + e.message, 'err', true);
     }
   }
 
@@ -2210,7 +2338,8 @@ if (typeof window.define !== 'function') {
     return data;
   }
 
-  async function saveDictToData(jsText, baseName, varName) {
+  // serverOnly：为真时仅尝试本地服务落盘，不做目录选择（宿主驱动、无用户手势时使用）
+  async function saveDictToData(jsText, baseName, varName, serverOnly) {
     const fname = varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.js';
     // 保存成功后的收尾：更新内存 meta、持久化清单 dictMetas、刷新下拉/状态
     const applySaved = () => {
@@ -2230,14 +2359,17 @@ if (typeof window.define !== 'function') {
       ilog('  ✓ 已保存到 data/：' + r.file, 'ok');
       ilog('  ✓ 已更新清单 dict-manifest.js（' + r.count + ' 本词典）', 'ok');
       applySaved();
-      return;
+      return true;
     } catch (e) {
       ilog('  本地服务不可用（' + e.message + '），改为目录选择方式…', 'warn');
     }
 
+    // serverOnly：宿主驱动（无用户手势）时不做目录选择，直接判定未保存
+    if (serverOnly) { setStatus('未保存（本地服务不可用）'); return false; }
+
     // 方式 2：File System Access API 手动选择目录
     try {
-      if (!window.showDirectoryPicker) { ilog('✗ 当前浏览器不支持 showDirectoryPicker，请用 Chrome/Edge，或启动本地服务 tools/serve.js', 'err'); return; }
+      if (!window.showDirectoryPicker) { ilog('✗ 当前浏览器不支持 showDirectoryPicker，请用 Chrome/Edge，或启动本地服务 tools/serve.js', 'err'); return false; }
       setStatus('选择保存目录…（请务必选择项目 data 文件夹）');
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
       const fh = await dir.getFileHandle(fname, { create: true });
@@ -2263,10 +2395,12 @@ if (typeof window.define !== 'function') {
       await mw.close();
       ilog('  ✓ 已更新清单 dict-manifest.js（' + manifest.length + ' 本词典）', 'ok');
       applySaved();
+      return true;
     } catch (e) {
       ilog('✗ 保存失败: ' + e.message, 'err');
       ilog('  已加载到当前页面；可将 JS 文件手动放入 data/ 目录后刷新', 'warn');
       setStatus('未保存（仅本次浏览）');
+      return false;
     }
   }
 
@@ -2339,6 +2473,12 @@ if (typeof window.define !== 'function') {
     if (!LOOKUP) return;
     post({ type: 'picker-state', state: pickerState() });
   }
+  // 导入进度回报：被宿主（Obsidian 右侧栏拖入区）以 iframe 嵌入时，
+  // 把状态文本回传宿主显示（本页在 lookup 模式下不展示导入栏）
+  function importReport(text, cls, done) {
+    if (!LOOKUP) return;
+    post({ type: 'import-status', text: text, error: cls === 'err', done: !!done });
+  }
   // 按词典构建排序 key（复用 switchDict 的缓存策略）
   function sortedKeysOf(d) {
     if (!d.sortedKeys) {
@@ -2377,8 +2517,6 @@ if (typeof window.define !== 'function') {
   // 跨已启用词典检索：精准前缀优先，无精准则模糊；结果去重
   function lookupSearch(q) {
     q = (q || '').trim().toLowerCase();
-    let pref = null;
-    try { pref = localStorage.getItem('browseDictCur'); } catch (e) { /* 忽略 */ }
     const exact = [], fuzzy = [];
     const seen = new Set();
     const push = (arr, w, v, d, isFuzzy) => {
@@ -2387,10 +2525,24 @@ if (typeof window.define !== 'function') {
       if (seen.has(k)) return;
       seen.add(k);
       const html = d.data[target] != null ? d.data[target] : d.data[w];
-      // 首选词典精确命中该词：preview 展示更多内容（约三行），并打标供主页多行渲染
-      const preferredHit = !isFuzzy && v === pref && target === q;
+      // 精确命中该词（词键与查询完全一致）：preview 展示更多内容（约三行），并打标供主页多行渲染。
+      // 判据只看词键本身，不看是否首选词典 —— 首选词典未收录该词时，命中落在别的词典上，
+      // 那条同样该被当作精确命中优先展示
+      const preferredHit = !isFuzzy && w === q;
       arr.push({ w: target, dict: v, dictName: d.name, preview: toText(html).slice(0, preferredHit ? 380 : 110), fuzzy: isFuzzy, preferred: preferredHit });
     };
+    // 第一趟：先在所有已启用词典里挑出「完整词形」命中（如 rose 本身）。
+    // 首选词典可能并未收录该词、却有一堆同前缀的派生词（rose-coloured / rosebud…），
+    // 若直接进前缀匹配，这些派生词会排在前面、甚至占满 60 条上限把真正要查的词挤掉，
+    // 用户点开的就成了派生词。故完整命中一律先收集、排在最前，再按词典首选顺序铺前缀结果
+    if (q) {
+      for (const v of preferredOrder()) {
+        const d = DICTS[v];
+        if (!d.enabled || !d.data) continue;
+        const target = resolveRedirect(v, q);
+        if (d.data[target] != null || d.data[q] != null) push(exact, q, v, d, false);
+      }
+    }
     for (const v of preferredOrder()) {
       const d = DICTS[v];
       if (!d.enabled || !d.data) continue;
@@ -2431,7 +2583,7 @@ if (typeof window.define !== 'function') {
         if (words.length >= 50) break;
       }
     } catch (e) { /* 忽略 */ }
-    post({ type: 'search-res', q: '', words });
+    post({ type: 'search-res', q: '', words, recent: true });
   }
 
   // 清洗例句：去除中文、特殊符号、多余空白，保留英文句
@@ -2524,8 +2676,13 @@ if (typeof window.define !== 'function') {
     return '';
   }
 
-  function lookupOpen(w, q, dict, base, favorited, cands) {
-    $('search').value = q || '';
+  function lookupOpen(w, q, dict, base, favorited, cands, disp) {
+    // 词典键均为小写：宿主传入的词可能首字母大写（如 Design），归一化后仅用于检索；
+    // 展示层保留调用方给的原始大小写（disp），不改动用户看到的外观
+    const raw = String(disp == null ? w : disp).trim();
+    w = String(w == null ? '' : w).trim().toLowerCase();
+    q = String(q == null ? '' : q).trim().toLowerCase();
+    $('search').value = raw || q;
     // 词条可能来自其他已启用词典：先切到该词典，确保释义按其渲染
     if (dict && DICTS[dict] && DICTS[dict].enabled && DICTS[dict].data) {
       const d = DICTS[dict];
@@ -2543,7 +2700,7 @@ if (typeof window.define !== 'function') {
         broadcastPickerState(); // 校正广播：preferred 以用户首选（browseDictCur）为准
       }
     }
-    showDetail(w, base, favorited, cands);
+    showDetail(w, base, favorited, cands, raw);
     // 渲染完成：报告内容高度，供主页按内容撑开 iframe（图片等异步资源加载后高度会变化，主页会复测）
     const detailBox = $('detail');
     post({ type: 'opened', w, height: detailBox ? detailBox.scrollHeight || 0 : 0 });
@@ -2554,7 +2711,7 @@ if (typeof window.define !== 'function') {
       if (d.__dictLookup !== 1) return;
       if (d.cmd === 'search') lookupSearch(d.q);
       else if (d.cmd === 'recent') lookupRecent();
-      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands);
+      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp);
       else if (d.cmd === 'lookup-example') {
         // 查询单词的第一个例句（跨词典搜索），返回 { word, example, dictName }
         const word = d.word;
@@ -2569,6 +2726,11 @@ if (typeof window.define !== 'function') {
         if (lookupReady) { post({ type: 'ready' }); broadcastPickerState(); }
       }
       else if (d.cmd === 'set-enabled') setDictEnabled(d.varName, !!d.enable);
+      else if (d.cmd === 'import-mdx-file') {
+        // 宿主（Obsidian 右侧栏拖入区）拖入/选择的 MDX 文件：复用本页解析工具链，
+        // 解析成功后自动落盘到 data/，进度经 import-status 回传宿主
+        if (d.file) importMdx(d.file);
+      }
       else if (d.cmd === 'set-preferred') {
         // 设为首选查词词典：切换到该词典（若未加载完成 switchDict 内部会先加载）
         if (DICTS[d.varName] && DICTS[d.varName].enabled) switchDict(d.varName);
@@ -2583,6 +2745,48 @@ if (typeof window.define !== 'function') {
         document.body.classList.toggle('dark-mode', dark);
         document.documentElement.classList.toggle('dark-mode', dark);
       }
+    });
+    // 跨文档同步启用清单：主页设置页拖拽「应用/卸载」词典只写 localStorage（enabledDicts），
+    // 同源的另一个文档（Obsidian 右侧栏的查词视图）收不到 set-enabled 消息，只能靠 storage 事件感知。
+    // 在此即时应用新清单，使侧栏无需重启页面即可使用新词典。
+    window.addEventListener('storage', (ev) => {
+      if (!ev) return;
+      // 跨文档同步新导入词典：另一视图（如 Obsidian 侧栏拖入区）导入 MDX 后写入 dictMetas，
+      // 本视图据此加载尚未注册的词典，无需重启页面即可查到新词典的释义
+      if (ev.key === 'dictMetas') {
+        const metas = getSavedMetas();
+        // 重命名同步：另一视图改名后本视图内存名称同步更新，否则下拉仍显示旧名
+        let renamed = false;
+        metas.forEach((m) => {
+          const d = DICTS[m.varName];
+          if (d && d.name && m.name && d.name !== m.name) { d.name = m.name; renamed = true; }
+        });
+        const fresh = metas.filter((m) => !DICTS[m.varName]);
+        if (!fresh.length) {
+          if (renamed) { renderSelect(); broadcastPickerState(); }
+          return;
+        }
+        Promise.all(fresh.map((m) => loadDictSafe(m))).then(() => {
+          renderSelect();
+          broadcastPickerState();
+          if (LOOKUP) post({ type: 'dicts-updated' });
+        });
+        return;
+      }
+      if (ev.key !== 'enabledDicts') return;
+      let arr = [];
+      try { arr = JSON.parse(ev.newValue || '[]'); } catch (e) { return; }
+      if (!Array.isArray(arr)) return;
+      const tasks = [];
+      // 先卸载已被移出清单的词典，再加载新启用的（顺序保证 cur 切换时目标词典已就绪）
+      Object.keys(DICTS).forEach((v) => {
+        if (DICTS[v].enabled && arr.indexOf(v) < 0) tasks.push(setDictEnabled(v, false));
+      });
+      arr.forEach((v) => {
+        if (DICTS[v] && !DICTS[v].enabled) tasks.push(setDictEnabled(v, true));
+      });
+      // 全部应用完成后通知宿主重新检索，补全新词典的释义
+      if (tasks.length) Promise.all(tasks).then(() => post({ type: 'dicts-updated' }));
     });
   }
 

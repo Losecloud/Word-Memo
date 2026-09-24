@@ -40,7 +40,7 @@ def file_name(word):
 def load_source_dict(words, source):
     """返回去重后的待下载词表（保持传入顺序）"""
     if source == 'cefr':
-        txt = open(os.path.join(ROOT, 'data', 'cefr-data.js'), encoding='utf-8').read()
+        txt = open(os.path.join(ROOT, 'data', 'internal', 'cefr-data.js'), encoding='utf-8').read()
         for lv in ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']:
             m = re.search(lv + r'\":\s*\[(.*?)\]', txt, re.S)
             if not m:
@@ -55,7 +55,7 @@ def load_source_dict(words, source):
         load_source_dict(words, 'dict')
         return
     # source == 'dict'：基础词典全部键
-    txt = open(os.path.join(ROOT, 'data', 'englishwords-dict.js'), encoding='utf-8').read()
+    txt = open(os.path.join(ROOT, 'data', 'englishwords-dict.json'), encoding='utf-8').read()
     for w in re.findall(r'"([a-zA-Z][a-zA-Z\'-]*)"\s*:', txt):
         w = w.strip().lower()
         if w:

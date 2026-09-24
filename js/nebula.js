@@ -36,6 +36,7 @@
         dragY: 0,
         touchMoved: false, // 触屏本次按下是否已拖动过（用于区分点击与旋转手势）
         zoom: 1, // 滚轮缩放倍率（仅影响星云结构，不影响文字大小）
+        pendingView: null, // 预置视口（封面视窗恢复视角用）：在构建完成时套用，避免先默认视角再跳变
         zoomTextScale: 1, // 文字补偿系数，抵消整体缩放
         details: [], // 显示详情：phonetic/meaning/example（单词为基础行，星云/词卡始终显示）
         fontSize: 2.5, // 字体大小倍率（新用户/游客默认 2.5）
@@ -45,7 +46,7 @@
         invertZoom: false, // 缩放反向：开启后滚轮上下方向反转
         cluster: 'none', // 单词聚类（多选，逗号分隔）：none=无, root=词根, similar=形近词，如 'root,similar'
         layout: 'natural', // 排布风格：natural=自然（无序错开）, spiral=螺旋 Spiral（同心旋转轨道分层均布）
-        rootDict: null, // 词根词缀词典数据（data/英语词根词缀词频-dict.js），惰性加载
+        rootDict: null, // 词根词缀词典数据（data/英语词根词缀词频-dict.json），惰性加载
         rootDictLoaded: false,
         rootFamilyCache: {}, // word -> { root, family }
         simKeys: null, // 形近词索引：基础词典全部键（惰性构建一次，只存引用）
@@ -122,6 +123,8 @@
 
     // 读取当前用户的 defaultCover 设置
     function getDefaultCover() {
+        // 封面视窗（?wmView=cover）覆盖当前封面：只内存生效，不写回用户配置
+        if (global.__wmCoverOverride) return global.__wmCoverOverride;
         try {
             var cfg = Storage.getUserConfig();
             if (cfg && cfg.basicSettings && cfg.basicSettings.defaultCover) {
@@ -507,35 +510,29 @@
         return isDarkMode() ? '#000000' : '#ffffff';
     }
 
-    // 惰性加载词根词缀词典（data/英语词根词缀词频-dict.js，约13MB，仅启用词根聚类时加载一次）
+    // 惰性加载词根词缀词典（data/英语词根词缀词频-dict.json，约15MB，仅启用词根聚类时加载一次）
     function loadRootDict() {
         if (state.rootDictLoaded) return Promise.resolve(state.rootDict);
         return new Promise(function (resolve) {
-            var s = document.createElement('script');
-            s.src = 'data/英语词根词缀词频-dict.js?v=2';
-            s.onload = function () {
-                state.rootDictLoaded = true;
-                try {
-                    // var 顶层声明同时挂 window，两种途径兜底
-                    state.rootDict = (typeof 英语词根词缀词频_DICT !== 'undefined') ? 英语词根词缀词频_DICT
-                        : (global['英语词根词缀词频_DICT'] || null);
-                } catch (e) { state.rootDict = null; }
-                resolve(state.rootDict);
-            };
-            s.onerror = function () { state.rootDictLoaded = true; state.rootDict = null; resolve(null); };
-            document.head.appendChild(s);
+            fetch('data/英语词根词缀词频-dict.json', { cache: 'no-cache' })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (data) {
+                    state.rootDictLoaded = true;
+                    state.rootDict = (data && typeof data === 'object') ? data : null;
+                    resolve(state.rootDict);
+                })
+                .catch(function () { state.rootDictLoaded = true; state.rootDict = null; resolve(null); });
         });
     }
 
-    // 惰性加载基础英文词典（data/englishwords-dict.js，提供音标与释义，约4.6MB；词根聚类附属词词卡/3D详情用）
+    // 惰性加载基础英文词典（data/englishwords-dict.json，提供音标与释义，约8.8MB；词根聚类附属词词卡/3D详情用）
     function loadBaseDict() {
         if (global.ENGLISHWORDS_DICT) return Promise.resolve(global.ENGLISHWORDS_DICT);
         return new Promise(function (resolve) {
-            var s = document.createElement('script');
-            s.src = 'data/englishwords-dict.js';
-            s.onload = function () { resolve(global.ENGLISHWORDS_DICT || null); };
-            s.onerror = function () { resolve(null); };
-            document.head.appendChild(s);
+            fetch('data/englishwords-dict.json', { cache: 'no-cache' })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (data) { global.ENGLISHWORDS_DICT = data || null; resolve(global.ENGLISHWORDS_DICT); })
+                .catch(function () { resolve(null); });
         });
     }
 
@@ -1207,6 +1204,14 @@
 
         // 保持当前缩放倍率（整体缩放 + 文字补偿）
         applyZoomVisual();
+
+        // 封面视窗恢复视角：预置缩放/旋转在构建完成时立即套用，首帧即缓存视角（避免跳变）
+        if (state.pendingView) {
+            var pv = state.pendingView;
+            state.pendingView = null;
+            if (typeof pv.zoom === 'number') { state.zoom = pv.zoom; applyZoomVisual(); }
+            if (pv.q && state.group) state.group.quaternion.set(pv.q[0], pv.q[1], pv.q[2], pv.q[3]);
+        }
 
         // 聚类卫星分帧渲染（每帧少量主词，主线程不卡顿）
         renderSatellitesChunked();
@@ -2649,6 +2654,9 @@
         init: init,
         stop: stop,
         getState: getState,
+        setZoom: updateZoom, // 直接设置缩放倍率（封面视窗恢复视角用，含文字大小补偿）
+        // 预置视口（封面视窗恢复视角用）：在下次构建完成时套用
+        primeView: function (v) { state.pendingView = v || null; },
         refresh: refresh,
         switchFromImport: switchFromImport,
         similar: similarWordsOf,

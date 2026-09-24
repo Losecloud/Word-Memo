@@ -13,8 +13,8 @@ const CORE_ASSETS = [
   './js/word-parser.js',
   './js/dictionary-api.js',
   './js/dictionary-worker.js',
-  './data/cefr-data.js',
-  './data/englishwords-dict.js',
+  './data/internal/cefr-data.js',
+  './data/englishwords-dict.json',
   './static/image/book.svg',
   './static/image/menu.png',
   './manifest.json'

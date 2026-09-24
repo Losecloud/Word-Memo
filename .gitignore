@@ -49,6 +49,7 @@ build/
 _site/
 
 /.history
+/.word-memo
 /CEFR Shadow_uni
 data/englishwords-dict.py
 data/englishwords.db
@@ -60,6 +61,7 @@ user/user_Stray_Cloud.json
 user/user_三号.json
 examples/index.html
 /.trae
+/.obsidian
 /data/oaldpe
 /static/audio
 /tools/阅读联想记忆---智能生词串文

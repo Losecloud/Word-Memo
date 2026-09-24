@@ -2,11 +2,11 @@
 
 <div align="center">
 
-![词忆](static/image/book.svg)
+![词忆](static/cover/阅读联想记忆.png)
 
-一个专注、高效、现代化的背单词工具，支持多词书管理、智能复习、AI工坊等功能。
+一个永久免费共创生态的背单词工具，支持多词书管理、难词聚类分析、智能复习、AI插件工坊等功能。
 
-[在线体验](https://Losecloud.github.io/VocRec/) | [使用文档](#使用指南) | [问题反馈](https://github.com/Losecloud/VocRec/issues)
+[在线体验](https://Losecloud.github.io/VocRec/) 🔗| [使用文档](#-使用指南) ⭐️| [问题反馈](https://github.com/Losecloud/VocRec/issues) 📝
 
 </div>
 
@@ -17,11 +17,11 @@
 - 🧠 **智能复习系统** - 艾宾浩斯遗忘曲线，科学复习
 - 🎨 **现代化界面** - 响应式设计，完美支持移动端
 - 🌙 **暗黑模式** - 保护眼睛，随心切换
-- 💾 **本地存储** - 所有数据保存在本地，无需服务器
+- 💾 **本地存储** - 所有数据保存在本地，支持游客登录
 - 📱 **PWA支持** - 可安装为APP，支持离线使用
-- ✨ **AI工坊** - 智能生成故事、题目，趣味学习
-- 🔊 **语音朗读** - 支持单词发音
-- 📊 **学习统计** - 详细的学习数据分析
+- ✨ **AI工坊** - 生成故事、题目，写作评分等趣味学习
+- 🔊 **语音朗读** - 支持单词发音、英式/美式
+- 📊 **学习统计** - 详细的学习数据分析和弱点自查
 
 ## 🚀 快速开始
 
@@ -128,22 +128,34 @@ ability 能力
 
 ```
 reciting/
-├── index.html              # 主页面
+├── index - 词忆.html        # 主页面
 ├── css/
-│   └── styles.css         # 样式文件
+│   └── styles.css          # 样式文件
 ├── js/
-│   ├── app.js             # 主应用逻辑
-│   ├── storage.js         # 本地存储管理
-│   ├── word-parser.js     # 词书解析
-│   └── dictionary-api.js  # 词典API
-├── data/
-│   └── cefr-data.js       # CEFR词汇数据
+│   ├── app.js              # 主应用逻辑
+│   ├── storage.js          # 本地存储管理
+│   ├── word-parser.js      # 词书解析
+│   └── dictionary-api.js   # 词典API
+├── data/                   # 词典目录
+│   ├── dict-catalog.js     # 可下载词典清单（应用内「词典」类目据此渲染）
+│   ├── dict-manifest.js    # 已安装词典清单（查词引擎据此加载）
+│   ├── *-dict.json         # 词典数据（纯 JSON，按需下载，也可自行放入）
+│   └── internal/           # 内置数据（随应用分发，非查词词典）
+│       ├── cefr-data.js        # CEFR 词汇数据
+│       ├── liyi-*-data.js      # 熟词僻义数据
+│       ├── synonym-*-data.js   # 同义替换数据
+│       ├── 词义分类-dict.js     # 场景类别分类树
+│       └── word-roots-dict.js  # 词根速查表
+├── lib/                    # 第三方库与生成产物
+│   ├── three.min.js
+│   ├── uicons-icons.js
+│   └── about-readme.js
 ├── static/
-│   └── image/             # 图片资源
-├── examples/              # 示例词书
-├── manifest.json          # PWA配置
-├── service-worker.js      # Service Worker
-└── README.md              # 说明文档
+│   └── image/              # 图片资源
+├── examples/               # 示例词书
+├── manifest.json           # PWA配置
+├── service-worker.js       # Service Worker
+└── README.md               # 说明文档
 ```
 
 ## 🎯 路线图
@@ -189,7 +201,7 @@ reciting/
 
 ## 📮 联系方式
 
-- 问题反馈：[GitHub Issues](https://github.com/Losecloud/VocRec/issues)
+- 问题反馈：[GitHub Issues（问题反馈模板）](https://github.com/Losecloud/VocRec/issues/new?template=bug_report.md)
 - 功能建议：[GitHub Discussions](https://github.com/Losecloud/VocRec/discussions)
 
 ---

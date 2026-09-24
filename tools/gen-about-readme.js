@@ -1,4 +1,4 @@
-// 临时生成脚本：把根目录 README.md 同步为 data/about-readme.js（运行后删除）
+// 临时生成脚本：把根目录 README.md 同步为 lib/about-readme.js（运行后删除）
 const fs = require('fs');
 const md = fs.readFileSync('README.md', 'utf8');
 const header =
@@ -6,8 +6,8 @@ const header =
   '// 仅作为 file:// 直接打开时的内嵌快照；通过服务器打开时优先实时读取 README.md。\n' +
   '// 重新生成：node tools/gen-about-readme.js\n';
 fs.writeFileSync(
-  'data/about-readme.js',
+  'lib/about-readme.js',
   header + 'window.ABOUT_README_MD = ' + JSON.stringify(md) + ';\n',
   'utf8'
 );
-console.log('ok bytes:', fs.statSync('data/about-readme.js').size);
+console.log('ok bytes:', fs.statSync('lib/about-readme.js').size);

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <!-- 防闪烁：同步读取 localStorage 主题，在渲染前设置 data-theme + 内联深色模式 CSS 变量，避免深色模式页面闪烁 -->
-    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); if (u) { var c = JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}'); if (c.theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } } catch(e) {}</script>
+    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); var c = u ? JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}') : {}; var p = new URLSearchParams(location.search); var v = p.get('wmView'); var t; if (v === 'cover') { t = p.get('wmTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else if (c.basicSettings && c.basicSettings.followSystemTheme) { var q = p.get('wmTheme'); t = q || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else { t = c.theme; } if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (v === 'dict') { document.documentElement.classList.add('wm-sidebar-mode'); if (!c.basicSettings || c.basicSettings.hideSidebarImport !== false) document.documentElement.classList.add('wm-hide-import'); } else if (v === 'cover') { document.documentElement.classList.add('wm-cover-mode'); var ct = localStorage.getItem('wordMemory_coverViewType_' + (u || 'guest')); if (ct !== 'nebula' && ct !== 'chaos') ct = 'dandelion'; document.documentElement.classList.add('wm-cover-boot-' + ct); } } catch(e) {}</script>
     <style>
         /* 关键 CSS 变量 + 基础元素样式：同步内联，确保深色模式在外部样式表加载前即可生效，避免白屏闪烁 */
         [data-theme="dark"] {
@@ -16,6 +16,12 @@
             --primary-light: #2d4443;
         }
         html, body { background: var(--background, #F5F7FA); margin: 0; }
+        /* 封面视窗（?wmView=cover）首屏：直接呈现上次的封面与视角，避免闪现其它封面。
+           wm-cover-boot-* 由下方同步脚本按缓存的封面类型添加，模块就绪后由 initCoverView 移除 */
+        html.wm-cover-mode #coverImport { display: none !important; }
+        html.wm-cover-boot-dandelion #coverDandelion,
+        html.wm-cover-boot-nebula #coverNebula,
+        html.wm-cover-boot-chaos #coverChaos { display: block !important; }
     </style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -98,7 +104,7 @@
             height: 36px;
             padding: 0 12px;
             padding-right: 32px; /* 右侧留白，避免文本被清空按钮遮挡 */
-            font-size: 0.9rem;
+            font-size: 1.1rem;
             color: var(--text-primary);
             background: var(--surface);
             border: 1px solid var(--border-color);
@@ -251,13 +257,13 @@
         .dl-item:hover { background: var(--hover-bg, #f4f4f5); }
         /* 深色模式：结果项悬浮底色 */
         [data-theme="dark"] .dl-item:hover { background: #000000; }
-        .dl-w { font-weight: 600; color: var(--text-primary); font-size: 0.95rem; }
-        .dl-fuzzy-hint { font-size: 0.7rem; color: #e58e26; font-weight: 500; }
+        .dl-w { font-weight: 600; color: var(--text-primary); font-size: 1.1rem; }
+        .dl-fuzzy-hint { font-size: 0.8em; color: #e58e26; font-weight: 500; }
         /* 形近词提示：区别于近似词的橙色，用淡青色弱化展示 */
-        .dl-sim-hint { font-size: 0.7rem; color: var(--primary-color); font-weight: 500; }
+        .dl-sim-hint { font-size: 0.8rem; color: var(--primary-color); font-weight: 500; }
         /* 中文逆向查词提示 */
-        .dl-rev-hint { font-size: 0.7rem; color: #16a34a; font-weight: 500; }
-        .dl-dict { font-size: 0.72rem; padding: 1px 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
+        .dl-rev-hint { font-size: 0.8rem; color: #16a34a; font-weight: 500; }
+        .dl-dict { font-size: 0.8rem; padding: 1px 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
         /* 不同词典使用不同淡色系 tag（哈希取色，浅色/深色各一套），方便区分 */
         .dict-lookup {
             --dl-bg0: #e3f2fd; --dl-fg0: #1565c0;
@@ -295,12 +301,12 @@
             background: var(--hover-bg, #ececed);
         }
         /* 基础词典场景类别分级标签（搜索下拉兜底项） */
-        .dl-cat-tag { display: inline-block; font-size: 0.72rem; padding: 1px 7px; border-radius: 8px; white-space: nowrap; vertical-align: middle; }
+        .dl-cat-tag { display: inline-block; font-size: 0.8rem; padding: 1px 7px; border-radius: 8px; white-space: nowrap; vertical-align: middle; }
         .dl-cat-tag-base { color: var(--text-secondary); background: var(--hover-bg, #ececed); }
         .dl-cat-tag-last { color: var(--primary-color); background: var(--primary-light); font-weight: 600; }
         /* CEFR 等级 tag：搜索栏专属简化版——无边框、白/黑底，仅保留彩字区分（颜色沿用 nebula-card-level 配色） */
         .dl-cefr {
-            font-size: 0.72rem;
+            font-size: 0.8rem;
             padding: 1px 7px;
             border-radius: 999px;
             white-space: nowrap;
@@ -340,7 +346,7 @@
         .dl-del:hover { background: var(--primary-light); color: var(--primary-color); }
         .dl-preview {
             flex-basis: 100%;
-            font-size: 0.78rem;
+            font-size: 0.8rem;
             color: var(--text-secondary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -354,12 +360,20 @@
             -webkit-box-orient: vertical;
         }
         .dl-empty { padding: 12px; text-align: center; color: var(--text-secondary); font-size: 0.85rem; }
+        /* 历史查询标题：结果列表顶部居中灰字，其下由 .dl-alt-divider 分隔线隔开 */
+        .dl-history-title {
+            padding: 10px 12px 4px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+        }
         /* AI 翻译结果卡片：无本地匹配时展示 AI 翻译的详情页格式 */
         .dl-ai-translation { padding: 12px; }
         .dl-ai-translation .dl-ai-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 0 0 8px; border-bottom: 1px solid var(--border-color); }
         .dl-ai-translation .dl-ai-word { font-size: 1.2rem; font-weight: 700; color: var(--text-primary); }
         .dl-ai-translation .dl-ai-phonetic { font-size: 0.85rem; font-weight: 400; color: var(--text-secondary); margin: 0 6px; }
-        .dl-ai-translation .dl-ai-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: var(--primary-color); font-weight: 600; white-space: nowrap; margin-left: 8px;}
+        .dl-ai-translation .dl-ai-badge { font-size: 0.8rem; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: var(--primary-color); font-weight: 600; white-space: nowrap; margin-left: 8px;}
         .dl-ai-translation .dl-ai-body { font-size: 0.95rem; line-height: 1.7; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
         .dl-ai-translation .dl-ai-loading { padding: 12px; text-align: center; color: var(--primary-color); font-size: 0.85rem; }
         .dl-ai-translation .dl-ai-error { padding: 12px; text-align: center; color: var(--error); font-size: 0.85rem; }
@@ -374,10 +388,32 @@
         .dict-lookup-ai-detail .dl-ai-detail-head:hover .collapse-icon { opacity: 1; }
         .dict-lookup-ai-detail .dl-ai-detail-head .collapse-icon svg { width: 26px; height: 26px; display: block; }
         .dict-lookup-ai-detail .dl-ai-detail-word { font-size: 1.2rem; font-weight: 700; color: var(--text-primary); }
-        .dict-lookup-ai-detail .dl-ai-detail-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: var(--primary-color); font-weight: 600; white-space: nowrap; }
+        .dict-lookup-ai-detail .dl-ai-detail-badge { font-size: 0.8rem; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: var(--primary-color); font-weight: 600; white-space: nowrap; }
         .dict-lookup-ai-detail .dl-ai-detail-body { font-size: 0.95rem; line-height: 1.7; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+        /* AI 返回内容按 Markdown 渲染：外层复用 .md-reader 样式；父级 white-space:pre-wrap
+           会把生成的 HTML 空白放大成空行，这里复位，并收紧标题/分隔线间距以适配窄侧栏 */
+        .dict-lookup-ai-detail .dl-ai-md { white-space: normal; }
+        .dict-lookup-ai-detail .dl-ai-md > :first-child { margin-top: 0; }
+        .dict-lookup-ai-detail .dl-ai-md > :last-child { margin-bottom: 0; }
+        .dict-lookup-ai-detail .dl-ai-md h1,
+        .dict-lookup-ai-detail .dl-ai-md h2,
+        .dict-lookup-ai-detail .dl-ai-md h3,
+        .dict-lookup-ai-detail .dl-ai-md h4 { margin: 0.9rem 0 0.4rem; }
+        .dict-lookup-ai-detail .dl-ai-md hr { margin: 0.9rem 0; }
         .dict-lookup-ai-detail .dl-ai-detail-loading { padding: 24px; text-align: center; color: var(--primary-color); font-size: 0.85rem; }
         .dict-lookup-ai-detail .dl-ai-detail-error { padding: 24px; text-align: center; color: var(--error); font-size: 0.85rem; }
+        /* 划词翻译（句子）：标题降为次级样式并允许换行，避免长句撑破详情头 */
+        .dict-lookup-ai-detail.is-sentence .dl-ai-detail-word {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            white-space: normal;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .dict-lookup-ai-detail.is-sentence .dl-ai-detail-head {
+            align-items: flex-start;
+        }
         /* 主次分隔线：淡灰色小横线（浅色模式浅灰 / 深色模式深灰），分隔精准结果与近似/形近补充结果 */
         .dl-alt-divider {
             height: 1px;
@@ -385,6 +421,287 @@
             margin: 5px 10px;
         }
         [data-theme="dark"] .dl-alt-divider { background: #3a3f4b; }
+        /* ===== Obsidian 右侧栏模式（?wmView=dict）：特化为「上方输入框 + 下方结果列」两块内容 ===== */
+        html.wm-sidebar-mode,
+        html.wm-sidebar-mode body {
+            height: 100vh;
+            overflow: hidden;
+            /* 透出 Obsidian 侧栏底色，使其更像原生面板而非嵌入的整页应用 */
+            background: transparent;
+        }
+        /* 隐藏查词引擎之外的全部内容：页面框架、封面、弹窗、底部导航、加载遮罩 */
+        html.wm-sidebar-mode .header-left,
+        html.wm-sidebar-mode .header-actions,
+        html.wm-sidebar-mode .main-container,
+        html.wm-sidebar-mode .mobile-bottom-nav,
+        html.wm-sidebar-mode .modal,
+        html.wm-sidebar-mode .toast-container,
+        html.wm-sidebar-mode .loading-overlay,
+        html.wm-sidebar-mode #focusTrap {
+            display: none !important;
+        }
+        /* header 转为侧栏容器，占满视图高度（去掉原有底色/下边框/阴影） */
+        html.wm-sidebar-mode .header {
+            position: static;
+            height: 100vh;
+            background: transparent;
+            border-bottom: none;
+            box-shadow: none;
+        }
+        html.wm-sidebar-mode .header-container {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            height: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        /* 查词引擎纵向撑满侧栏：上为输入框，下为结果列 */
+        html.wm-sidebar-mode .dict-lookup {
+            width: 100%;
+            min-width: 0;
+            margin: 0;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        /* 结果区去掉浮层外观（边框/圆角/阴影/内边距/底色），仅作为结果列的容器 */
+        html.wm-sidebar-mode .dict-lookup-dropdown,
+        html.wm-sidebar-mode .dict-lookup.dict-lookup-open .dict-lookup-dropdown {
+            position: relative; /* 建立定位上下文，供详情过渡态绝对铺满 */
+            /* 重置浮层的绝对定位偏移：relative 下若保留 top/left/right 会被推离原位 */
+            top: auto;
+            left: auto;
+            right: auto;
+            flex: 1;
+            min-height: 0;
+            margin: 0;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+            display: flex;
+            flex-direction: column;
+        }
+        /* 结果列：取消 56vh 上限，随侧栏高度延展并在内部滚动 */
+        html.wm-sidebar-mode .dict-lookup-results {
+            max-height: none;
+            flex: 1;
+            min-height: 0;
+        }
+        /* 词条详情 iframe：同样取消高度上限，铺满结果区 */
+        html.wm-sidebar-mode .dict-lookup-frame {
+            max-height: none;
+            flex: 1;
+            min-height: 0;
+        }
+        /* 详情过渡态：绝对铺满结果区（清单保持可见，避免切换闪烁） */
+        html.wm-sidebar-mode .dict-lookup-frame.pre-detail {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        /* AI 翻译详情铺满并可滚动 */
+        html.wm-sidebar-mode .dict-lookup-ai-detail {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        /* 透明底色下改用主题悬浮色（深色模式原有的纯黑悬浮在侧栏中不协调） */
+        html.wm-sidebar-mode .dl-item:hover {
+            background: var(--hover-bg);
+        }
+        /* 未聚焦且未查看详情（dict-lookup-idle）：隐藏下方结果列，侧栏只留输入框，保持留白无干扰 */
+        html.wm-sidebar-mode .dict-lookup.dict-lookup-idle .dict-lookup-results,
+        html.wm-sidebar-mode .dict-lookup.dict-lookup-idle .dict-lookup-frame,
+        html.wm-sidebar-mode .dict-lookup.dict-lookup-idle .dict-lookup-ai-detail {
+            display: none !important;
+        }
+        /* 底部「导入词典」拖入区（参考封面 upload-area）：默认隐藏，仅侧栏模式显示。
+           与结果区为兄弟节点且固定高度，故结果/详情展开时不会覆盖它 */
+        .dict-import-area { display: none; }
+        html.wm-sidebar-mode .dict-import-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            height: 10vh;
+            min-height: 54px;
+            padding: 4px 8px;
+            margin-bottom: 25px;
+            box-sizing: border-box;
+            border: 2px dashed var(--border-color);
+            border-radius: var(--radius-lg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: center;
+            transition: border-color var(--transition-normal), background var(--transition-normal);
+        }
+        html.wm-sidebar-mode .dict-import-area:hover,
+        html.wm-sidebar-mode .dict-import-area.dragover {
+            border-color: var(--primary-color);
+            background: var(--primary-light);
+            color: var(--primary-color);
+        }
+        /* 页面设置「隐藏右侧栏导入词典」开启：不显示拖入区，查单词视野更完整 */
+        html.wm-sidebar-mode.wm-hide-import .dict-import-area { display: none; }
+        .dict-import-icon { width: 30px; height: 30px; stroke-width: 2; }
+        .dict-import-text { font-size: 1.2rem; font-weight: 600; }
+        .dict-import-hint { font-size: 1rem; color: var(--text-tertiary); }
+        .dict-import-hint.is-error { color: var(--error); }
+        /* 页面设置内的「导入词典」拖入区：与侧栏拖入区功能一致，尺寸适配弹窗。
+           用 #settingsModal 提升优先级，避免侧栏模式的 10vh 规则误套到弹窗内的实例 */
+        #settingsModal .dict-import-area.dict-import-area-settings {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 84px;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 2px dashed var(--border-color);
+            border-radius: var(--radius-lg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: center;
+            transition: border-color var(--transition-normal), background var(--transition-normal);
+        }
+        #settingsModal .dict-import-area.dict-import-area-settings:hover,
+        #settingsModal .dict-import-area.dict-import-area-settings.dragover {
+            border-color: var(--primary-color);
+            background: var(--primary-light);
+            color: var(--primary-color);
+        }
+        #settingsModal .dict-import-area.dict-import-area-settings .dict-import-text { font-size: 1rem; }
+        #settingsModal .dict-import-area.dict-import-area-settings .dict-import-hint { font-size: 0.75rem; }
+        /* ===== 侧栏顶部栏：左 logo+词忆，右设置按钮（沿用主页 settingsBtn 的 .btn-icon 样式） ===== */
+        .dict-sidebar-header { display: none; }
+        html.wm-sidebar-mode .dict-sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+        .dict-sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--primary-color);
+            user-select: none;
+        }
+        .dict-sidebar-logo { display: block; width: 18px; height: 18px; }
+        /* 侧栏顶部栏中部的「识别中 / 查询中」提示：文字 + 三点跳动动画，深浅主题通用 */
+        .dict-sidebar-status {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            user-select: none;
+        }
+        .dict-sidebar-status.hidden { display: none; }
+        .dict-status-dots { display: inline-flex; align-items: center; gap: 2px; }
+        .dict-status-dots span {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: dict-status-bounce 1s infinite ease-in-out;
+        }
+        .dict-status-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .dict-status-dots span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes dict-status-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-3px); opacity: 1; }
+        }
+        /* 侧栏设置弹窗：侧栏下仅暴露与查词相关的「AI设置」「页面设置」两个选项卡。
+           覆盖 .modal 的 display:none !important（侧栏隐藏全部弹窗），并让弹窗贴合侧栏铺满 */
+        html.wm-sidebar-mode #settingsModal:not(.hidden) { display: flex !important; }
+        html.wm-sidebar-mode #settingsModal .modal-content {
+            width: 80%;
+            max-width: none;
+            height: 100vh;
+            max-height: 100vh; /* 覆盖基础样式的 calc(100vh - 48px)，侧栏内铺满无留白 */
+            border-radius: var(--radius-md);
+        }
+        /* 侧栏下仅保留与查词相关的「AI设置」「页面设置」：隐藏其余选项卡按钮与内容面板 */
+        html.wm-sidebar-mode #settingsModal .settings-tab[data-tab="basic"],
+        html.wm-sidebar-mode #settingsModal .settings-tab[data-tab="cache"],
+        html.wm-sidebar-mode #settingsModal #basicSettings,
+        html.wm-sidebar-mode #settingsModal #cacheSettings {
+            display: none !important;
+        }
+        /* 侧栏宽度窄，会命中 styles.css 的移动端媒体查询（隐藏 .settings-tab span），
+           此处以更高优先级恢复选项卡文字；仅剩两个选项卡，空间足够 */
+        html.wm-sidebar-mode #settingsModal .settings-tab span {
+            display: inline;
+        }
+        html.wm-sidebar-mode #settingsModal .settings-tab {
+            padding: var(--spacing-sm) var(--spacing-xs);
+            font-size: 0.8rem;
+        }
+        /* 清空按钮：绝对定位基准 .dict-lookup 在侧栏下变为满高 flex 容器，
+           沿用 top:50% 会落到整栏中部，故改为相对输入框垂直居中（输入框高 36px） */
+        html.wm-sidebar-mode .dict-lookup-clear {
+            top: 18px;
+        }
+        /* ===== Obsidian 封面视窗（?wmView=cover）：整页只承载可视化封面 ===== */
+        html.wm-cover-mode,
+        html.wm-cover-mode body {
+            height: 100vh;
+            overflow: hidden;
+        }
+        /* 隐藏封面之外的全部内容：页头、左右侧栏、边缘折叠、底部导航、弹窗与遮罩 */
+        html.wm-cover-mode .header,
+        html.wm-cover-mode .sidebar,
+        html.wm-cover-mode .stats-panel,
+        html.wm-cover-mode .edge-toggle,
+        html.wm-cover-mode .mobile-bottom-nav,
+        html.wm-cover-mode .modal,
+        html.wm-cover-mode .toast-container,
+        html.wm-cover-mode .loading-overlay,
+        html.wm-cover-mode #focusTrap,
+        /* 主页的「切换封面」按钮在视窗内不显示（改为右下角顺序切换） */
+        html.wm-cover-mode #switchNebulaCoverBtn {
+            display: none !important;
+        }
+        html.wm-cover-mode .main-container {
+            height: 100vh;
+            /* 侧栏/统计面板已隐藏，让位宽度归零（用 !important 压过 :has() 的高特异性规则） */
+            --main-side-left: 0px !important;
+            --main-side-right: 0px !important;
+        }
+        html.wm-cover-mode .main-content {
+            padding: 0;
+            overflow: hidden;
+        }
+        html.wm-cover-mode .welcome-screen {
+            min-height: 100%;
+            margin-left: 0;
+            margin-right: 0;
+            width: 100%;
+        }
+        /* 控制面板不开放：参数一律取主页已保存的配置 */
+        html.wm-cover-mode .nebula-controls {
+            display: none !important;
+        }
+        /* 右下角顺序切换封面按钮（默认隐藏，仅封面视窗显示） */
+        .cover-switch-btn.cover-view-switch-btn {
+            display: none;
+        }
+        html.wm-cover-mode .cover-switch-btn.cover-view-switch-btn {
+            display: inline-flex;
+        }
         @media (max-width: 768px) {
             /* 移动端紧凑布局：左侧/右侧按内容自适应，查词框拉伸占满中间剩余空间，避免左侧出现大片空隙 */
             .header-container {
@@ -600,6 +917,7 @@
         <symbol id="ic-trend" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 16.5 9 10.5 13 14.5 21 6.5"/><polyline points="15.5 6.5 21 6.5 21 12"/></symbol>
         <symbol id="ic-scatter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><circle cx="7.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.5" cy="9.5" r="2.1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="14" r="1.1" fill="currentColor" stroke="none"/></symbol>
         <symbol id="ic-flame" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+        <symbol id="ic-dice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></symbol>
     </svg>
     <!-- 隐藏的焦点接收器（移动端修复焦点残留问题） -->
     <div id="focusTrap" tabindex="-1" style="position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; overflow: hidden;"></div>
@@ -607,6 +925,24 @@
     <!-- 顶部导航栏 -->
     <header class="header">
         <div class="header-container">
+            <!-- Obsidian 右侧栏顶部栏：左 logo+词忆，右设置按钮（沿用主页 settingsBtn 的按钮与样式）。
+                 点击弹出主页设置弹窗，但侧栏下仅保留与查词相关的「AI设置」「页面设置」两个选项卡 -->
+            <div class="dict-sidebar-header" id="dictSidebarHeader">
+                <div class="dict-sidebar-brand">
+                    <img class="dict-sidebar-logo" src="static/image/book.svg" alt="">
+                    <span>词忆</span>
+                </div>
+                <div class="dict-sidebar-status hidden" id="dictSidebarStatus" aria-live="polite">
+                    <span id="dictSidebarStatusText">查询中</span>
+                    <span class="dict-status-dots"><span></span><span></span><span></span></span>
+                </div>
+                <button type="button" class="btn-icon" id="dictSidebarSettingsBtn" title="设置">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
+            </div>
             <div class="header-left">
                 <div class="logo" id="appLogo" title="关于词忆" role="button" tabindex="0">
                     <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -644,6 +980,18 @@
                         <div class="dl-ai-detail-body"></div>
                     </div>
                 </div>
+            </div>
+            <!-- 底部「导入词典」拖入区：仅在 Obsidian 右侧栏模式（?wmView=dict）显示，
+                 与结果区互为兄弟节点，故结果展开时不会覆盖它；解析复用引擎 browse-dict.html -->
+            <div class="dict-import-area" id="dictImportArea" title="支持 MDX/MDD/JS等 词典文件">
+                <svg class="dict-import-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <div class="dict-import-text">导入词典</div>
+                <div class="dict-import-hint" id="dictImportHint">拖入/点选 .mdx 文件</div>
+                <input type="file" id="dictImportInput" accept=".mdx" hidden>
             </div>
             <div class="header-actions">
                 <button class="btn-icon" id="darkModeToggle" title="切换暗黑模式">
@@ -704,6 +1052,10 @@
                                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                             </svg>
                             <span>设置</span>
+                        </div>
+                        <div class="dropdown-item" id="dropdownAbout">
+                            <i class="dropdown-item-icon fi-rr-info"></i>
+                            <span>关于词忆</span>
                         </div>
                         <div class="dropdown-divider"></div>
                         <div class="dropdown-item dropdown-danger" id="dropdownLogout">退出登录</div>
@@ -1182,6 +1534,14 @@
                     </svg>
                     切换封面
                 </button>
+                <!-- 封面视窗（Obsidian 独立窗口）：右下角顺序切换封面（蒲公英聚类 → 单词星云 → 混沌星云） -->
+                <button type="button" class="cover-switch-btn cover-view-switch-btn" id="coverViewSwitchBtn" title="切换封面">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="4"/>
+                        <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+                    </svg>
+                    <span id="coverViewSwitchLabel">蒲公英聚类</span>
+                </button>
             </div>
 
             <!-- 单词编辑预览页面 -->
@@ -1593,6 +1953,13 @@
                             <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.9.15</span></div>
                         </div>
 
+                        <div class="workshop-app-card" data-app="wereadexport" data-cat="tool">
+                            <div class="workshop-app-icon"><img src="static/cover/微信读书划线导出.png" alt="微信读书划线导出" loading="lazy"></div>
+                            <h3 class="workshop-app-title">微信读书划线导出</h3>
+                            <p class="workshop-app-desc">连接微信读书skill，导出个人划线与想法，或提取单词为词书</p>
+                            <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.9.22</span></div>
+                        </div>
+
                         <!-- 占位卡片：敬请期待 -->
                         <div class="workshop-app-card placeholder hidden" data-cat="social">
                             <div class="workshop-app-icon"><img src="static/cover/英文剧本杀.png" alt="英文剧本杀" loading="lazy"></div>
@@ -1649,29 +2016,17 @@
                             <div class="form-group">
                                 <label class="form-label">阅读题材</label>
                                 <select class="form-select setting-select" id="storyGenre">
-                                    <option value="外文刊物">📰 外文刊物</option>
-                                    <option value="生动故事">📖 生动故事</option>
-                                    <option value="文献报告">📚 文献报告</option>
-                                    <option value="海外工作生活">🌏 海外工作生活</option>
+                                    <option value="外文刊物" data-icon="fi-rr-newspaper" data-desc="如经济学人、纽约时报风格的社论与专栏">外文刊物</option>
+                                    <option value="生动故事" data-icon="fi-rr-book-open-reader" data-desc="叙事笔法与人物心境白描的短篇故事">生动故事</option>
+                                    <option value="文献报告" data-icon="fi-rr-document" data-desc="学术论文与研究报告的严谨书面语体">文献报告</option>
+                                    <option value="海外工作生活" data-icon="fi-rr-globe" data-desc="求职、租房、就医等真实海外场景文本">海外工作生活</option>
                                 </select>
                             </div>
                             
                             <div class="form-group">
                                 <label class="form-label">文章主题</label>
                                 <select class="form-select setting-select" id="storyTheme">
-                                    <option value="随机" selected>🔄 随机选择</option>
-                                    <option value="科技未来">🚀 科技未来</option>
-                                    <option value="环境与能源">🌍 环境与能源</option>
-                                    <option value="法律与犯罪">⚖️ 法律与犯罪</option>
-                                    <option value="教育社科">🎓 教育社科</option>
-                                    <option value="经济与发展">💰 经济与发展</option>
-                                    <option value="文化传媒">🎭 文化传媒</option>
-                                    <option value="农业与食品">🍎 农业与食品</option>
-                                    <option value="商业职场">💼 商业职场</option>
-                                    <option value="社会问题">🔍 社会问题</option>
-                                    <option value="政府政策">🏛️ 政府政策</option>
-                                    <option value="健康与生活">❤️ 健康与生活</option>
-                                    <option value="全球化">✈️ 全球化</option>
+                                    <!-- 选项由 updateThemeOptions() 按当前题材动态生成（含 data-icon / data-desc） -->
                                 </select>
                             </div>
                         </div>
@@ -1680,14 +2035,14 @@
                             <div class="form-group">
                                 <label class="form-label">难度等级</label>
                                 <select class="form-select setting-select" id="storyDifficulty">
-                                    <option value="A1">A1 (初级)</option>
-                                    <option value="A2">A2 (初中级)</option>
-                                    <option value="B1">B1 (中级)</option>
-                                    <option value="B2" selected>B2 (中高级)</option>
-                                    <option value="C1">C1 (高级)</option>
-                                    <option value="C2">C2 (精通)</option>
-                                    <option value="雅思">雅思 (IELTS)</option>
-                                    <option value="考研">考研 (Postgraduate)</option>
+                                    <option value="A1" data-tag="A1" data-desc="基础词汇 1000 · 简单日常短句">初级</option>
+                                    <option value="A2" data-tag="A2" data-desc="中考 / 剑桥KET · 词汇量 2000">初中级</option>
+                                    <option value="B1" data-tag="B1" data-desc="高考 / 四级初阶 · 词汇量 3500~4500">中级</option>
+                                    <option value="B2" selected data-tag="B2" data-desc="六级 / 考研 / 雅思6.5 · 词汇量 5500~6500">中高级</option>
+                                    <option value="C1" data-tag="C1" data-desc="专八 / 托福105+ / GRE · 词汇量 8000~10000">高级</option>
+                                    <option value="C2" data-tag="C2" data-desc="学术期刊原刊 · 词汇量 12000+">精通</option>
+                                    <option value="雅思" data-tag="IELTS" data-desc="雅思学术类阅读与写作语料">雅思</option>
+                                    <option value="考研" data-tag="考研" data-desc="考研英语一 / 二真题风格">Postgraduate</option>
                                 </select>
                             </div>
                             
@@ -1696,7 +2051,7 @@
                                     AI模型选择
                                     <span class="form-hint">(不同模型生成风格不同)</span>
                                 </label>
-                                <select class="form-select" id="aiModel" data-ai-model-select>
+                                <select class="form-select" id="aiModel" data-ai-model-select data-picker-icon="fi-rr-microchip">
                                 </select>
                             </div>
                         </div>
@@ -1708,6 +2063,8 @@
                                 <span class="form-hint">(可多选词单，系统自动随机挑选单词)</span>
                             </label>
                             
+                            <!-- 关键词选择器：标签栏 + 各来源面板，统一背景容器 -->
+                            <div class="keyword-picker-box">
                             <!-- 选择模式切换 -->
                             <div class="keyword-mode-tabs">
                                 <button class="keyword-mode-tab active" data-mode="books" id="tabBooks">
@@ -1748,18 +2105,27 @@
                                         <!-- 动态生成词单列表 -->
                                     </div>
                                         <div class="auto-select-control">
-                                            <label>随机挑选</label>
-                                            <input type="number" id="autoSelectCount" class="auto-select-input" value="10" min="3" max="20">
-                                            <span class="auto-select-unit">个单词</span>
                                             <button class="btn-primary btn-auto-select" id="autoSelectBtn">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                                    <rect x="3" y="3" width="7" height="7"/>
-                                                    <rect x="14" y="3" width="7" height="7"/>
-                                                    <rect x="14" y="14" width="7" height="7"/>
-                                                    <rect x="3" y="14" width="7" height="7"/>
-                                                </svg>
+                                                <svg class="svg-ic dice-ic" aria-hidden="true"><use href="#ic-dice"></use></svg>
                                                 <span id="autoSelectBtnText">立即挑选</span>
                                             </button>
+                                            <button type="button" class="btn-auto-select-toggle" id="autoSelectToggle" title="挑选数量设置" aria-expanded="false" aria-label="打开挑选配置">
+                                                <i class="fi-rr-menu-burger"></i>
+                                            </button>
+                                            <div class="auto-select-panel" id="autoSelectPanel" style="display:none">
+                                                <div class="auto-select-panel-title">挑选数量设置</div>
+                                                <div class="auto-select-stepper">
+                                                    <button type="button" class="auto-select-step" id="autoSelectMinus" aria-label="减少挑选数量"><i class="fi-rr-minus"></i></button>
+                                                    <input type="number" id="autoSelectCount" class="auto-select-input" value="10" min="3" max="20" aria-label="挑选单词数量">
+                                                    <button type="button" class="auto-select-step" id="autoSelectPlus" aria-label="增加挑选数量"><i class="fi-rr-plus"></i></button>
+                                                </div>
+                                                <div class="auto-select-presets">
+                                                    <button type="button" class="auto-select-preset" data-preset="5">5 词</button>
+                                                    <button type="button" class="auto-select-preset" data-preset="10">10 词</button>
+                                                    <button type="button" class="auto-select-preset" data-preset="15">15 词</button>
+                                                    <button type="button" class="auto-select-preset" data-preset="20">20 词</button>
+                                                </div>
+                                            </div>
                                         </div>
                                      </div>
 
@@ -1771,6 +2137,29 @@
                                         </div>
                                         <div class="keyword-list" id="keywordList">
                                             <!-- 动态生成收藏单词 -->
+                                        </div>
+                                    </div>
+                                    <div class="auto-select-control">
+                                        <button class="btn-primary btn-auto-select" id="favAutoSelectBtn">
+                                            <svg class="svg-ic dice-ic" aria-hidden="true"><use href="#ic-dice"></use></svg>
+                                            <span id="favAutoSelectBtnText">立即挑选</span>
+                                        </button>
+                                        <button type="button" class="btn-auto-select-toggle" id="favAutoSelectToggle" title="挑选数量设置" aria-expanded="false" aria-label="打开挑选配置">
+                                            <i class="fi-rr-menu-burger"></i>
+                                        </button>
+                                        <div class="auto-select-panel" id="favAutoSelectPanel" style="display:none">
+                                            <div class="auto-select-panel-title">挑选数量设置</div>
+                                            <div class="auto-select-stepper">
+                                                <button type="button" class="auto-select-step" id="favAutoSelectMinus" aria-label="减少挑选数量"><i class="fi-rr-minus"></i></button>
+                                                <input type="number" id="favAutoSelectCount" class="auto-select-input" value="10" min="3" max="20" aria-label="挑选单词数量">
+                                                <button type="button" class="auto-select-step" id="favAutoSelectPlus" aria-label="增加挑选数量"><i class="fi-rr-plus"></i></button>
+                                            </div>
+                                            <div class="auto-select-presets">
+                                                <button type="button" class="auto-select-preset" data-preset="5">5 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="10">10 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="15">15 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="20">20 词</button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1785,6 +2174,29 @@
                                             <!-- 动态生成待复习单词 -->
                                         </div>
                                     </div>
+                                    <div class="auto-select-control">
+                                        <button class="btn-primary btn-auto-select" id="reviewAutoSelectBtn">
+                                            <svg class="svg-ic dice-ic" aria-hidden="true"><use href="#ic-dice"></use></svg>
+                                            <span id="reviewAutoSelectBtnText">立即挑选</span>
+                                        </button>
+                                        <button type="button" class="btn-auto-select-toggle" id="reviewAutoSelectToggle" title="挑选数量设置" aria-expanded="false" aria-label="打开挑选配置">
+                                            <i class="fi-rr-menu-burger"></i>
+                                        </button>
+                                        <div class="auto-select-panel" id="reviewAutoSelectPanel" style="display:none">
+                                            <div class="auto-select-panel-title">挑选数量设置</div>
+                                            <div class="auto-select-stepper">
+                                                <button type="button" class="auto-select-step" id="reviewAutoSelectMinus" aria-label="减少挑选数量"><i class="fi-rr-minus"></i></button>
+                                                <input type="number" id="reviewAutoSelectCount" class="auto-select-input" value="10" min="3" max="20" aria-label="挑选单词数量">
+                                                <button type="button" class="auto-select-step" id="reviewAutoSelectPlus" aria-label="增加挑选数量"><i class="fi-rr-plus"></i></button>
+                                            </div>
+                                            <div class="auto-select-presets">
+                                                <button type="button" class="auto-select-preset" data-preset="5">5 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="10">10 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="15">15 词</button>
+                                                <button type="button" class="auto-select-preset" data-preset="20">20 词</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- 手动输入模式 -->
@@ -1793,7 +2205,7 @@
                                         <input type="text" 
                                                id="keywordInput" 
                                                class="keyword-input" 
-                                               placeholder="输入英文单词，停顿0.5秒自动添加..."
+                                               placeholder="输入英文单词，按回车键添加..."
                                                autocomplete="off"
                                                spellcheck="false">
                                         <div class="keyword-input-hint">
@@ -1807,6 +2219,7 @@
                                     </div>
                                 </div>
                             </div>
+                            </div>
 
                             <!-- 已选择的关键词 -->
                             <div class="selected-keywords" id="selectedKeywords">
@@ -1815,14 +2228,15 @@
                         </div>
 
                         <div class="form-actions">
+                            <button class="btn-secondary" id="useDemoStoryBtn">
+                                <span>📝</span>
+                                使用示例
+                            </button>
                             <button class="btn-primary btn-generate" id="generateStoryBtn">
                                 <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                 生成
                             </button>
-                            <button class="btn-secondary" id="useDemoStoryBtn">
-                                <span>📝</span>
-                                使用示例故事（调试用）
-                            </button>
+                            
                         </div>
                     </div>
 
@@ -2071,18 +2485,18 @@
                                 <div class="form-group">
                                     <label class="form-label">游戏题材</label>
                                     <select class="form-select setting-select" id="textGameGenre">
-                                        <option value="horror">👻 恐怖悬疑</option>
-                                        <option value="sci-fi">🚀 科幻烧脑</option>
-                                        <option value="romance">💗 恋爱物语</option>
+                                        <option value="horror" data-icon="fi-rr-ghost" data-desc="阴森氛围与层层反转的惊悚剧情">恐怖悬疑</option>
+                                        <option value="sci-fi" data-icon="fi-rr-rocket" data-desc="未来科技与烧脑设定的科幻冒险">科幻烧脑</option>
+                                        <option value="romance" data-icon="fi-rr-heart" data-desc="细腻心动与情感抉择的恋爱物语">恋爱物语</option>
                                     </select>
                                 </div>
 
                                 <div class="form-group">
                                     <label class="form-label">主角性别</label>
                                     <select class="form-select setting-select" id="textGameGender">
-                                        <option value="male">男</option>
-                                        <option value="female">女</option>
-                                        <option value="unknown" selected>未知</option>
+                                        <option value="male" data-icon="fi-rr-mars" data-desc="以男性主角视角展开剧情">男</option>
+                                        <option value="female" data-icon="fi-rr-venus" data-desc="以女性主角视角展开剧情">女</option>
+                                        <option value="unknown" selected data-icon="fi-rr-question" data-desc="不限定性别，由AI自然叙述">未知</option>
                                     </select>
                                 </div>
                             </div>
@@ -2091,11 +2505,11 @@
                                 <div class="form-group">
                                     <label class="form-label">词汇等级</label>
                                     <select class="form-select setting-select" id="textGameVocabLevel">
-                                        <option value="A">A</option>
-                                        <option value="B1" selected>B1</option>
-                                        <option value="B2" >B2</option>
-                                        <option value="C1">C1</option>
-                                        <option value="C2">C2</option>
+                                        <option value="A" data-tag="A" data-desc="基础词汇 1000 · 简单日常表达">入门</option>
+                                        <option value="B1" selected data-tag="B1" data-desc="高考 / 四级初阶 · 词汇量 3500~4500">中级</option>
+                                        <option value="B2" data-tag="B2" data-desc="六级 / 考研 / 雅思6.5 · 词汇量 5500~6500">中高级</option>
+                                        <option value="C1" data-tag="C1" data-desc="专八 / 托福105+ / GRE · 词汇量 8000~10000">高级</option>
+                                        <option value="C2" data-tag="C2" data-desc="学术期刊原刊 · 词汇量 12000+">精通</option>
                                     </select>
                                 </div>
 
@@ -2104,7 +2518,7 @@
                                         AI模型选择
                                         <span class="form-hint">(不同模型生成风格不同)</span>
                                     </label>
-                                    <select class="form-select" id="textGameAiModel" data-ai-model-select>
+                                    <select class="form-select" id="textGameAiModel" data-ai-model-select data-picker-icon="fi-rr-microchip">
                                         </select>
                                 </div>
                             </div>
@@ -2112,23 +2526,25 @@
                             <!-- Keywords selector: reuse reading app's keyword selector (moved at runtime) -->
                             <div class="form-group">
                                 <label class="form-label">
-                                    Keywords
-                                    <span class="form-hint">(Use the shared selector — choose from books/favorites/review or input manually)</span>
+                                    选择关键词
+                                    <span class="form-hint">(可多选词单，系统自动随机挑选单词)</span>
                                 </label>
-                                <div id="textGameKeywordPlaceholder">
+                                <!-- 复用阅读联想记忆的关键词选择器：运行时把标签栏 + 面板 + 已选词移入此容器 -->
+                                <div class="keyword-picker-box" id="textGameKeywordPlaceholder">
                                     <!-- At runtime the shared keyword selector will be moved here -->
                                 </div>
                             </div>
 
                             <div class="form-actions">
-                                <button class="btn-primary btn-generate" id="generateGameBtn">
-                                    <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
-                                    Start Game
-                                </button>
                                 <button class="btn-secondary" id="useDemoGameBtn">
                                     <span>📝</span>
-                                    Use Demo (for debug)
+                                    使用示例
                                 </button>
+                                <button class="btn-primary btn-generate" id="generateGameBtn">
+                                    <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
+                                    开始游戏
+                                </button>
+                               
                             </div>
                         </div>
 
@@ -2690,6 +3106,188 @@
                                         <svg class="svg-ic generate-icon" aria-hidden="true"><use href="#ic-ai"></use></svg>
                                         生成
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 微信读书划线导出功能 -->
+                <div class="wre-app-container hidden" id="wreAppContainer">
+                    <div class="ai-feature-card">
+                        <div class="ai-feature-header">
+                            <div class="ai-feature-header-text">
+                                <h3><i class="fi-rr-cloud-download"></i>微信读书划线导出</h3>
+                                <p class="ai-feature-desc">连接你的微信读书账号，从「我的笔记」中选定一本书，把个人划线与想法按章节顺序穿插导出为 Markdown / CSV</p>
+                            </div>
+                            <button class="ai-close-btn" id="closeWreWorkshopBtn" title="返回AI工坊菜单页">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="ob-workspace">
+                            <!-- 左：我的笔记书籍清单（含分组折叠） -->
+                            <div class="ob-list-panel">
+                                <div class="ob-panel-head">
+                                    <span class="ob-panel-title">我的笔记</span>
+                                    <div class="ob-panel-head-right">
+                                        <span class="ob-list-count" id="wreBookCount">0 本</span>
+                                    </div>
+                                </div>
+
+                                <div class="wre-search">
+                                    <i class="fi-rr-search wre-search-icon"></i>
+                                    <input type="text" class="wre-search-input" id="wreBookSearch" placeholder="筛选书名 / 作者" autocomplete="off">
+                                    <button type="button" class="dict-lookup-clear" id="wreSearchClear" title="清空" aria-label="清空">×</button>
+                                </div>
+
+                                <div class="ob-book-list" id="wreBookList">
+                                    <div class="ob-empty">点击「加载我的笔记」，列出你所有有划线的书</div>
+                                </div>
+
+                                <div class="ob-toolbar">
+                                    <label class="wre-check" title="只保留划线为纯英文的书籍">
+                                        <input type="checkbox" id="wreOnlyEnglish" checked><span>仅英文</span>
+                                    </label>
+                                    <button class="btn-primary ob-load-btn" id="wreLoadBtn">
+                                        <i class="fi-rr-refresh"></i>
+                                        加载我的笔记
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 右：导出设置与预览 -->
+                            <div class="ob-detail-panel">
+                                <div class="ob-panel-head">
+                                    <span class="ob-panel-title">导出设置</span>
+                                </div>
+                                <div class="ob-detail-scroll" id="wreDetailScroll">
+                                    <div class="ob-book-info" id="wreBookInfo">
+                                        <div class="ob-empty">在左侧选择一本书，勾选要导出的内容</div>
+                                    </div>
+
+                                    <div class="wre-options hidden" id="wreOptions">
+                                        <div class="wre-cols">
+                                            <div class="wre-col">
+                                                <div class="wre-section-title">导出内容</div>
+                                                <div class="wre-checks">
+                                                    <label class="wre-check"><input type="checkbox" id="wreIncludeMark" checked><span>划线</span></label>
+                                                    <label class="wre-check"><input type="checkbox" id="wreIncludeThought" checked><span>想法</span></label>
+                                                </div>
+                                                <div class="wre-summary" id="wreSummary"></div>
+                                                <div class="wre-col-desc">「划线」为书中原文高亮，「想法」为你的批注与感想。</div>
+                                                
+                                            </div>
+                                            <div class="wre-col">
+                                                <div class="wre-section-title">CEFR 标记</div>
+                                                <label class="wre-check"><input type="checkbox" id="wreCefrMark" checked><span>划线单词按等级染色</span></label>
+                                                <div class="wre-cefr-legend">
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-a1"></i>A1</span>
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-a2"></i>A2</span>
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-b1"></i>B1</span>
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-b2"></i>B2</span>
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-c1"></i>C1</span>
+                                                    <span class="wre-cefr-item"><i class="wre-cefr-dot cefr-c2"></i>C2</span>
+                                                </div>
+                                                <div class="wre-col-desc">CEFR 欧洲共同语言参考标准，难度由易到难 A1 → C2。</div>
+                                            </div>
+                                        </div>
+                                        
+
+                                        <div class="wre-section-title" id="wrePreviewTitle">预览</div>
+                                        <div class="wre-preview" id="wrePreview">
+                                            <div class="ob-empty">选择书籍后自动拉取划线与想法</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="ob-detail-actions">
+                                    <button class="ob-settings-btn" id="wreSettingsBtn" title="划线导出设置">
+                                        <i class="fi-rr-menu-burger"></i>
+                                    </button>
+                                    <div class="wre-export-split" id="wreExportSplit">
+                                        <button class="wre-export-main" id="wreExportMain" disabled>
+                                            <i class="fi-rr-download"></i>
+                                            导出
+                                        </button>
+                                        <button class="wre-export-toggle" id="wreExportToggle" disabled title="选择导出格式">
+                                            <span id="wreExportFmtLabel">.md</span>
+                                            <svg class="wre-export-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"></path></svg>
+                                        </button>
+                                        <div class="ai-picker-panel" id="wreExportFmtPanel" style="display:none">
+                                            <div class="ai-picker-item ai-picker-item-active" data-wre-fmt="md">
+                                                <span class="ai-picker-item-id" style="justify-content: end;">Markdown</span>
+                                                
+                                            </div>
+                                            <div class="ai-picker-item" data-wre-fmt="csv">
+                                                <span class="ai-picker-item-id" style="justify-content: end;">CSV</span>
+                                               
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 生成词书：左半「生成词书」，右半勾选要收录的 CEFR 等级 -->
+                                    <div class="wre-export-split wre-book-split" id="wreBookSplit">
+                                        <button class="wre-export-main" id="wreGenBookBtn" disabled>
+                                            <i class="fi-rr-add-document"></i>
+                                            生成词书
+                                        </button>
+                                        <button class="wre-export-toggle" id="wreGenBookToggle" title="勾选要收录的 CEFR 等级">
+                                            <span id="wreGenBookLabel">全选</span>
+                                            <svg class="wre-export-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"></path></svg>
+                                        </button>
+                                        <div class="ai-picker-panel wre-cefr-panel" id="wreGenBookPanel" style="display:none">
+                                            <div class="ai-picker-group-title wre-cefr-all-title" data-wre-level="ALL" title="点击全选 / 取消全选">
+                                                <span>CEFR</span>
+                                                <span class="wre-cefr-all-toggle">
+                                                    <span class="ai-picker-item-id">全选</span>
+                                                    <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                                </span>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="A1">
+                                                <i class="wre-cefr-dot cefr-a1"></i>
+                                                <span class="ai-picker-item-id">A1 入门</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="A2">
+                                                <i class="wre-cefr-dot cefr-a2"></i>
+                                                <span class="ai-picker-item-id">A2 基础</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="B1">
+                                                <i class="wre-cefr-dot cefr-b1"></i>
+                                                <span class="ai-picker-item-id">B1 进阶</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="B2">
+                                                <i class="wre-cefr-dot cefr-b2"></i>
+                                                <span class="ai-picker-item-id">B2 高阶</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="C1">
+                                                <i class="wre-cefr-dot cefr-c1"></i>
+                                                <span class="ai-picker-item-id">C1 精通</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt on" data-wre-level="C2">
+                                                <i class="wre-cefr-dot cefr-c2"></i>
+                                                <span class="ai-picker-item-id">C2 母语</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-group-title">其他</div>
+                                            <div class="ai-picker-item wre-cefr-opt" data-wre-exclude="1" title="若单词已存在于我的其他词书或收藏词单中，则排除不选">
+                                                
+                                                <span class="ai-picker-item-id">排除已有词书</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                            <div class="ai-picker-item wre-cefr-opt" data-wre-single="1" title="仅收录划线为单个单词的情况，短语/长句划线整体不选">
+                                                
+                                                <span class="ai-picker-item-id">单一划线</span>
+                                                <svg class="wre-cefr-check svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -3566,14 +4164,16 @@
 
                     <!-- 自定义模型管理 -->
                     <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                            <label class="setting-label" style="margin:0;">自定义模型列表</label>
-                            <button type="button" class="btn-secondary" id="addCustomModelFromSettings" style="padding:4px 12px; font-size:13px;">➕ 添加模型</button>
-                        </div>
+                        <label class="setting-label" style="margin:0 0 8px;">自定义模型列表</label>
                         <div class="setting-hint" style="margin-bottom: 12px;">
-                            在模型下拉中通过「➕ 添加自定义模型」新增的模型会汇总在此处，可统一管理删除。模型 ID 在添加模型时填写。
+                            左侧填模型 ID（直接用于 API 请求的 model 参数），右侧填名称（选填，默认同模型 ID），点「+」添加到当前厂商。
                         </div>
-                        <div id="customModelList" style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 4px;">
+                        <div class="custom-model-add-row">
+                            <input type="text" class="setting-input" id="customModelIdInput" placeholder="模型 ID" autocomplete="off">
+                            <input type="text" class="setting-input" id="customModelLabelInput" placeholder="名称（选填）" autocomplete="off">
+                            <button type="button" class="btn-icon custom-model-add-btn" id="customModelAddBtn" title="添加模型"><i class="fi-rr-add"></i></button>
+                        </div>
+                        <div id="customModelList" style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 4px; margin-top: var(--spacing-md)">
                             <!-- 动态渲染自定义模型列表项 -->
                         </div>
                     </div>
@@ -3690,15 +4290,29 @@
                             <option value="dandelion">蒲公英聚类</option>
                         </select>
                         <div class="setting-hint">
-                            「单词导入」封面即现有首页，放置导入词单按钮，供初次使用的用户了解单词导入流程。
-                            「混沌星云」按词义分类把词书聚成语义星团，以 WebGL 流场粒子与弹性物理呈现，支持拖拽旋转、滚轮缩放、悬停查看语义连线、点击查看词卡。
-                            「蒲公英聚类」把词书按词义聚成蒲公英冠毛上的种子簇，以植物学草地场景呈现：种子越大词频越高，暖橘色为高错误率的重点难词，支持拖拽旋转、滚轮缩放、悬停或点击查看词卡。
+                            「单词导入」为现有首页；其余封面按词义聚成星团或蒲公英种子簇，可旋转缩放、点击查看词卡。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">导入词典</label>
+                        <div class="setting-hint">
+                            拖入或点选 .mdx 词典文件，解析后自动保存到 data/ 目录并加入下方词典列表。
+                        </div>
+                        <div class="dict-import-area dict-import-area-settings" id="settingsDictImportArea" title="支持 MDX/MDD/JS等 词典文件">
+                            <svg class="dict-import-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <div class="dict-import-text">导入词典</div>
+                            <div class="dict-import-hint" id="settingsDictImportHint">拖入/点选 .mdx 文件</div>
+                            <input type="file" id="settingsDictImportInput" accept=".mdx" hidden>
                         </div>
                     </div>
                     <div class="setting-group">
                         <label class="setting-label">首选查词词典</label>
                         <div class="setting-hint">
-                            顶部「查单词」输入框优先使用该词典的释义；点选已启用词典设为首选，或拖拽词库在「已启用/已禁用」两栏间切换启用状态。
+                            查单词时优先使用该词典释义：点选设为首选，拖拽切换启用状态。
                         </div>
                         <div class="settings-dict-picker" id="settingsDictPicker">
                             <button type="button" class="dict-picker-trigger" id="settingsDictPickerTrigger">
@@ -3717,10 +4331,49 @@
                         </div>
                     </div>
                     <div class="setting-group">
-                        <label class="setting-label">划线转发地址</label>
-                        <input type="text" class="setting-input" id="obWereadProxy" placeholder="http://127.0.0.1:8377/weread（默认本地网关）">
+                        <label class="setting-label">
+                            <span>跟随系统主题</span>
+                            <input type="checkbox" class="setting-checkbox" id="followSystemTheme">
+                        </label>
                         <div class="setting-hint">
-                            微信读书官方网关不允许浏览器跨域直连，需由转发层代填密钥后转发。默认使用本机网关（在项目根目录运行 <code>node tools/serve.js</code>）；若已有远程转发服务，可在此填写其完整地址（POST，接收 JSON 与 X-Weread-Key 请求头）。
+                            深浅色跟随系统（Obsidian 中跟随其主题），关闭后可手动切换。
+                        </div>
+                    </div>
+                    <div class="setting-section-title">Obsidian 相关设置</div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <span>右侧窗口查词</span>
+                            <input type="checkbox" class="setting-checkbox" id="dictLookupInSidebar">
+                        </label>
+                        <div class="setting-hint">
+                            开启后「查看词典详情」改由右侧栏展示，主页不弹浮层。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <span>隐藏右侧栏导入词典</span>
+                            <input type="checkbox" class="setting-checkbox" id="hideSidebarImport">
+                        </label>
+                        <div class="setting-hint">
+                            开启后右侧栏底部不再显示「导入词典」拖入区，查单词视野更完整（仍可在本页设置中导入）。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <span>悬浮取词</span>
+                            <input type="checkbox" class="setting-checkbox" id="hoverLookup">
+                        </label>
+                        <div class="setting-hint">
+                            鼠标在笔记单词上停留 0.5 秒即推送到右侧栏查词（仅右侧栏已打开时）。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <span>划词翻译</span>
+                            <input type="checkbox" class="setting-checkbox" id="selectionTranslate">
+                        </label>
+                        <div class="setting-hint">
+                            选中文本右键「翻译」，单词显示词典释义，句子调用 AI 翻译。
                         </div>
                     </div>
                 </div>
@@ -4152,49 +4805,52 @@
             </div>
             <div class="modal-body">
                 <div class="writing-settings-form">
-                    <div class="ws-field">
-                        <label for="writingTopic">写作主题</label>
+                    <div class="form-group">
+                        <label class="form-label" for="writingTopic">写作主题</label>
                         <select class="form-select setting-select" id="writingTopic" title="写作主题">
-                            <option value="随机" selected>🔄 随机主题</option>
-                            <option value="科技未来">🚀 科技未来</option>
-                            <option value="环境与能源">🌍 环境与能源</option>
-                            <option value="教育社科">🎓 教育社科</option>
-                            <option value="商业职场">💼 商业职场</option>
-                            <option value="健康与生活">❤️ 健康与生活</option>
-                            <option value="社会问题">🔍 社会问题</option>
-                            <option value="文化交流">🎭 文化交流</option>
-                            <option value="个人经历">📝 个人经历</option>
+                            <option value="随机" selected data-icon="fi-rr-shuffle" data-desc="随机抽取，每次都有新题目">随机主题</option>
+                            <option value="科技未来" data-icon="fi-rr-rocket" data-desc="人工智能、太空探索与前沿科技议题">科技未来</option>
+                            <option value="环境与能源" data-icon="fi-rr-leaf" data-desc="气候变化、清洁能源与生态治理">环境与能源</option>
+                            <option value="教育社科" data-icon="fi-rr-graduation-cap" data-desc="教育政策、社会分层与人文观察">教育社科</option>
+                            <option value="商业职场" data-icon="fi-rr-briefcase" data-desc="商业战略、组织管理与职场生态">商业职场</option>
+                            <option value="健康与生活" data-icon="fi-rr-heart" data-desc="公共卫生、心理健康与生活方式">健康与生活</option>
+                            <option value="社会问题" data-icon="fi-rr-users" data-desc="城市治理、公共议题与社会现象">社会问题</option>
+                            <option value="文化交流" data-icon="fi-rr-globe" data-desc="跨文化沟通、传统习俗与文明互鉴">文化交流</option>
+                            <option value="个人经历" data-icon="fi-rr-notebook" data-desc="个人成长、生活感悟与真实经历">个人经历</option>
                         </select>
                     </div>
-                    <div class="ws-row">
-                        <div class="ws-field">
-                            <label for="writingLevel">目标等级</label>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="writingLevel">目标等级</label>
                             <select class="form-select setting-select" id="writingLevel" title="目标等级">
-                                <option value="A1">A1 初级</option>
-                                <option value="A2">A2 初中级</option>
-                                <option value="B1">B1 中级</option>
-                                <option value="B2" selected>B2 中高级</option>
-                                <option value="C1">C1 高级</option>
-                                <option value="C2">C2 精通</option>
+                                <option value="A1" data-tag="A1" data-desc="基础词汇 1000 · 简单日常短句">初级</option>
+                                <option value="A2" data-tag="A2" data-desc="中考 / 剑桥KET · 词汇量 2000">初中级</option>
+                                <option value="B1" data-tag="B1" data-desc="高考 / 四级初阶 · 词汇量 3500~4500">中级</option>
+                                <option value="B2" selected data-tag="B2" data-desc="六级 / 考研 / 雅思6.5 · 词汇量 5500~6500">中高级</option>
+                                <option value="C1" data-tag="C1" data-desc="专八 / 托福105+ / GRE · 词汇量 8000~10000">高级</option>
+                                <option value="C2" data-tag="C2" data-desc="学术期刊原刊 · 词汇量 12000+">精通</option>
                             </select>
                         </div>
-                        <div class="ws-field">
-                            <label for="writingStyle">文体</label>
+                        <div class="form-group">
+                            <label class="form-label" for="writingStyle">文体</label>
                             <select class="form-select setting-select" id="writingStyle" title="文体">
-                                <option value="议论文" selected>议论文</option>
-                                <option value="记叙文">记叙文</option>
-                                <option value="说明文">说明文</option>
-                                <option value="书信">书信</option>
-                                <option value="演讲稿">演讲稿</option>
+                                <option value="议论文" selected data-icon="fi-rr-scale" data-desc="立论、论据与论证的严谨表达">议论文</option>
+                                <option value="记叙文" data-icon="fi-rr-book-open-reader" data-desc="以叙事与描写还原人物和事件">记叙文</option>
+                                <option value="说明文" data-icon="fi-rr-info" data-desc="客观阐释事理与原理的说明性文体">说明文</option>
+                                <option value="书信" data-icon="fi-rr-envelope" data-desc="有称呼与落款的往来书信格式">书信</option>
+                                <option value="演讲稿" data-icon="fi-rr-microphone" data-desc="面向听众、富有感染力的演讲文稿">演讲稿</option>
                             </select>
                         </div>
                     </div>
-                    <div class="ws-field">
-                        <label for="writingAiModel">AI 模型</label>
-                        <select class="form-select" id="writingAiModel" title="AI模型" data-ai-model-select data-short-label="true"></select>
+                    <div class="form-group">
+                        <label class="form-label" for="writingAiModel">
+                            AI 模型
+                            <span class="form-hint">(不同模型生成风格不同)</span>
+                        </label>
+                        <select class="form-select" id="writingAiModel" title="AI模型" data-ai-model-select data-short-label="true" data-picker-icon="fi-rr-microchip"></select>
                     </div>
-                    <div class="ws-field">
-                        <label for="writingPrompt">额外要求</label>
+                    <div class="form-group">
+                        <label class="form-label" for="writingPrompt">额外要求</label>
                         <input type="text" id="writingPrompt" class="form-input" placeholder="可选，例如：围绕校园生活展开...">
                     </div>
                     <!-- 行为开关（自原「写作设置」面板迁入） -->
@@ -4282,6 +4938,76 @@
         </div>
     </div>
 
+    <!-- 微信读书划线导出：沿用原著榜 Key 确认弹窗 -->
+    <div class="modal hidden" id="wreKeyModal">
+        <div class="modal-overlay" data-close-modal="wreKeyModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>微信读书 API Key</h3>
+                <button class="btn-icon" data-close-modal="wreKeyModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="wre-key-question">
+                    检测到「英文原著榜」已保存微信读书 API Key：
+                    <code id="wreKeyMasked">wrk-****</code>，是否沿用？
+                </p>
+                <div class="ws-field hidden" id="wreKeyField">
+                    <label for="wreKeyInput">新的 API Key</label>
+                    <input type="password" class="form-input" id="wreKeyInput" placeholder="wrk-xxxxxxxx">
+                    <div class="setting-hint">
+                        Key 在 <a href="https://weread.qq.com/r/weread-skills" target="_blank" rel="noopener">微信读书 Skills 配置页</a> 扫码获取，仅保存在本机浏览器中，不会上传到其它服务。
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="wreKeyNewBtn">填写新 Key</button>
+                <button class="btn-primary" id="wreKeyReuseBtn">沿用原著榜 Key</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 微信读书划线导出：设置弹窗 -->
+    <div class="modal hidden" id="wreSettingsModal">
+        <div class="modal-overlay" data-close-modal="wreSettingsModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>划线导出设置</h3>
+                <button class="btn-icon" data-close-modal="wreSettingsModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="ob-settings-form">
+                    <div class="ws-field">
+                        <label for="wreWereadKey">微信读书 API Key</label>
+                        <input type="password" class="form-input" id="wreWereadKey" placeholder="wrk-xxxxxxxx">
+                        <div class="setting-hint">
+                            留空则自动沿用「英文原著榜」中已保存的 Key。Key 在 <a href="https://weread.qq.com/r/weread-skills" target="_blank" rel="noopener">微信读书 Skills 配置页</a> 扫码获取，仅保存在本机浏览器中，不会上传到其它服务。
+                        </div>
+                    </div>
+                    <div class="ws-field">
+                        <label for="wreWereadProxy">划线转发地址</label>
+                        <input type="text" class="form-input" id="wreWereadProxy" placeholder="留空用本地网关 http://127.0.0.1:8377">
+                        <div class="setting-hint">
+                            官方网关 CORS 仅放行 weread.qq.com，浏览器无法直连。默认经本地 <code>node tools/serve.js</code> 转发，与「英文原著榜」共用同一地址。
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="wreSettingsSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 贡献插件弹窗 -->
     <div class="modal hidden" id="contributePluginModal">
         <div class="modal-overlay" data-close-modal="contributePluginModal"></div>
@@ -4334,8 +5060,11 @@
                 </button>
             </div>
             <div class="modal-body">
-                <div class="md-reader" id="aboutMdContent">
-                    <div class="md-loading">正在加载说明文档…</div>
+                <div class="md-layout">
+                    <nav class="md-toc" id="aboutMdToc" aria-label="目录" hidden></nav>
+                    <div class="md-reader" id="aboutMdContent">
+                        <div class="md-loading">正在加载说明文档…</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -4345,17 +5074,19 @@
     <script src="lib/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="data/cefr-data.js"></script>
-    <script src="data/synonym-538-data.js"></script>
-    <script src="data/synonym-kaoyan-data.js"></script>
-    <script src="data/liyi-ielts-data.js"></script>
-    <script src="data/liyi-kaoyan-data.js"></script>
-    <script src="data/词义分类-dict.js"></script>
-    <script src="data/englishwords-dict.js"></script>
-    <script src="data/word-roots-dict.js"></script>
+    <!-- 内置数据（词单/分类树/词根表）与生成产物，均非可下载词典，见 data/internal 与 lib -->
+    <script src="data/internal/cefr-data.js"></script>
+    <script src="data/internal/synonym-538-data.js"></script>
+    <script src="data/internal/synonym-kaoyan-data.js"></script>
+    <script src="data/internal/liyi-ielts-data.js"></script>
+    <script src="data/internal/liyi-kaoyan-data.js"></script>
+    <script src="data/internal/词义分类-dict.js"></script>
+    <script src="data/internal/word-roots-dict.js"></script>
+    <!-- data/ 顶层为词典目录（*-dict.json，全部按需下载）；此处只引入清单与目录 -->
     <script src="data/dict-manifest.js"></script>
-    <script src="data/about-readme.js"></script>
-    <script src="data/uicons-icons.js"></script>
+    <script src="data/dict-catalog.js"></script>
+    <script src="lib/about-readme.js"></script>
+    <script src="lib/uicons-icons.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>
     <script src="js/ai-service.js"></script>
@@ -4376,13 +5107,82 @@
         const aiDetail = document.getElementById('dictLookupAiDetail');
         const clearBtn = document.getElementById('dictLookupClear');
         const wrap = document.getElementById('dictLookup');
+        // Obsidian 右侧栏模式（?wmView=dict）：仅保留查词引擎，下拉常驻展开并铺满侧栏。
+        // 布局覆盖见上方 html.wm-sidebar-mode 系列样式，此处仅切换行为
+        const SIDEBAR = new URLSearchParams(location.search).get('wmView') === 'dict';
+        if (SIDEBAR) document.documentElement.classList.add('wm-sidebar-mode');
+        // Obsidian 宿主（主视图带 wmHost=1，由插件附加）：右侧栏查词视图可用，
+        // 页面内所有「查看词典详情」跳转改由右侧栏承接，主页不再弹结果窗口
+        const HOST = !SIDEBAR && new URLSearchParams(location.search).get('wmHost') === '1';
+        // 是否把查词跳转交给右侧栏承接：需在 Obsidian 宿主中且设置页开关「右侧窗口查词」开启。
+        // 开关实时读取（设置保存后无需刷新页面即可生效），未设置过时默认开启
+        function useSidebarLookup() {
+            if (!HOST) return false;
+            try {
+                const s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {};
+                return s.dictLookupInSidebar !== false;
+            } catch (e) { return false; }
+        }
+        // 侧栏模式：按设置「隐藏右侧栏导入词典」决定是否显示底部拖入区。
+        // 开关默认开启（隐藏）；跨 iframe 由 storage 事件实时同步，无需刷新
+        function applySidebarImportVisibility() {
+            if (!SIDEBAR) return;
+            let hide = true;
+            try {
+                const s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {};
+                hide = s.hideSidebarImport !== false;
+            } catch (e) { /* 忽略 */ }
+            document.documentElement.classList.toggle('wm-hide-import', hide);
+        }
+        applySidebarImportVisibility();
+        window.addEventListener('storage', function (ev) {
+            if (!SIDEBAR) return;
+            if (ev.key && ev.key.indexOf('wordMemory_user_json_') !== 0) return;
+            applySidebarImportVisibility();
+        });
+        // 宿主（Obsidian 插件）侧功能开关：悬浮取词 / 划词翻译。
+        // 主页设置保存后即时回传插件，插件据此决定是否启用悬浮取词、右键「翻译」菜单项
+        function hostFeatureSettings() {
+            let s = {};
+            try { s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {}; } catch (e) { s = {}; }
+            return { hoverLookup: s.hoverLookup !== false, selectionTranslate: s.selectionTranslate !== false };
+        }
+        function syncHostFeatureSettings() {
+            if (!HOST) return;
+            try { window.parent.postMessage(Object.assign({ type: 'wm-ob-settings' }, hostFeatureSettings()), '*'); } catch (e) { /* 忽略 */ }
+        }
+        // 供同文档内的 app.js 保存设置后调用（非宿主环境为空操作）
+        window.__wmSyncHostSettings = syncHostFeatureSettings;
+        if (HOST) syncHostFeatureSettings();
+        // 侧栏模式常驻跟随宿主（Obsidian）主题：URL 参数避免首屏闪烁，后续由插件推送
+        if (SIDEBAR) {
+            const wmTheme = new URLSearchParams(location.search).get('wmTheme');
+            const dark = wmTheme
+                ? wmTheme === 'dark'
+                : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+            window.addEventListener('message', function (ev) {
+                const d = ev.data;
+                if (d && d.type === 'wm-theme') {
+                    document.documentElement.setAttribute('data-theme', d.theme === 'dark' ? 'dark' : 'light');
+                }
+            });
+        }
         let ready = false;
         let dropdownOpen = false;
         let lastQuery = '';
+        let lastQueryDisp = ''; // 查询词的原始大小写（展示用，如 Design / DESIGN），检索仍用 lastQuery
         let deb = 0;
         let pendingEnter = null; // Enter 直达：检索结果返回后要自动打开的查询词（null 表示无待打开）
         let pendingDetail = false; // 详情过渡中：清单保持显示，等引擎渲染完成（opened）再切换到详情，避免闪烁
         let altDividerAdded = false; // 是否已在主（精准）与次（近似/形近）分界处画过分隔线
+
+        // 词典键与引擎回传的 q 均为小写：统一归一化。
+        // 否则首字母大写的词（如 Design）会与 lastQuery / pendingEnter 比对不一致，
+        // 结果被当作过期数据丢弃，表现为"查无结果"
+        function normWord(s) {
+            return String(s == null ? '' : s).trim().toLowerCase();
+        }
 
         // 清空按钮显隐：输入框有文本时显示
         function updateClearBtn() {
@@ -4392,6 +5192,7 @@
         function clearInput() {
             input.value = '';
             lastQuery = '';
+            lastQueryDisp = '';
             pendingEnter = null;
             updateClearBtn();
             if (dropdown.classList.contains('detail')) exitDetail();
@@ -4406,6 +5207,19 @@
 
         function post(obj) {
             try { frame.contentWindow.postMessage(Object.assign({ __dictLookup: 1 }, obj), '*'); } catch (e) { /* 忽略 */ }
+        }
+        // 显示下拉：侧栏模式用 flex 撑满剩余空间（配合 CSS），主界面沿用绝对定位浮层
+        function showDropdown() {
+            dropdown.style.display = SIDEBAR ? 'flex' : 'block';
+            wrap.classList.add('dict-lookup-open');
+        }
+        // 侧栏模式：输入框未聚焦、且未处于详情态时，隐藏下方结果列，保持侧栏留白无干扰
+        function sidebarIdle() {
+            if (!SIDEBAR) return;
+            const busy = dropdown.classList.contains('detail') || pendingDetail || !aiDetail.classList.contains('hidden');
+            const active = document.activeElement;
+            const inLookup = active === input || (!!active && wrap.contains(active));
+            wrap.classList.toggle('dict-lookup-idle', !busy && !inLookup);
         }
         // 主词高亮候选：复用 app 的词形/不规则变体匹配（如 forbid → forbidden），随 open 命令传给词典引擎高亮例句
         function dictCandidates(word) {
@@ -4437,12 +5251,14 @@
             try { return localStorage.getItem('browseDictCur') || ''; } catch (e) { return ''; }
         }
         function doSearch() {
-            lastQuery = input.value.trim();
+            lastQueryDisp = input.value.trim(); // 展示保留用户输入的原貌
+            lastQuery = normWord(lastQueryDisp); // 检索键统一小写
             if (!ready) return; // 引擎就绪后自动补发
             post({ cmd: 'search', q: lastQuery });
         }
         function showRecent() {
             lastQuery = '';
+            lastQueryDisp = '';
             pendingEnter = null;
             dropdownOpen = true;
             if (dropdown.classList.contains('detail')) exitDetail(); // 回到结果列表视图
@@ -4591,7 +5407,7 @@
             return false;
         }
         // 未配置 API 时的温和提示：灰色可点击，点击打开设置界面的 AI 设置
-        function renderAiConfigHint(container) {
+        function renderAiConfigHint(container, text) {
             const host = container || results;
             const scope = host === results ? results : host;
             // 清理占位与旧提示，避免重复
@@ -4600,15 +5416,26 @@
             if (scope.querySelector && scope.querySelector('.dl-ai-config-hint')) return;
             const tip = document.createElement('div');
             tip.className = 'dl-ai-config-hint';
-            tip.textContent = '本地词典未查到当前单词，是否配置API进行在线翻译 →';
+            tip.textContent = text || '本地词典未查到当前单词，是否配置API进行在线翻译 →';
+            // 阻止输入框失焦与冒泡（避免触发外层「点击查词区外关闭」等逻辑）
             tip.addEventListener('mousedown', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
+            });
+            tip.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
                 closeDropdown();
-                if (window.app && typeof window.app.openSettings === 'function') {
-                    window.app.openSettings();
-                    if (typeof window.app.switchSettingsTab === 'function') window.app.switchSettingsTab('ai');
-                }
+                // 延迟到本次点击事件派发结束后再打开设置弹窗：若在 mousedown 阶段即弹出，
+                // 弹窗会出现在光标下方，随后的 click 命中弹窗遮罩触发「点击遮罩关闭」，
+                // 表现为设置弹窗一闪即关（侧栏与主页均受影响）
+                setTimeout(function () {
+                    if (window.app && typeof window.app.openSettings === 'function') {
+                        window.app.openSettings();
+                        // 定位到 AI 设置：无本地释义时正需配置 API 密钥
+                        if (typeof window.app.switchSettingsTab === 'function') window.app.switchSettingsTab('ai');
+                    }
+                }, 0);
             });
             host.appendChild(tip);
         }
@@ -4655,11 +5482,20 @@
                 results.innerHTML = '<div class="dl-ai-translation"><div class="dl-ai-error">AI翻译失败：' + (String(err.message || '') || '未知错误').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div></div>';
             });
         }
-        function renderDropdown(words) {
+        function renderDropdown(words, isHistory) {
             if (!dropdownOpen) return; // 下拉已关闭：丢弃迟到结果
             results.innerHTML = '';
             results.scrollTop = 0; // 新查询结果重置滚动到顶部
             altDividerAdded = false;
+            // 历史查询视图：顶部居中灰字标题 + 分隔线，与下方历史词条列表区分
+            if (isHistory && words && words.length) {
+                const title = document.createElement('div');
+                title.className = 'dl-history-title';
+                title.textContent = '历史查询';
+                results.appendChild(title);
+                results.appendChild(dividerEl());
+                altDividerAdded = true; // 分隔线已画，避免后续追加逻辑重复画线
+            }
             if (!words || !words.length) {
                 if (/[\u4e00-\u9fa5]/.test(String(lastQuery || ''))) {
                     // 中文查询：不自动 AI 翻译，先展示 AI 入口 + 分隔线，等待本地逆向查词结果填充
@@ -4696,10 +5532,11 @@
                     }
                 }
             }
-            dropdown.style.display = 'block';
+            dropdown.style.display = SIDEBAR ? 'flex' : 'block';
             wrap.classList.add('dict-lookup-open');
             // 详情模式下不打断正在展示的词条，仅后台刷新结果
             if (!dropdown.classList.contains('detail')) results.style.display = '';
+            sidebarIdle(); // 侧栏：初始渲染时输入框尚未聚焦，保持结果列收起
         }
         // 在结果末尾追加形近词（整体一致性 + 字母连贯一致性，来自 NebulaCover.similar）：
         // 词典词（精准/近似）优先，形近词排在清单靠后；与已有结果去重。
@@ -4716,7 +5553,7 @@
                     const sw = String(s.w || '').toLowerCase();
                     if (existing.has(sw)) return;
                     existing.add(sw);
-                    // 释义取自基础词典（englishwords-dict.js，{phonetic, meaning}）：音标 + 空格 + 释义拼接
+                    // 释义取自基础词典（englishwords-dict.json，{phonetic, meaning}）：音标 + 空格 + 释义拼接
                     let preview = '';
                     if (window.NebulaCover && typeof window.NebulaCover.lookup === 'function') {
                         const entry = window.NebulaCover.lookup(s.w);
@@ -4850,8 +5687,7 @@
         // 详情模式：下拉直接展示词条释义（iframe 铺满下拉宽度）
         function openWord(it) {
             dropdownOpen = true;
-            dropdown.style.display = 'block';
-            wrap.classList.add('dict-lookup-open');
+            showDropdown();
             // 过渡优化：iframe 立即渲染但视觉隐藏（悬浮于清单之上，保持布局使引擎测高准确），
             // 等引擎渲染完成（opened 消息）再撤掉隐藏、隐藏清单，实现"清单→详情"无闪烁切换
             pendingDetail = true;
@@ -4878,13 +5714,16 @@
                     });
                 });
             }
-            post({ cmd: 'open', w: it.w, q: lastQuery, dict: it.dict, base: base, favorited: favorited, cands: dictCandidates(it.w) });
+            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, favorited: favorited, cands: dictCandidates(it.w) });
             input.blur();
+            sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦，如由主页转交的请求）
         }
         // 测量 iframe 内容高度撑开 frame：最小按内容，最大与 results 的 max-height 一致（56vh）。
         // 优先使用引擎渲染完成后报告的内容高度；图片等异步资源加载后高度会变化，延迟多次复测。
         function resizeFrame(reportedH) {
             if (frame.style.display === 'none') return;
+            // 侧栏模式：高度由 CSS flex 撑满，既不按内容测高，也不设 56vh 上限
+            if (SIDEBAR) { frame.style.height = ''; return; }
             let h = reportedH || 0;
             try {
                 const doc = frame.contentDocument || frame.contentWindow.document;
@@ -4912,16 +5751,39 @@
             results.style.display = '';
         }
 
+        // AI 返回内容按 Markdown 渲染（复用 app.renderMarkdown，其内部已做 HTML 转义）；
+        // 渲染器不可用时退回转义后的纯文本。外层 md-reader 复用阅读器样式，dl-ai-md 复位父级 white-space
+        function renderAiMarkdown(text) {
+            var raw = String(text == null ? '' : text);
+            var md = null;
+            if (window.app && typeof window.app.renderMarkdown === 'function') {
+                try { md = window.app.renderMarkdown(raw); } catch (e) { md = null; }
+            }
+            if (md == null) md = raw.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<div class="md-reader dl-ai-md">' + md + '</div>';
+        }
+
+        // 进入 AI 翻译详情：隐藏词典 iframe 与结果列（否则二者同为 flex:1 各占一半高度，
+        // 翻译结果会显示在内容区中部），并清空上次内容、回到顶部，确保新结果从顶部开始显示
+        function enterAiDetail() {
+            dropdown.classList.add('detail');
+            results.style.display = 'none';
+            frame.style.display = 'none';
+            frame.classList.remove('pre-detail');
+            aiDetail.classList.remove('hidden');
+            aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '';
+            aiDetail.scrollTop = 0;
+        }
+
         // 打开 AI 翻译详情视图：调用 AI 翻译后展示在详情页中，支持点击空白处折叠返回
         function openAiDetail(word) {
             if (!word || !window.app || typeof window.app.dictLookupTranslate !== 'function') return;
             dropdownOpen = true;
-            dropdown.style.display = 'block';
-            wrap.classList.add('dict-lookup-open');
+            showDropdown();
             // 进入详情模式
-            dropdown.classList.add('detail');
-            results.style.display = 'none';
-            aiDetail.classList.remove('hidden');
+            enterAiDetail();
+            aiDetail.classList.remove('is-sentence'); // 单词详情：恢复常规标题字号
+            sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦）
             // 加载中
             aiDetail.querySelector('.dl-ai-detail-word').textContent = word;
             // 未配置 API 密钥：不调用接口（避免报错），展示温和的灰色可点击提示
@@ -4943,9 +5805,39 @@
                 if (result.phonetic) {
                     bodyHtml += '<div style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px;">' + result.phonetic.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                 }
-                bodyHtml += '<div>' + (result.meaning || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                bodyHtml += renderAiMarkdown(result.meaning || '');
                 aiDetail.querySelector('.dl-ai-detail-body').innerHTML = bodyHtml;
             }).catch(function (err) {
+                aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-error">AI翻译失败：' + (String(err.message || '') || '未知错误').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+            });
+            input.blur();
+        }
+
+        // 句子/短语 AI 翻译详情：与 openAiDetail 共用同一详情面板，仅改用整句翻译接口
+        function openSentenceDetail(text) {
+            if (!text || !window.app || typeof window.app.translateText !== 'function') return;
+            dropdownOpen = true;
+            showDropdown();
+            enterAiDetail();
+            aiDetail.classList.add('is-sentence'); // 长句标题降级显示，避免撑破详情头
+            sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦）
+            aiDetail.querySelector('.dl-ai-detail-word').textContent = text;
+            // 未配置 API 密钥：不调用接口，展示温和的灰色可点击提示
+            if (!hasAiApiKey()) {
+                const body = aiDetail.querySelector('.dl-ai-detail-body');
+                body.innerHTML = '';
+                renderAiConfigHint(body, '尚未配置 API 密钥，无法在线翻译 →');
+                input.blur();
+                setDictStatus(false);
+                return;
+            }
+            aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-loading">正在调用AI翻译...</div>';
+            window.app.translateText(text).then(function (result) {
+                setDictStatus(false); // 翻译结果已回，收起顶部提示
+                if (aiDetail.classList.contains('hidden')) return;
+                aiDetail.querySelector('.dl-ai-detail-body').innerHTML = renderAiMarkdown(result);
+            }).catch(function (err) {
+                setDictStatus(false);
                 aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-error">AI翻译失败：' + (String(err.message || '') || '未知错误').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
             });
             input.blur();
@@ -4963,6 +5855,8 @@
         });
 
         function closeDropdown() {
+            // 侧栏模式：下拉常驻展开，不真正关闭，仅回到最近查词列表
+            if (SIDEBAR) { showRecent(); return; }
             dropdownOpen = false;
             pendingEnter = null;
             pendingDetail = false;
@@ -4994,28 +5888,53 @@
             // 查词时暂停答题计时
             if (window.app && typeof window.app.pauseWordTiming === 'function') window.app.pauseWordTiming();
             if (!input.value.trim()) showRecent();
+            sidebarIdle(); // 聚焦即展开结果列
         });
+        if (SIDEBAR) {
+            // 侧栏：输入框失焦即收起结果列；点击查词区之外的空白处也一并收起（保持留白）
+            input.addEventListener('blur', sidebarIdle);
+            document.addEventListener('mousedown', function (e) {
+                if (wrap.contains(e.target)) return; // 点击查词区内部不处理（详情态由 busy 判定兜底）
+                setTimeout(sidebarIdle, 0);
+            });
+        }
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 const q = input.value.trim();
                 if (!q) return;
                 const items = dropdown.querySelectorAll('.dl-item');
+                const nq = normWord(q);
                 // 下拉结果与当前输入一致（新鲜结果）：直接打开首项
-                if (lastQuery === q && items.length && items[0].__data) { openWord(items[0].__data); return; }
+                if (lastQuery === nq && items.length && items[0].__data) { openWord(items[0].__data); return; }
                 // 结果未返回/已过期（防抖未触发，仍是上一个查询的旧结果）：按最新输入检索，
                 // 结果返回后由 search-res 自动打开详情，确保打开的是最新输入的词
-                pendingEnter = q;
+                pendingEnter = nq;
                 doSearch();
             } else if (e.key === 'Escape') {
                 closeDropdown();
             }
         });
 
-        // 点击输入框外部关闭下拉（详情同样关闭）
-        document.addEventListener('mousedown', function (e) {
+        // 点击输入框外部关闭下拉（详情同样关闭）；侧栏模式常驻展开，不注册该关闭行为
+        if (!SIDEBAR) document.addEventListener('mousedown', function (e) {
             const wrap = document.getElementById('dictLookup');
             if (wrap && !wrap.contains(e.target)) closeDropdown();
         });
+
+        // 侧栏顶部栏状态提示：悬浮取词 / 划词翻译触发后显示「查询中」，结果返回即隐藏
+        const dictStatusEl = document.getElementById('dictSidebarStatus');
+        const dictStatusTextEl = document.getElementById('dictSidebarStatusText');
+        let dictStatusTimer = 0;
+        function setDictStatus(busy, label) {
+            if (!dictStatusEl) return;
+            clearTimeout(dictStatusTimer);
+            if (!busy) { dictStatusEl.classList.add('hidden'); return; }
+            dictStatusTextEl.textContent = label || '查询中';
+            dictStatusEl.classList.remove('hidden');
+            // 兜底：异常导致结果未回时自动收起，避免提示常驻
+            dictStatusTimer = setTimeout(function () { dictStatusEl.classList.add('hidden'); }, 20000);
+        }
+        window.setDictStatus = setDictStatus;
 
         // 引擎消息
         window.addEventListener('message', function (ev) {
@@ -5032,17 +5951,18 @@
                 });
                 syncTheme(); // 就绪后同步当前主题（深色/浅色）到引擎
                 if (lastQuery) post({ cmd: 'search', q: lastQuery });
+                else if (SIDEBAR) showRecent(); // 侧栏：直接展示最近查词，保持常驻展开
                 else if (document.activeElement === input && !input.value.trim()) post({ cmd: 'recent' });
                 return;
             }
             if (d.type === 'search-res') {
                 if (d.q !== lastQuery) return; // 丢弃过期结果
-                renderDropdown(d.words);
+                renderDropdown(d.words, !!d.recent);
                 if (d.hasDicts !== false) {
                     // 有词典：词典词（精准/近似）优先展示后，再在清单末尾追加形近词
                     appendSimilarWords(d.words, d.q);
                 }
-                // 查英文单词：基础词典（englishwords-dict.js）始终作为内置词典兜底，
+                // 查英文单词：基础词典（englishwords-dict.json）始终作为内置词典兜底，
                 // 直接体现在最后一个匹配的词典释义位置（分隔线紧挨的上方）；中文输入走逆向查词
                 if (!/[\u4e00-\u9fa5]/.test(String(d.q || ''))) {
                     appendBaseFallback(d.words, d.q);
@@ -5074,6 +5994,7 @@
             }
             if (d.type === 'opened') {
                 // 引擎渲染完成：从清单无缝切换到详情视图（清单保持显示到此刻，避免闪烁），再按内容撑开 iframe
+                setDictStatus(false); // 查询结果已就绪，收起顶部「查询中」提示
                 if (pendingDetail) {
                     pendingDetail = false;
                     frame.classList.remove('pre-detail');
@@ -5090,8 +6011,9 @@
                 exitDetail();
                 // 用该词检索并渲染下拉结果列表
                 if (ready) {
-                    lastQuery = word;
-                    post({ cmd: 'search', q: word });
+                    lastQueryDisp = String(word).trim();
+                    lastQuery = normWord(word);
+                    post({ cmd: 'search', q: lastQuery });
                 }
                 return;
             }
@@ -5200,23 +6122,117 @@
 
         // 星云词卡等外部入口：点击单词在查词下拉中展开首选词典的详细释义
         window.openDictLookupWord = function (word) {
-            const q = String(word || '').trim();
+            const disp = String(word == null ? '' : word).trim(); // 展示保留原貌（Design / DESIGN）
+            const q = normWord(disp); // 检索键统一小写（词典键均为小写）
             if (!q) return;
-            input.value = q;
+            // Obsidian 宿主且开启「右侧窗口查词」：转交右侧栏查词视图承接，
+            // 主页不弹结果窗口，保持无干扰的专注度
+            if (useSidebarLookup()) {
+                try { window.parent.postMessage({ type: 'wm-dict-lookup', word: disp }, '*'); } catch (e) { /* 忽略 */ }
+                return;
+            }
+            input.value = disp; // 输入框保留原大小写，不改成小写
             lastQuery = q;
+            lastQueryDisp = disp;
             updateClearBtn();
             let dict = '';
             try { dict = localStorage.getItem('browseDictCur') || ''; } catch (e) { /* 忽略 */ }
             if (!ready) {
                 // 引擎未就绪：缓存 open 命令，就绪后自动补发（沿用设置页 pending 机制）
                 const pend = window.__dictLookupPending || (window.__dictLookupPending = []);
-                pend.push({ __dictLookup: 1, cmd: 'open', w: q, q: q, dict: dict, cands: dictCandidates(q) });
+                pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q) });
             }
-            openWord({ w: q, q: q, dict: dict });
+            openWord({ w: q, disp: disp, q: q, dict: dict });
             // 同时检索该词，填充下拉结果列表（多本词典释义列表，首选词典优先）：
             // 详情模式下列表保持隐藏，点击 header 折叠返回时即可展示，无需重新输入
             if (ready) post({ cmd: 'search', q: q });
         };
+        // 侧栏模式：接收宿主转发的「查看词典详情」请求（主页背单词模式点击单词等入口），
+        // 在侧栏中展开该词的详情，主页因此保持无弹窗覆盖
+        if (SIDEBAR) {
+            window.addEventListener('message', function (ev) {
+                const d = ev.data;
+                if (!d) return;
+                if (d.type === 'wm-dict-word' && d.word) {
+                    setDictStatus(true, '查询中'); // 悬浮取词命中：提示查询进行中
+                    if (typeof window.openDictLookupWord === 'function') window.openDictLookupWord(d.word);
+                } else if (d.type === 'wm-dict-translate' && d.text) {
+                    // Obsidian 划词右键「翻译」：单词走首选词典释义，句子/短语走 AI 翻译
+                    setDictStatus(true, '查询中');
+                    translateSelection(d.text);
+                }
+            });
+        }
+        // 划词翻译入口：单个英文单词（允许连字符/撇号）交给查词引擎展示首选词典释义，
+        // 其余（句子、短语、中文）调用 AI 翻译
+        function translateSelection(text) {
+            const t = String(text || '').replace(/\s+/g, ' ').trim();
+            if (!t) return;
+            if (/^[A-Za-z][A-Za-z'’-]*$/.test(t)) {
+                if (typeof window.openDictLookupWord === 'function') window.openDictLookupWord(t);
+                return;
+            }
+            openSentenceDetail(t);
+        }
+        // 「导入词典」拖入区（拖入或点击选择 .mdx）：文件转交引擎（browse-dict.html）
+        // 解析并落盘到 data/ 目录，复用其 MDX 解析工具链。
+        // 侧栏底部与页面设置内共用本工厂，两处功能一致
+        function createDictImportArea(cfg) {
+            const area = document.getElementById(cfg.area);
+            const fileInput = document.getElementById(cfg.input);
+            const hint = document.getElementById(cfg.hint);
+            if (!area || !fileInput || !hint) return;
+            const DEFAULT_HINT = '拖入或点击选择 .mdx 文件';
+            let busy = false;
+            function setHint(text, isError) {
+                hint.textContent = text || DEFAULT_HINT;
+                hint.classList.toggle('is-error', !!isError);
+            }
+            function handleFile(file) {
+                if (!file || busy) return;
+                if (!/\.mdx$/i.test(file.name)) { setHint('仅支持 .mdx 词典文件', true); return; }
+                busy = true;
+                setHint('正在解析 ' + file.name + '…');
+                // File 可结构化克隆：直接转交引擎，由其完成解析与保存
+                try {
+                    frame.contentWindow.postMessage({ __dictLookup: 1, cmd: 'import-mdx-file', file: file }, '*');
+                } catch (e) {
+                    busy = false;
+                    setHint('无法转交引擎解析：' + e.message, true);
+                }
+            }
+            area.addEventListener('click', function () { if (!busy) fileInput.click(); });
+            fileInput.addEventListener('change', function () {
+                handleFile(fileInput.files && fileInput.files[0]);
+                fileInput.value = '';
+            });
+            area.addEventListener('dragover', function (e) { e.preventDefault(); area.classList.add('dragover'); });
+            area.addEventListener('dragleave', function () { area.classList.remove('dragover'); });
+            area.addEventListener('drop', function (e) {
+                e.preventDefault();
+                area.classList.remove('dragover');
+                const dt = e.dataTransfer;
+                if (dt && dt.files && dt.files[0]) handleFile(dt.files[0]);
+            });
+            // 引擎回报的导入进度与结果
+            window.addEventListener('message', function (ev) {
+                const d = ev.data || {};
+                if (!d.__dictLookup || d.type !== 'import-status') return;
+                if (d.done) busy = false;
+                setHint(d.text, !!d.error);
+                if (d.done && !d.error) setTimeout(function () { setHint(''); }, 4000);
+            });
+        }
+        createDictImportArea({
+            area: 'settingsDictImportArea',
+            input: 'settingsDictImportInput',
+            hint: 'settingsDictImportHint'
+        });
+        if (SIDEBAR) createDictImportArea({
+            area: 'dictImportArea',
+            input: 'dictImportInput',
+            hint: 'dictImportHint'
+        });
         // 背单词模式：点击主词（wordText / 记得么 rememberWordText），在查词下拉中展开首选词典的详细释义
         
         // 从词典引擎查询单词的例句（异步，返回 Promise）
@@ -5267,15 +6283,15 @@
         })();
     })();
 
-    // ===== 设置页：首选查词词典下拉（复用 browse-dict 的启用/禁用拖拽，持久化到 localStorage 并同步引擎） =====
-    (function () {
-        const picker = document.getElementById('settingsDictPicker');
-        if (!picker) return;
-        const trigger = document.getElementById('settingsDictPickerTrigger');
-        const triggerId = document.getElementById('settingsDictPickerTriggerId');
-        const panel = document.getElementById('settingsDictPickerPanel');
-        const enabledBox = document.getElementById('settingsDictEnabled');
-        const disabledBox = document.getElementById('settingsDictDisabled');
+    // ===== 词库启用状况下拉（首选查词词典）：可复用的选择器实例 =====
+    // 设置页与 Obsidian 右侧栏菜单共用同一套渲染/拖拽/重命名逻辑与引擎消息协议，
+    // 仅传入各自 DOM 与定位方式（cfg.positionPanel 为 null 时由 CSS 定位）。
+    function createDictPicker(cfg) {
+        const trigger = cfg.trigger;
+        const triggerId = cfg.triggerId;
+        const panel = cfg.panel;
+        const enabledBox = cfg.enabledBox;
+        const disabledBox = cfg.disabledBox;
         let dragState = null; // { varName, startX, startY, moved, ghost }
 
         function lsGet(key, def) {
@@ -5335,7 +6351,7 @@
             const enabledList = dicts.filter(d => d.enabled);
             const disabledList = dicts.filter(d => !d.enabled);
             const pref = dicts.find(d => d.varName === preferred) || enabledList[0] || null;
-            triggerId.textContent = pref ? pref.name : (dicts.length ? '未设置' : '未检测到词典');
+            if (triggerId) triggerId.textContent = pref ? pref.name : (dicts.length ? '未设置' : '未检测到词典');
             enabledBox.innerHTML = '';
             disabledBox.innerHTML = '';
             const buildItem = (d, isEnabled) => {
@@ -5483,15 +6499,9 @@
             if (section) section.classList.add('drag-over');
         }
 
-        function positionPanel() {
-            const r = trigger.getBoundingClientRect();
-            panel.style.left = r.left + 'px';
-            panel.style.top = (r.bottom + 6) + 'px';
-            panel.style.width = Math.max(r.width, 340) + 'px';
-        }
         function openPanel() {
             renderPicker();
-            positionPanel();
+            if (cfg.positionPanel) cfg.positionPanel(); // 侧栏实例由 CSS 定位，无需 JS 计算
             notify('get-state'); // 从引擎拉取最新词库状态
             panel.classList.add('open');
         }
@@ -5504,20 +6514,61 @@
         });
         panel.addEventListener('click', (e) => e.stopPropagation());
         document.addEventListener('click', closePanel);
-        window.addEventListener('resize', () => { if (panel.classList.contains('open')) positionPanel(); });
+        window.addEventListener('resize', () => {
+            if (cfg.positionPanel && panel.classList.contains('open')) cfg.positionPanel();
+        });
+        // 首选查词词典在另一视图被切换时（跨文档只写 localStorage，收不到引擎广播），
+        // 主动向本视图引擎拉取最新状态，保证两处下拉展示一致
+        window.addEventListener('storage', (ev) => {
+            if (ev && ev.key === 'browseDictCur') notify('get-state');
+        });
+        renderPicker();
+        notify('get-state'); // 初始渲染后向引擎请求一次状态（引擎就绪后会广播）
+        return { refresh: function () { renderPicker(); notify('get-state'); } };
+    }
+
+    // 实例一：设置页「首选查词词典」下拉（固定定位跟随 trigger，适配弹窗滚动）
+    (function () {
+        const picker = document.getElementById('settingsDictPicker');
+        if (!picker) return;
+        const trigger = document.getElementById('settingsDictPickerTrigger');
+        const panel = document.getElementById('settingsDictPickerPanel');
+        const inst = createDictPicker({
+            trigger: trigger,
+            triggerId: document.getElementById('settingsDictPickerTriggerId'),
+            panel: panel,
+            enabledBox: document.getElementById('settingsDictEnabled'),
+            disabledBox: document.getElementById('settingsDictDisabled'),
+            positionPanel: function () {
+                const r = trigger.getBoundingClientRect();
+                panel.style.left = r.left + 'px';
+                panel.style.top = (r.bottom + 6) + 'px';
+                panel.style.width = Math.max(r.width, 340) + 'px';
+            }
+        });
         // 设置弹窗每次打开时重新渲染（引擎导入新词库后即时反映）
         const settingsModal = document.getElementById('settingsModal');
         if (settingsModal) {
             new MutationObserver(() => {
-                if (!settingsModal.classList.contains('hidden')) {
-                    renderPicker();
-                    notify('get-state');
-                }
+                if (!settingsModal.classList.contains('hidden')) inst.refresh();
             }).observe(settingsModal, { attributes: true, attributeFilter: ['class'] });
         }
-        renderPicker();
-        notify('get-state'); // 初始渲染后向引擎请求一次状态（引擎就绪后会广播）
     })();
+
+    // 实例二：Obsidian 右侧栏顶部栏设置按钮（仅侧栏模式存在）。
+    // 复用主页设置弹窗（app.openSettings），但侧栏下仅暴露「AI设置」「页面设置」两个选项卡
+    if (document.documentElement.classList.contains('wm-sidebar-mode')) {
+        const sBtn = document.getElementById('dictSidebarSettingsBtn');
+        if (sBtn) {
+            sBtn.addEventListener('click', function () {
+                if (window.app && typeof window.app.openSettings === 'function') {
+                    window.app.openSettings();
+                    // 默认停在「页面设置」：首选查词词典、导入词典均在此，最贴近查词场景
+                    window.app.switchSettingsTab('page');
+                }
+            });
+        }
+    }
     </script>
     
     <!-- Service Worker 注册 (PWA支持) -->
