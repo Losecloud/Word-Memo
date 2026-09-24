@@ -39,7 +39,7 @@ ENGINE_FILE = "tools/browse-dict.html"
 CONTAINER_MAGIC = b"WMB1"
 
 RECITING_RAW = "https://raw.githubusercontent.com/Losecloud/reciting/main/data/"
-WORD_MEMO_RELEASE = "https://github.com/Losecloud/word-memo/releases/download/"
+WORD_MEMO_RELEASE = "https://github.com/Losecloud/Obsidian-Word-Memo/releases/download/"
 # 承载超大词典（oaldpe，320MB，超出 GitHub 仓库单文件 100MB 限制）的 Release 标签
 DICT_RELEASE_TAG = "dict-v1"
 
