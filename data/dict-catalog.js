@@ -5,7 +5,8 @@ var DICT_CATALOG = {
   {
    "file": "englishwords-dict.json",
    "varName": "ENGLISHWORDS_DICT",
-   "label": "基础英汉词库",
+   "label": "基础词典",
+   "name": "基础词典",
    "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，作为默认兜底词库",
    "icon": "🔤",
    "size": 9206517,

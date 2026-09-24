@@ -54,7 +54,9 @@ DICT_CATALOG = [
     {
         "file": "englishwords-dict.json",
         "varName": "ENGLISHWORDS_DICT",
-        "label": "基础英汉词库",
+        "label": "基础词典",
+        # name：查词引擎词典清单里的显示名（引擎不读 catalog，故在此随清单一起下发）
+        "name": "基础词典",
         "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，作为默认兜底词库",
         "icon": "🔤",
         "source": "reciting",
@@ -175,7 +177,8 @@ def sync_repo_manifest():
             continue
         entries.append({
             "file": item["file"],
-            "name": item["file"][:-len("-dict.json")],
+            # 显示名优先取 catalog 的 name（如 englishwords → 基础词典），否则按文件名推导
+            "name": item.get("name") or item["file"][:-len("-dict.json")],
             "varName": item["varName"],
         })
     text = ("// 自动生成：tools/web2ob.py 按 DICT_CATALOG 同步，请勿手改\n"

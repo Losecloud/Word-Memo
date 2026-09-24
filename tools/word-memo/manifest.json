@@ -1,0 +1,10 @@
+{
+  "id": "word-memo",
+  "name": "word-memo",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Look up words and translate selected text from notes and PDFs, backed by an in-app dictionary, semantic word nebula, spaced repetition review, and AI explanations.",
+  "author": "词忆团队",
+  "authorUrl": "https://github.com/Losecloud/word-memo",
+  "isDesktopOnly": true
+}

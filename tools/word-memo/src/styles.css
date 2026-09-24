@@ -1,0 +1,150 @@
+/* 词忆 Word Memo：让 iframe 铺满整个视图区（整页应用 + 右侧栏查词引擎 + 封面视窗共用） */
+.workspace-leaf-content[data-type="word-memo-view"] .view-content,
+.workspace-leaf-content[data-type="word-memo-dict-view"] .view-content,
+.workspace-leaf-content[data-type="word-memo-cover-view"] .view-content {
+    padding: 0;
+    overflow: hidden;
+}
+
+.word-memo-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+}
+
+/* PDF 划词翻译：选区旁浮出的按钮（PDF 查看器不触发 editor-menu，故自绘入口） */
+.word-memo-pdf-translate-btn {
+    position: fixed;
+    z-index: var(--layer-menu, 30);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-on-accent, #fff);
+    background: var(--interactive-accent, #7c6cff);
+    box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
+    user-select: none;
+    transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+/* 按钮内图标（static/image/search.svg）：固定尺寸并随按钮前景色着色 */
+.word-memo-pdf-translate-btn svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+}
+
+.word-memo-pdf-translate-btn:hover {
+    filter: brightness(1.1);
+    transform: scale(1.06);
+}
+
+/* 追加进 PDF 原生右键菜单的「查询」项：Obsidian 版本不含 menu-item 样式时兜底 */
+.word-memo-pdf-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2, 8px);
+    padding: var(--size-4-1, 4px) var(--size-4-4, 12px);
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+/* 菜单项内的词忆图标（static/image/search.svg）：固定尺寸并随菜单项前景色着色 */
+.word-memo-pdf-menu-item .menu-item-icon svg {
+    width: var(--icon-size, 16px);
+    height: var(--icon-size, 16px);
+    display: block;
+}
+
+.word-memo-pdf-menu-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+/* ---- 设置页：单页分区布局 -------------------------------------------
+   排版参考 Hearth 的 section 结构：分区标题/描述在盒子外，原生 .setting-item
+   行装在圆角描边盒子内。全部使用 :root 变量，自动适配深浅主题 */
+
+/* 返回按钮：退出到 Obsidian「第三方插件」列表 */
+.word-memo-settings-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0 0 16px;
+    padding: 5px 10px 5px 6px;
+    border-radius: 7px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+    transition: background 110ms ease, color 110ms ease;
+}
+
+.word-memo-settings-back:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.word-memo-settings-back-icon {
+    display: inline-flex;
+}
+
+.word-memo-settings-back-icon .svg-icon {
+    width: 15px;
+    height: 15px;
+}
+
+.word-memo-section {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 22px;
+}
+
+.word-memo-section-head {
+    padding: 0 4px 8px;
+}
+
+.word-memo-section-title {
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.word-memo-section-desc {
+    margin-top: 3px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    line-height: 1.45;
+    max-width: 60ch;
+}
+
+.word-memo-section-body {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    padding: 16px;
+}
+
+/* Obsidian 给每个 .setting-item 加顶部分隔线；盒子首行已有盒子自身的边框，去掉重复 */
+.word-memo-section-body > .setting-item:first-child {
+    border-top: none;
+}
+
+/* 关于分区的链接按钮：图标 + 文案 */
+.word-memo-about-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.word-memo-about-btn-icon {
+    display: inline-flex;
+}
+
+.word-memo-about-btn .svg-icon {
+    width: 15px;
+    height: 15px;
+}

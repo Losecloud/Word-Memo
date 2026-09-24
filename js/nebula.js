@@ -525,9 +525,17 @@
         });
     }
 
+    // 基础词典是否被用户显式停用（AI 工坊词典卡片开关写入的 baseDictDisabled 标记）；
+    // 无标记即启用，保持历史行为
+    function baseDictDisabled() {
+        try { return localStorage.getItem('baseDictDisabled') === '1'; } catch (e) { return false; }
+    }
+
     // 惰性加载基础英文词典（data/englishwords-dict.json，提供音标与释义，约8.8MB；词根聚类附属词词卡/3D详情用）
     function loadBaseDict() {
         if (global.ENGLISHWORDS_DICT) return Promise.resolve(global.ENGLISHWORDS_DICT);
+        // 已停用：不加载，形近词/释义补充随之缺省（省下 8.8MB 的下载与解析开销）
+        if (baseDictDisabled()) return Promise.resolve(null);
         return new Promise(function (resolve) {
             fetch('data/englishwords-dict.json', { cache: 'no-cache' })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })

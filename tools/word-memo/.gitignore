@@ -1,0 +1,10 @@
+# Obsidian 插件运行时数据（每个用户各不相同，不应提交）
+data.json
+
+# 操作系统 / 编辑器文件
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log

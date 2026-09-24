@@ -2,7 +2,7 @@
 var DICT_MANIFEST = [
  {
   "file": "englishwords-dict.json",
-  "name": "englishwords",
+  "name": "基础词典",
   "varName": "ENGLISHWORDS_DICT"
  },
  {

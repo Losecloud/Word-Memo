@@ -12,6 +12,38 @@ const Storage = {
         return localStorage.getItem('wordMemory_currentUser');
     },
 
+    // ----------------------------------------
+    // Obsidian 内置服务 HTTP 桥接
+    // ----------------------------------------
+    // 浏览器里 user/ 目录走 File System Access API；Obsidian（Electron）不开放该 API，
+    // 改由插件内置本地服务的 /__wm__/ 接口读写同一批 user_*.json，行为与浏览器一致。
+    _httpReady: false,
+    _httpProbe: null,
+
+    // 探测内置服务是否可用（幂等，只探测一次）
+    initHttpBridge() {
+        if (this._httpProbe) return this._httpProbe;
+        this._httpProbe = fetch('/__wm__/ping', { cache: 'no-store' })
+            .then((res) => res.ok)
+            .catch(() => false)
+            .then((ok) => { this._httpReady = ok; return ok; });
+        return this._httpProbe;
+    },
+
+    isHttpBridgeReady() {
+        return this._httpReady;
+    },
+
+    // 目录句柄是否可用（HTTP 桥接模式下视为可用）
+    _hasDirAccess() {
+        return !!(this._dirHandle && this._dirReady);
+    },
+
+    // 桥接模式下的用户名（与 _userFile 使用同一套非法字符替换规则）
+    _bridgeUserName(username) {
+        return (username || 'default').replace(/[\\/:*?"<>|]/g, '_');
+    },
+
     // 列出所有历史用户（扫描本地配置键），按创建时间倒序
     listUsers() {
         const users = [];
@@ -39,6 +71,22 @@ const Storage = {
         return users.map(u => u.username);
     },
 
+    // 列出所有历史用户：本地缓存 + user/ 目录（HTTP 桥接模式下合并磁盘账号）
+    async listUsersAsync() {
+        const users = this.listUsers();
+        if (!this._httpReady) return users;
+        try {
+            const res = await fetch('/__wm__/users', { cache: 'no-store' });
+            if (res.ok) {
+                const disk = await res.json();
+                for (const name of disk) {
+                    if (name && users.indexOf(name) === -1) users.push(name);
+                }
+            }
+        } catch (e) { /* 桥接不可用时忽略，仅用本地缓存 */ }
+        return users;
+    },
+
     // 删除某个历史用户的所有本地数据（含配置文件键）
     removeUser(username) {
         if (!username) return false;
@@ -60,6 +108,16 @@ const Storage = {
 
     // 删除 user/ 目录下指定用户的配置文件
     async _removeUserFile(username) {
+        // 桥接模式：走内置服务删除
+        if (this._httpReady && !this._hasDirAccess()) {
+            try {
+                await fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(username)), { method: 'DELETE' });
+                console.log(`🗑️ 已删除用户配置文件: user_${this._bridgeUserName(username)}.json`);
+            } catch (e) {
+                // 文件不存在或删除失败，忽略
+            }
+            return;
+        }
         try {
             await this._dirHandle.removeEntry(this._userFile(username));
             console.log(`🗑️ 已删除用户配置文件: ${this._userFile(username)}`);
@@ -111,7 +169,11 @@ const Storage = {
                     autoNext: true,
                     autoNextTime: 1,
                     hotkeys: { option1: '1', option2: '2', option3: '3', option4: '4', option5: '5', option6: '6' },
-                    defaultCover: 'import'
+                    defaultCover: 'import',
+                    dictLookupInSidebar: true, // Obsidian：查词跳转是否交由右侧栏承接（默认开启）
+                    hoverLookup: true, // Obsidian：悬浮取词（默认开启）
+                    selectionTranslate: true, // Obsidian：划词右键「翻译」（默认开启）
+                    hideSidebarImport: true // Obsidian：隐藏右侧栏「导入词典」拖入区（默认开启）
                 },
                 aiSettings: {
                     aiApiKey: '',
@@ -248,9 +310,9 @@ const Storage = {
     // ============================================
     // localStorage 作为快速缓存，user/ 文件夹作为持久化来源，二者实时同步。
 
-    // 目录句柄是否可用（已获得读写授权）
+    // 目录句柄是否可用（已获得读写授权）；HTTP 桥接模式下同样视为可用
     isFileSystemReady() {
-        return !!(this._dirHandle && this._dirReady);
+        return this._hasDirAccess() || this._httpReady;
     },
 
     // 打开 IndexedDB 以便持久化目录句柄
@@ -295,7 +357,12 @@ const Storage = {
 
     // 弹出目录选择器，让用户选中 reciting/user/ 目录（需在用户手势中调用）
     async chooseUserDirectory() {
+        // 无 File System Access API 的环境（如 Obsidian）：改用内置服务桥接 user/ 目录
         if (!window.showDirectoryPicker) {
+            if (await this.initHttpBridge()) {
+                console.log('✅ 已启用内置服务目录桥接');
+                return true;
+            }
             console.warn('当前浏览器不支持 File System Access API');
             return false;
         }
@@ -316,11 +383,13 @@ const Storage = {
 
     // 是否已绑定过本地用户目录
     hasUserDirectory() {
-        return localStorage.getItem('wordMemory_haveUserDir') === '1';
+        return this._httpReady || localStorage.getItem('wordMemory_haveUserDir') === '1';
     },
 
     // 从 IndexedDB 恢复目录句柄并申请授权
     async restoreUserDirectory() {
+        // 桥接模式下无需目录句柄，user/ 目录由内置服务直接读写
+        if (await this.initHttpBridge()) return;
         if (!window.showDirectoryPicker || this._dirReady) return;
         try {
             const handle = await this._idbGet('userDir');
@@ -347,6 +416,19 @@ const Storage = {
         if (!user || user === '游客' || !this.isFileSystemReady() || !config) return false;
         // 先快照内容，避免后续串行写入时读到被再次修改的对象
         const snapshot = JSON.stringify(config, null, 2);
+        // 桥接模式：走内置服务写入（同样串行化，避免并发写导致文件停留在旧内容）
+        if (!this._hasDirAccess()) {
+            if (!this._bridgeChain) this._bridgeChain = Promise.resolve();
+            this._bridgeChain = this._bridgeChain
+                .then(() => fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(user)), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: snapshot
+                }))
+                .then((res) => res.ok)
+                .catch((e) => { console.warn('写入 user/ 目录失败:', e); return false; });
+            return this._bridgeChain;
+        }
         if (!this._writeChain) this._writeChain = Promise.resolve();
         // 串行化写入：并发 createWritable 会抛 InvalidModificationError 导致文件停留在旧内容，
         // 进而在下次登录时用旧文件覆盖 localStorage，造成“重登后词单/收藏丢失”。
@@ -365,6 +447,23 @@ const Storage = {
     async loadConfigFromFile(username) {
         const name = username || this.getCurrentUser();
         if (!name || name === '游客' || !this.isFileSystemReady()) return null;
+        // 桥接模式：走内置服务读取
+        if (!this._hasDirAccess()) {
+            try {
+                const res = await fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(name)), { cache: 'no-store' });
+                if (!res.ok) return null;
+                const config = await res.json();
+                if (config && config.username) {
+                    if (this._isFreshUser) {
+                        localStorage.setItem(`wordMemory_user_json_${name}`, JSON.stringify(config));
+                    }
+                    return config;
+                }
+            } catch (e) {
+                // 文件可能还不存在，忽略
+            }
+            return null;
+        }
         try {
             const fileHandle = await this._dirHandle.getFileHandle(this._userFile(name));
             const file = await fileHandle.getFile();
@@ -435,7 +534,12 @@ const Storage = {
             if (!config[section] || typeof config[section] !== 'object') config[section] = {};
             config[section][key] = value;
         }
-        return this.saveUserConfig(config);
+        const ok = this.saveUserConfig(config);
+        // 设置保存后通知宿主（Obsidian 插件）刷新悬浮取词 / 划词翻译开关，无需刷新页面
+        try {
+            if (typeof window !== 'undefined' && typeof window.__wmSyncHostSettings === 'function') window.__wmSyncHostSettings();
+        } catch (e) { /* 忽略 */ }
+        return ok;
     },
 
     // 读取任意分区数据（如 aiWorkspace），返回深拷贝避免误改

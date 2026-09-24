@@ -467,6 +467,7 @@
         transform: { x: 0, y: 0, k: 0.9 },
         fitZoom: 0,             // 适屏缩放（整朵蒲公英铺满屏幕的比例），外圈渐隐以此为基准
         viewTouched: false,     // 用户是否手动平移/缩放过视角
+        pendingView: null,      // 预置视口（封面视窗恢复视角用）：在首帧定取景时套用，避免先全域再跳变
         panning: false,
         panStart: null,
         // 多点触控：pointerId → 该指最近的画布坐标。双指同时按下时进入
@@ -490,8 +491,11 @@
         forcedIn: {},           // 手动拽回花头 → 强制不再飘（并取消收藏）
         dragSeed: null,         // 正在拖拽的飘散种子
         dragMoved: false,       // 本次按下是否已拖出足够距离（区分点击与拖拽）
+        pressButton: -1,        // 本次按下所用的鼠标键（0 = 左键）：只有左键单点才弹词卡
         dragStart: null,
         dragGrab: null,         // 抓取时指针与节点中心的偏移（世界坐标），拖动时保持它不跳位
+        dragWindX: 0,           // 按下瞬间冻结的风力位移（渲染坐标 − 基础坐标），拖拽期间恒定
+        dragWindY: 0,
         dragPointer: null,      // 拖拽中的指针屏幕坐标（画落点提示环用）
         // 花头在世界坐标中的中心与半径（每帧由 render/drawReceptacle 写入，拖拽落点判定用）
         headX: 0,
@@ -554,6 +558,8 @@
     }
 
     function currentCover() {
+        // 封面视窗（?wmView=cover）覆盖当前封面：只内存生效，不写回用户配置
+        if (global.__wmCoverOverride) return global.__wmCoverOverride;
         try {
             var cfg = Storage.getUserConfig();
             if (cfg && cfg.basicSettings && cfg.basicSettings.defaultCover) {
@@ -2151,7 +2157,9 @@
         for (var i = state.words.length - 1; i >= 0; i--) {
             if (wordKey(state.words[i]) === key) state.words.splice(i, 1);
         }
-        if (state.selectedWord === w) hideCard();
+        // 词卡原本跟在这个节点上：节点即将被移出 state.nodes（渲染坐标不再更新），
+        // 记下标记，等种子建好后把词卡转交给它，词卡才能继续跟着漂
+        var wasCard = (state.cardNode === node);
 
         state.forcedOut[key] = true;
         delete state.forcedIn[key];
@@ -2160,7 +2168,7 @@
 
         // 就地生成种子：位置即松手处，速度沿用自动种子的量级，松手后自然随风起漂
         var hash = Math.abs(hashWord(w.word));
-        state.meadow.seeds.push({
+        var seed = {
             x: (p.x - tr.x) / tr.k,
             y: (p.y - tr.y) / tr.k,
             vx: 0.20 + (hash % 4) * 0.04,
@@ -2170,7 +2178,9 @@
             rotSpeed: (hash % 2 === 0 ? 1 : -1) * 0.003,
             phase: (hash % 10) * 0.6,
             word: w
-        });
+        };
+        state.meadow.seeds.push(seed);
+        if (wasCard) openCard(seed);
         setFavorite(w, true);
         notify('⭐ 已收藏，' + w.word + ' 随风飘走', 'success');
     }
@@ -2203,6 +2213,15 @@
             state.words.push(w);
             // 给一点温度把新点推进阵型；已有扰动时不打扰
             if (state.sim.alpha < 0.35) state.sim.alpha = 0.35;
+        }
+        // 词卡原本跟在这颗种子上：改为跟随归位后的节点（种子已从空中移除，渲染坐标不再更新），
+        // 词卡才不会停在原地不动
+        if (state.cardNode === seed) {
+            var target = null;
+            for (var k2 = 0; k2 < state.nodes.length; k2++) {
+                if (wordKey(state.nodes[k2].word) === key) { target = state.nodes[k2]; break; }
+            }
+            if (target) openCard(target); else hideCard();
         }
         setFavorite(w, false);
         notify('✓ ' + w.word + ' 已回到蒲公英，标记为熟悉', 'info');
@@ -2271,7 +2290,10 @@
         var ch = root.clientHeight;
         var w = card.offsetWidth || 220;
         var h = card.offsetHeight || 120;
-        var gap = node.radius * tr.k + 16;
+        // gap 取「被跟随物的屏幕半径」：花头节点用 node.radius，空中种子没有半径，
+        // 按其绘制尺度（冠毛射线长约 16 世界单位）折算，保证卡片都贴在旁边不遮住词
+        var bodyR = node.radius !== undefined ? node.radius : 16 * (node.scale || 1);
+        var gap = bodyR * tr.k + 16;
         // 默认放在种子右侧；右侧放不下则翻到左侧，仍放不下则贴边
         var left = sx + gap;
         if (left + w > cw - 8) left = sx - gap - w;
@@ -2531,6 +2553,8 @@
             return;
         }
         state.pointers[e.pointerId] = p;
+        // 记下本次按下的鼠标键：词卡只在「左键单点」时弹出，右键/中键一律不弹
+        state.pressButton = e.button;
         // 分类标签优先于词节点：命中则锁定该聚类（再次点同一标签取消）
         var badge = badgeAtPoint(p.x, p.y);
         if (badge) {
@@ -2548,8 +2572,10 @@
         var seed = seedAtPoint(p.x, p.y);
         if (seed) {
             state.pinnedCluster = '';
-            hideCard();
             state.hoveredWord = null;
+            // 空中种子与花头单词同一套交互：拖进花头松手即归位，左键单点则弹词卡。
+            // 两者共用同一次按下，是否拖出阈值决定收尾走哪条路 —— 卡片延迟到松手时才开，
+            // 这样拖动、右键/中键都不会弹出词卡
             state.dragSeed = seed;
             seed.dragging = true;
             state.canvas.style.cursor = 'grabbing';
@@ -2563,25 +2589,30 @@
             // 点词即切到该词所属聚类，撤销标签锁定以免两者冲突
             state.pinnedCluster = '';
             state.dragNode = hit;
-            // 钉在「当前渲染位置」而非 sim 位置：渲染位置含风力偏移，
-            // 从它起拖才不会在按下的一瞬先弹回无风位置
+            // 按下瞬间冻结该词当前的风力位移（渲染坐标 − 基础坐标）。拖拽期间渲染取
+            // 「基础坐标 + 冻结位移」，按下前后渲染位置完全连续，不会先弹回无风位置再闪回
+            // （风力大时位移可达上百像素，就是"卡闪"的来源）。抓取偏移改按基础坐标计算，
+            // 于是「指针到哪词就到哪」依然 1:1 跟手
             var hx = hit.renderX !== undefined ? hit.renderX : hit.x;
             var hy = hit.renderY !== undefined ? hit.renderY : hit.y;
-            hit.fx = hx;
-            hit.fy = hy;
+            var bx0 = hit.x || 0;
+            var by0 = hit.y || 0;
+            state.dragWindX = hx - bx0;
+            state.dragWindY = hy - by0;
+            hit.fx = bx0;
+            hit.fy = by0;
             // 记下抓取点与节点中心的偏移，拖动全程保持它：
             // 否则节点会在第一次移动时"吸附"到指针正下方，跳一下才开始跟手
             var trg = state.transform;
             state.dragGrab = {
-                dx: (p.x - trg.x) / trg.k - hx,
-                dy: (p.y - trg.y) / trg.k - hy
+                dx: (p.x - trg.x) / trg.k - bx0,
+                dy: (p.y - trg.y) / trg.k - by0
             };
             // 拖拽期间不加热力导向：以前把 alpha 顶在 0.3，整朵花冠会持续互相
             // 排斥、所有词一起挪动，手感就像被"吸"着乱晃。这里只把目标温度归零，
             // 让力导向自然冷却（若上一轮收敛还没结束，就让它平静地跑完）。
             // 被拖节点的跟手不依赖力导向积分：onPointerMove 会直接写它的 x/y
             state.sim.alphaTarget = 0;
-            openCard(hit);
         } else {
             // 点击空白处：收起词卡并解除标签锁定
             state.pinnedCluster = '';
@@ -2643,7 +2674,9 @@
             return;
         }
         var hit = nodeAtPoint(p.x, p.y);
-        var next = hit ? hit.word : null;
+        // 空中种子与花头单词同为可点目标（点击都弹词卡）：没命中节点时再看是否悬停种子
+        var seedHit = hit ? null : seedAtPoint(p.x, p.y);
+        var next = hit ? hit.word : (seedHit ? seedHit.word : null);
         if (state.hoveredWord !== next) {
             state.hoveredWord = next;
             state.canvas.style.cursor = next ? 'pointer' : 'grab';
@@ -2660,12 +2693,16 @@
     // allowDrop：只有真正的 pointerup 才判定落点；pointerleave 只做收尾，
     // 避免指针滑出画布时误把词转成种子
     function onPointerUp(e, allowDrop) {
+        // 左键「单点」（按下后未拖出阈值）才弹词卡：拖动、右键/中键、以及指针滑出
+        // 画布导致的收尾（allowDrop=false）都不弹
+        var clickOk = allowDrop && !state.dragMoved && state.pressButton === 0;
         if (state.dragSeed) {
             var seed = state.dragSeed;
             seed.dragging = false;
             state.dragSeed = null;
             // 拖进花头范围松手 → 归位为花头里的词，并取消收藏
             if (allowDrop && state.dragMoved && insideHead(state.dragPointer)) dropSeedToNode(seed);
+            else if (clickOk) openCard(seed);
         }
         if (state.dragNode) {
             var node = state.dragNode;
@@ -2679,12 +2716,16 @@
             if (state.dragMoved) state.sim.alpha = Math.max(state.sim.alpha, 0.4);
             // 拖到花头之外松手 → 收藏该词并让它飘走
             if (allowDrop && state.dragMoved && !insideHead(state.dragPointer)) dropNodeToSeed(node, state.dragPointer);
+            else if (clickOk) openCard(node);
         }
         state.panning = false;
         state.dragStart = null;
         state.dragGrab = null;
+        state.dragWindX = 0;
+        state.dragWindY = 0;
         state.dragPointer = null;
         state.dragMoved = false;
+        state.pressButton = -1;
         if (state.canvas) state.canvas.style.cursor = 'grab';
     }
 
@@ -2749,6 +2790,15 @@
         state.transform.x = w * 0.5 - ROOT_X * k;
         state.transform.y = h * 0.5 - b.center * k;
         state.transform.k = k;
+        // 封面视窗恢复视角：预置视口在适屏缩放算出后立即套用，首帧即缓存视角（避免先全域再跳变）
+        if (state.pendingView) {
+            var pv = state.pendingView;
+            state.pendingView = null;
+            state.transform.k = k * pv.relK;
+            state.transform.x = w * 0.5 + pv.relX * k;
+            state.transform.y = h * 0.5 + pv.relY * k;
+            state.viewTouched = true; // 视为已手动调整，后续 resize 不再重置视角
+        }
     }
 
     // 渲染质量自适应：以 60fps 为基准，持续掉帧时降低渲染分辨率与细节密度，
@@ -2857,7 +2907,7 @@
             // 拖拽中的节点直接钉在指针落点，不参与后续的风力摇曳与弹性微颤。
             // 它已被 fx 钉在指针处，若这里再叠加逐帧变化的风力偏移，渲染坐标每帧
             // 都会从指针偏开一点再被下一帧拉回 —— 手势上就是"发飘、乱晃、像被吸附"
-            if (n === state.dragNode) { n.renderX = bx; n.renderY = by; continue; }
+            if (n === state.dragNode) { n.renderX = bx + state.dragWindX; n.renderY = by + state.dragWindY; continue; }
 
             var rigidX = headSwayX + (bx * cosA - by * sinA);
             var rigidY = headSwayY + (bx * sinA + by * cosA);
@@ -2935,8 +2985,11 @@
         state.dragNode = null;
         state.dragStart = null;
         state.dragGrab = null;
+        state.dragWindX = 0;
+        state.dragWindY = 0;
         state.dragPointer = null;
         state.dragMoved = false;
+        state.pressButton = -1;
         state.panning = false;
     }
 
@@ -3499,6 +3552,8 @@
         stop: stop,
         refresh: refresh,
         resetView: resetView,
-        getState: getState
+        getState: getState,
+        // 预置视口（封面视窗恢复视角用）：在下次定取景/重建时套用
+        primeView: function (v) { state.pendingView = v || null; }
     };
 })(window);

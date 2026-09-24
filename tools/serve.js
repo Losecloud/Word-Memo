@@ -5,6 +5,7 @@
 //  2. 提供 /dict-list.json 接口返回词典清单 {name, varName, file, size, count}
 //  3. 静态文件服务（浏览页/词典脚本）
 //  4. 提供 POST /weread 转发微信读书官方 Agent Gateway（供「英文原著榜」拉取热门划线，密钥经 X-Weread-Key 头传入）
+//  5. 提供 POST /delete-dict 卸载词典（删除 data/ 下的词典文件并更新清单）
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -44,6 +45,9 @@ function varNameFromFile(fname) {
   return String(fname).replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
 }
 
+// 词典清单里的显示名覆盖（文件名保持英文，供路径与变量名推导）
+const DICT_DISPLAY_NAMES = { 'englishwords-dict.json': '基础词典' };
+
 // 更新 dict-manifest.js：只 upsert 本次导入的词典条目，保留其余条目原样。
 // 不用整表重扫，避免抹掉已有条目的 mdd 资源目录（如 oaldpe 的样式/发音）等字段
 // varNameHint：JSON 内容无法解析出变量名，由调用方（/save-dict 请求）显式提供
@@ -63,7 +67,7 @@ function upsertManifest(fname, content, varNameHint) {
     if (arr) list = JSON.parse(arr[0]);
   } catch (e) { /* 无清单或格式异常：从空表开始 */ }
   if (!Array.isArray(list)) list = [];
-  const name = fname.replace(/-dict\.(js|json)$/i, '');
+  const name = DICT_DISPLAY_NAMES[fname] || fname.replace(/-dict\.(js|json)$/i, '');
   const entry = { file: fname, name: name, varName: varName };
   if (/-dict\.json$/i.test(fname)) entry.format = 'json';
   // 同名资源目录存在则记录 mdd（词条 HTML 中的图片/音频/CSS 均相对该目录解析）
@@ -76,6 +80,21 @@ function upsertManifest(fname, content, varNameHint) {
   const out = '// 自动生成：浏览器导入或 tools/convert-mdx.js 更新，请勿手改\nvar DICT_MANIFEST = ' + JSON.stringify(list, null, 1) + ';\n';
   fs.writeFileSync(mf, out, 'utf8');
   return list.length;
+}
+
+// 从 dict-manifest.js 移除指定文件的条目（卸载词典时用），保留其余条目原样
+function removeManifestEntry(fname) {
+  const mf = path.join(DATA_DIR, 'dict-manifest.js');
+  let list = [];
+  try {
+    const arr = /\[[\s\S]*\]/.exec(fs.readFileSync(mf, 'utf8'));
+    if (arr) list = JSON.parse(arr[0]);
+  } catch (e) { /* 无清单：无需处理 */ }
+  if (!Array.isArray(list)) return 0;
+  const next = list.filter(x => !x || x.file !== fname);
+  if (next.length === list.length) return list.length;
+  fs.writeFileSync(mf, '// 自动生成：浏览器导入或 tools/convert-mdx.js 更新，请勿手改\nvar DICT_MANIFEST = ' + JSON.stringify(next, null, 1) + ';\n', 'utf8');
+  return next.length;
 }
 
 function scanDicts() {
@@ -174,6 +193,30 @@ http.createServer((req, res) => {
         const count = upsertManifest(fname, content, varName);
         res.writeHead(200, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: true, file: fname, count: count }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // 卸载词典：删除 data/<fname> 并移除 dict-manifest.js 中的条目
+  if (req.method === 'POST' && url === '/delete-dict') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 64 * 1024) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { file } = JSON.parse(body);
+        // 只接受 data/ 直属的词典文件名，杜绝路径穿越
+        const safe = typeof file === 'string'
+          && /^[^\\/:*?"<>|]+-dict\.(js|json)$/i.test(file) && file.charAt(0) !== '.' ? file : '';
+        if (!safe) throw new Error('文件名不合法');
+        const fp = path.join(DATA_DIR, safe);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        const count = removeManifestEntry(safe);
+        res.writeHead(200, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: true, file: safe, count: count }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: false, error: e.message }));

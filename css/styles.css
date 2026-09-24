@@ -7,6 +7,7 @@
     --primary-color: #4a9d9a;
     --primary-hover: #3d8582;
     --primary-emphasis: #19aca4;
+    --primary-deep:#005f5a;
     --primary-light: #e8f5f4;
     --secondary-color: #6B7280;
     --background: #F5F7FA;
@@ -62,10 +63,44 @@
     --border-gradient: linear-gradient(135deg, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.2));
 }
 
+/* ============================================
+   全局滚动条默认样式（兜底）
+   ------------------------------------------------------------
+   目的：任何 overflow: auto/scroll 的容器都自动跟随深浅主题，
+   避免新容器漏写滚动条样式时，深色模式下出现系统浅色滚动条。
+   颜色一律走主题变量（--border-color / --text-tertiary）。
+   个别容器如需特殊尺寸/颜色，用更高优先级的类选择器覆盖即可；
+   需要隐藏滚动条的容器请继续用 `scrollbar-width: none`（类选择器优先级更高）。
+   ============================================ */
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    /* 滚动条跟随主题（Firefox / 新版 Chromium） */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
 }
 
 html {
@@ -412,7 +447,7 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
     padding: 0;
     border: none;
     background: transparent;
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--secondary-color);
     cursor: pointer;
     transition: color var(--transition-fast);
 }
@@ -472,6 +507,27 @@ body:not(.dual-view-mode):not(.immersive-mode) .main-container:has(.stats-panel:
     opacity: 0.6;
     margin-top: var(--spacing-xs);
     font-style: italic;
+}
+
+/* 时间与练习模式同一行：时间在左、模式在右 */
+.book-item-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-xs);
+}
+
+.book-item-meta .book-item-time {
+    margin-top: 0;
+}
+
+.book-item-mode {
+    font-size: 0.7rem;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* 收藏词单介绍（侧栏入口内） */
@@ -2071,7 +2127,7 @@ i[class^="fi-"], i[class*=" fi-"] {
 }
 .nebula-loader-ring1 {
     inset: 0;
-    border-top-color: var(--primary-color, #667eea);
+    border-top-color: var(--primary-color);
     border-right-color: rgba(255, 255, 255, 0.25);
     animation: nebula-loader-spin 1.1s linear infinite;
 }
@@ -2309,7 +2365,7 @@ i[class^="fi-"], i[class*=" fi-"] {
     position: static;
 }
 
-/* 与自绘典雅下拉的触发器同一套外观：同样的内边距/圆角/描边，右侧同样带 ▾ 箭头 */
+/* 与自绘典雅下拉的触发器同一套外观：同样的内边距/圆角/描边，右侧同样带 chevron 箭头 */
 .nebula-booktrigger {
     position: relative;
     width: 100%;
@@ -2329,15 +2385,27 @@ i[class^="fi-"], i[class*=" fi-"] {
     transition: border-color var(--transition-fast, 0.2s), background var(--transition-fast, 0.2s);
 }
 
+/* 下拉标识：与 .ai-picker-trigger::after 同一个 chevron 图标（rotate(-90deg) 朝下），
+   绝对定位故用 translateY(-50%) 做垂直居中 */
 .nebula-booktrigger::after {
-    content: '▾';
+    content: '';
     position: absolute;
     right: 8px;
     top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.7rem;
+    width: 0.85rem;
+    height: 0.85rem;
     color: color-mix(in srgb, var(--nc-ink) 70%, transparent);
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    transform: translateY(-50%) rotate(-90deg);
+    transition: transform var(--transition-fast, 0.2s);
     pointer-events: none;
+}
+
+/* 展开时箭头反向朝上（浮层去掉 .hidden 即展开） */
+.nebula-bookpicker:has(.nebula-bookpanel:not(.hidden)) .nebula-booktrigger::after {
+    transform: translateY(-50%) rotate(90deg);
 }
 
 .nebula-booktrigger:hover {
@@ -2391,7 +2459,7 @@ i[class^="fi-"], i[class*=" fi-"] {
 
 .nebula-bookopt input {
     margin: 0;
-    accent-color: var(--primary-color, #667eea);
+    accent-color: var(--primary-color);
 }
 
 /* ============================================================
@@ -2608,7 +2676,7 @@ i[class^="fi-"], i[class*=" fi-"] {
 }
 
 .nebula-switch input:checked + .nebula-switch-track {
-    background: #667eea;
+    background: var(--primary-color);
 }
 
 .nebula-switch input:checked + .nebula-switch-track::after {
@@ -3226,7 +3294,7 @@ body.nebula-word-themed .nebula-card {
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg);
     padding: var(--spacing-xl);
-    min-height: 650px; /* 固定高度，确保所有模式大小一致，外部按钮位置稳定 */
+    min-height: 670px; /* 固定高度，确保所有模式大小一致，外部按钮位置稳定 */
     position: relative;
     animation: slideIn var(--transition-normal) ease-out;
     z-index: 9;
@@ -4517,6 +4585,13 @@ body.nebula-word-themed .nebula-card {
     flex-wrap: wrap;
 }
 
+/* 拼写模式：连词短语的词组分隔（空格不占槽位，仅在此留出间隔） */
+.letter-group-gap {
+    width: 6px;
+    flex: 0 0 6px;
+    align-self: stretch;
+}
+
 .letter-slot {
     width: 48px;
     height: 64px;
@@ -5019,6 +5094,60 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .eudic-hint-ok { color: var(--success, #22C55E); }
 .eudic-hint-error { color: var(--error, #EF4444); }
+
+/* 授权码获取教程：未链接时显示，链接成功后由 JS 隐藏，把空间让给生词本清单 */
+.eudic-tutorial {
+    padding: 0.55rem 0.7rem;
+    background: var(--background);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.eudic-tutorial-title {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.eudic-tutorial-title i {
+    color: var(--primary-color);
+}
+
+.eudic-tutorial-steps {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.eudic-tutorial-steps b {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+/* 教程内的跳转链接：主色 + 细下划线，悬停加粗描边 */
+.eudic-tutorial a {
+    color: var(--primary-color);
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--primary-color) 40%, transparent);
+    transition: border-color var(--transition-fast);
+}
+
+.eudic-tutorial a:hover {
+    border-bottom-color: var(--primary-color);
+}
+
+.eudic-tutorial a i {
+    font-size: 0.62rem;
+}
 
 .eudic-cats {
     display: flex;
@@ -6994,11 +7123,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     opacity: 0.6;
 }
 
-/* 词典卡片底部：应用/卸载（应用后刷新页面才会加载该词典，减少加载时间） */
+/* 词典卡片底部：卸载（真正删除数据文件）／下载（进度条外壳） */
 .dict-apply-row {
     margin-top: auto;
     margin-bottom: var(--spacing-sm);
     display: flex;
+    align-items: center;
     justify-content: center;
     width: 100%;
 }
@@ -7017,6 +7147,97 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     transition: all var(--transition-fast);
 }
 
+/* 词典卡片右上角：启用/停用开关。
+   开关本体悬浮卡片时才露出（避免干扰卡片主体信息），
+   下方「已启用/已停用」小字常驻但极弱化；指到开关上浮出用途提示。 */
+.dict-switch-wrap {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    z-index: 2;
+}
+
+.dict-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 17px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-full);
+    background: var(--border-color);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.dict-switch.on {
+    background: var(--primary-color);
+}
+
+.dict-switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: var(--radius-full);
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast);
+}
+
+.dict-switch.on .dict-switch-knob {
+    transform: translateX(13px);
+}
+
+/* 悬浮卡片时才露出开关 */
+.workshop-app-card:hover .dict-switch,
+.dict-switch:focus-visible {
+    opacity: 1;
+}
+
+/* 状态小字：常驻，弱化到不抢卡片主体信息 */
+.dict-switch-state {
+    font-size: 0.6rem;
+    line-height: 1;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    user-select: none;
+}
+
+/* 用途提示：默认隐藏，鼠标悬浮到开关按钮上才浮出 */
+.dict-switch-tip {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    width: 148px;
+    padding: 6px 8px;
+    font-size: 0.65rem;
+    line-height: 1.45;
+    text-align: left;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--transition-fast);
+    z-index: 3;
+}
+
+.dict-switch:hover ~ .dict-switch-tip,
+.dict-switch:focus-visible ~ .dict-switch-tip {
+    opacity: 1;
+    visibility: visible;
+}
+
 .dict-apply-btn:hover {
     opacity: 0.75;
 }
@@ -7031,6 +7252,69 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: transparent;
     border-color: var(--border-color);
     color: var(--text-secondary);
+}
+
+/* 词典数据下载（AI 工坊「词典」类目卡片内，未安装词典）
+   按钮本身即进度条外壳：外壳为轨道底色，内部从左侧以主色填满表示进度。
+   文字叠两层——轨道色一层 + 反白色一层（按进度裁切），
+   使同一段文字在「已填充」「未填充」两种底色上都自动保持高对比。 */
+.dict-apply-btn.dict-dl-btn {
+    position: relative;
+    overflow: hidden;
+    background: var(--primary-light);
+    border-color: var(--primary-color);
+    cursor: default;
+}
+
+.dict-apply-btn.dict-dl-btn:hover {
+    opacity: 1;
+}
+
+.dict-dl-btn .dict-dl-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--dl-progress, 0%);
+    background: var(--primary-color);
+    transition: width var(--transition-fast) linear;
+    pointer-events: none;
+}
+
+.dict-dl-btn .dict-dl-label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.4rem;
+    overflow: hidden;
+    font-size: 0.72rem;
+    /* 数字等宽：进度/速度文字固定不抖动 */
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* 轨道底色上的文字：用次级灰降低未完成部分的对比度，让视线聚焦已填充区域 */
+.dict-dl-btn .dict-dl-label-base {
+    color: var(--text-tertiary);
+}
+
+/* 主色填充上的文字：反白，并按当前进度裁切 */
+.dict-dl-btn .dict-dl-label-on {
+    color: #fff;
+    clip-path: inset(0 calc(100% - var(--dl-progress, 0%)) 0 0);
+}
+
+/* 总大小未知的不确定态：填满并呼吸，提示「仍在传输」而非「已完成」 */
+.dict-dl-btn.dict-dl-unknown .dict-dl-fill {
+    animation: dictDlPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dictDlPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
 }
 
 .ai-workshop-title {
@@ -7220,7 +7504,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
 }
 
 .review-keyword-word {
@@ -7232,9 +7515,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     align-items: center;
     justify-content: center;
     min-width: 1.5rem;
-    height: 1.5rem;
-    padding: 0 0.35rem;
-    background: color-mix(in srgb, var(--error) 10%, transparent);
+    padding-left: 0.35rem;
     color: var(--error);
     border-radius: var(--radius-full);
     font-size: 0.75rem;
@@ -7243,8 +7524,68 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .review-keyword-item.selected .review-keyword-badge {
-    background: rgba(255, 255, 255, 0.3);
     color: white;
+}
+
+/* 关键词选择器容器：标签栏 + 各来源面板（词单/收藏/待复习）统一背景与间距 */
+.keyword-picker-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+/* 容器内三者统一到父容器背景，去掉各自的底色/描边与额外内边距 */
+.keyword-picker-box .keyword-mode-tabs {
+    margin-top: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+
+.keyword-picker-box .book-selector,
+.keyword-picker-box .keyword-list 
+.keyword-input-wrapper{
+    padding: 0;
+    margin-top: var(--spacing-md);
+    background: transparent;
+}
+
+/* 间距统一交给父容器 gap，避免叠加出双倍留白 */
+.keyword-picker-box .keyword-mode-content,
+.keyword-picker-box .auto-select-control {
+    margin-top: 0;
+}
+
+/* 内容区高度固定，使底部「立即挑选」不随各来源列表内容多少而上下窜动
+   = 列表上限 200px + 间距 1rem + 按钮 38px */
+.keyword-picker-box .keyword-mode-content {
+    flex: 1;
+    min-height: 254px;
+    display: flex;
+    flex-direction: column;
+}
+
+.keyword-picker-box .keyword-mode-panel.active {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.keyword-picker-box .keyword-selector,
+.keyword-picker-box .book-selector {
+    flex: 1;
+    min-height: 0;
+}
+
+/* 按钮组沉底：始终贴齐内容区底部 */
+.keyword-picker-box .auto-select-control {
+    margin-top: auto;
 }
 
 /* 关键词选择模式切换 */
@@ -7267,7 +7608,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     padding: 0.75rem 1rem;
     background: transparent;
     border: none;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     color: var(--text-secondary);
     font-size: 0.9rem;
     font-weight: 500;
@@ -7501,9 +7842,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     flex-wrap: wrap;
     gap: var(--spacing-sm);
     padding: var(--spacing-lg);
-    background: var(--surface);
+    background: var(--background);
     border-radius: var(--radius-md);
-    border: 2px dashed var(--border-color);
+    border: transparent;
     min-height: 80px;
     transition: all var(--transition-fast);
 }
@@ -7525,9 +7866,10 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     padding: 0.5rem 1rem;
     background: var(--surface);
     border: 2px solid var(--border-color);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     font-size: 0.9rem;
     cursor: pointer;
+    height:50px;
     color: var(--text-primary);
     transition: all var(--transition-fast);
 }
@@ -7556,61 +7898,176 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 0.85rem;
 }
 
-/* 自动选择控制 */
+/* 自动选择控制：分体按钮（左「立即挑选」+ 右三条杠开关），数量配置收进浮层 */
 .auto-select-control {
+    position: relative;
     display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
+    align-items: stretch;
+    justify-content: flex-end;
     margin-top: var(--spacing-md);
-    padding: var(--spacing-md);
-    background: linear-gradient(135deg, var(--primary-light) 0%, var(--surface) 100%);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--primary-color);
 }
 
-.auto-select-control label {
+.btn-auto-select {
+    width: auto;
+    height: 38px;
+    margin: 0;
+    padding: 0 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.btn-auto-select:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-auto-select svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2px;
+}
+
+/* 骰子图标：挑选时旋转（动画由 JS 的 Web Animations API 播放，每次触发必重放） */
+
+/* 右侧开关：与主按钮同高，左侧一条分隔线，展开时下沉一层色 */
+.btn-auto-select-toggle {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.28);
+    background: var(--primary-deep);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    transition: background var(--transition-fast);
+}
+
+.btn-auto-select-toggle:hover,
+.btn-auto-select-toggle.open {
+    background: var(--primary-hover);
+}
+
+/* 数量设置浮层：置于按钮上方，避免遮挡下方关键词展示区 */
+.auto-select-panel {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 1000;
+    width: 260px;
+    padding: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+    text-align: left;
+}
+
+.auto-select-panel-title {
+    padding-bottom: 0.6rem;
+    margin-bottom: 0.7rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-primary);
-    font-size: 0.95rem;
+}
+
+.auto-select-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    margin-bottom: 0.75rem;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+.auto-select-step {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.auto-select-step:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
 }
 
 .auto-select-input {
-    width: 70px;
-    padding: 0.5rem 0.75rem;
-    border: 2px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    padding: 0.25rem;
+    border: none;
+    background: transparent;
     color: var(--text-primary);
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 0.95rem;
+    font-weight: 700;
     text-align: center;
-    transition: all var(--transition-fast);
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 .auto-select-input:focus {
     outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px var(--primary-light);
+    box-shadow: none;
 }
 
-.auto-select-unit {
+.auto-select-input::-webkit-outer-spin-button,
+.auto-select-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.auto-select-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.35rem;
+}
+
+.auto-select-preset {
+    padding: 0.35rem 0;
+    background: var(--background);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
 }
 
-.btn-auto-select {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: 0.6rem 1.25rem;
-    font-weight: 600;
+.auto-select-preset:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
 }
 
-.btn-auto-select svg {
-    width: 18px;
-    height: 18px;
-    stroke-width: 2px;
+.auto-select-preset.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
 }
 
 /* 手动输入单词 */
@@ -7622,6 +8079,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .keyword-input {
     width: 100%;
     padding: 1rem 1.25rem;
+    margin-top: var(--spacing-md);
     border: 2px solid var(--border-color);
     border-radius: var(--radius-md);
     background: var(--surface);
@@ -7683,7 +8141,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: linear-gradient(135deg, var(--surface) 0%, var(--background) 100%);
     border-radius: var(--radius-lg);
     border: 2px solid var(--border-color);
-    min-height: 80px;
+    min-height: 170px;
     transition: all var(--transition-fast);
 }
 
@@ -7714,18 +8172,16 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     margin-bottom: var(--spacing-md);
 }
 
+/* 前置图标：用 #ic-ok（雪碧图符号，见 index 顶部 symbol 定义）的同源路径做 CSS mask，
+   实心填充 var(--primary-color)，随深浅主题自适应（改图标时需同步 symbol 的 path） */
 .selected-keywords-label::before {
-    content: '✓';
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
+    content: '';
+    flex-shrink: 0;
+    width: 1.15rem;
+    height: 1.15rem;
     background: var(--primary-color);
-    color: white;
-    border-radius: 50%;
-    font-size: 0.85rem;
-    font-weight: bold;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m18.214,9.098c.387.394.381,1.027-.014,1.414l-4.426,4.345c-.783.768-1.791,1.151-2.8,1.151-.998,0-1.996-.376-2.776-1.129l-1.899-1.867c-.394-.387-.399-1.02-.012-1.414.386-.395,1.021-.4,1.414-.012l1.893,1.861c.776.75,2.001.746,2.781-.018l4.425-4.344c.393-.388,1.024-.381,1.414.013Zm5.786,2.902c0,6.617-5.383,12-12,12S0,18.617,0,12,5.383,0,12,0s12,5.383,12,12Zm-2,0c0-5.514-4.486-10-10-10S2,6.486,2,12s4.486,10,10,10,10-4.486,10-10Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m18.214,9.098c.387.394.381,1.027-.014,1.414l-4.426,4.345c-.783.768-1.791,1.151-2.8,1.151-.998,0-1.996-.376-2.776-1.129l-1.899-1.867c-.394-.387-.399-1.02-.012-1.414.386-.395,1.021-.4,1.414-.012l1.893,1.861c.776.75,2.001.746,2.781-.018l4.425-4.344c.393-.388,1.024-.381,1.414.013Zm5.786,2.902c0,6.617-5.383,12-12,12S0,18.617,0,12,5.383,0,12,0s12,5.383,12,12Zm-2,0c0-5.514-4.486-10-10-10S2,6.486,2,12s4.486,10,10,10,10-4.486,10-10Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .selected-keywords-list {
@@ -7734,11 +8190,22 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-sm);
 }
 
+/* 随机挑选后：关键词逐个淡入上浮（animation-delay 由 JS 按序错开） */
+.selected-keywords-list.stagger-in .keyword-tag {
+    animation: keyword-fade-in 0.35s ease both;
+}
+
+@keyframes keyword-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 .keyword-tag {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.75rem;
+    gap: 0.2rem;
+    padding: 0.4rem 0.55rem;
+    padding-left: 1rem;
     background: var(--primary-light);
     color: var(--primary-color);
     border-radius: var(--radius-full);
@@ -7794,6 +8261,120 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .generate-icon {
     width: 1.05em;
     height: 1.05em;
+}
+
+/* ============================================
+   阅读联想记忆 / 文字游戏 / CEFR写作设置 · 表单排版优化（对齐 tools/阅读联想记忆---智能生词串文）
+   统一以 :is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) 限定作用域：
+   这三处结构相同、共用同一套表单标记，故样式同步。.form-row / .form-group / .form-label /
+   .form-select / .form-actions 等同时被「同义替换 / 熟词僻义」等应用复用，不能全局改动
+   （.auto-select-control 系列仅关键词选择器使用，样式写在原全局位置）
+   ============================================ */
+
+/* 1. 配置区两行表单（阅读题材/文章主题、难度等级/AI模型选择）：标签与控件紧凑对齐 */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-row {
+    gap: var(--spacing-md) var(--spacing-lg);
+}
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-group {
+    min-width: 0;
+}
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-label {
+    margin-top: 0;
+    max-width: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* 行内标签：标题居左、补充说明（form-hint）靠右对齐 */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-row .form-label,
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-group .form-label:has(.form-hint) {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-hint {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    font-weight: 400;
+    text-align: right;
+}
+
+/* 下拉/输入：单像素描边、更紧凑的内边距，宽度占满整列（去掉 35vw 上限） */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-select,
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-input {
+    width: 100%;
+    max-width: none;
+    padding: 0.6rem 0.9rem;
+    border-width: 1px;
+    border-radius: var(--radius-lg);
+    font-size: 0.9rem;
+}
+
+/* 带自绘箭头的下拉：右侧留出箭头位置 */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .setting-select {
+    padding-right: 2.2rem;
+    background-position: right 0.7rem center;
+}
+
+/* AI 模型自绘下拉：由行内块改为占满整列，触发器与原生下拉同高同款 */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-group .ai-picker {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-group .ai-picker-trigger {
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.9rem;
+}
+
+/* 3. 底部操作区：按钮改为自适应宽高，主按钮更醒目、次按钮白底描边 */
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-actions {
+    gap: 0.75rem;
+    margin-top: var(--spacing-md);
+}
+
+
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .btn-generate {
+    min-width: 180px;
+    height: auto;
+    padding: 0.7rem 1.9rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.95rem;
+    font-weight: 600;
+    justify-content: center;
+}
+
+:is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-actions .btn-secondary {
+    min-width: 180px;
+    height: auto;
+    padding: 0.7rem 1.25rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.95rem;
+}
+
+/* 窄屏：配置区改单列，随机挑选按钮独占一行（沿用原移动端行为） */
+@media (max-width: 640px) {
+    :is(#readingAppContainer, #textGameAppContainer, #writingSettingsModal) .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* CEFR写作设置弹窗：下拉浮层用 position: fixed，脱离 modal-body 的 overflow 裁剪、
+   真正浮层覆盖而非撑开内容（与 #bookSettingsModal / #obSettingsModal 同法；
+   left/top/宽度由 JS 按触发器实时位置写入） */
+#writingSettingsModal .ai-picker-panel {
+    position: fixed;
+    z-index: 10000;
+    width: auto;
+    min-width: 0;
+    max-width: none;
 }
 
 /* 故事展示 */
@@ -9233,7 +9814,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .modal-medium {
-    max-width: 600px;
+    max-width: 800px;
 }
 
 .modal-large {
@@ -9389,6 +9970,77 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border: 1px solid var(--border-color);
     padding: 0.4rem 0.6rem;
     text-align: left;
+}
+
+/* 关于词忆：弹窗加宽以容纳左侧目录，正文区改为「左目录 + 右内容」两栏 */
+#aboutModal .modal-content {
+    max-width: 1000px;
+}
+/* 内边距下放到两栏：使吸顶目录与正文顶端处在同一坐标系，滚动时不跳动 */
+#aboutModal .modal-body {
+    padding: 0;
+}
+.md-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-lg);
+}
+/* 左侧目录：吸顶随滚动常驻，过长时自身滚动 */
+.md-toc {
+    position: sticky;
+    top: 0;
+    flex: 0 0 190px;
+    max-height: calc(100vh - 160px);
+    overflow-y: auto;
+    padding: var(--spacing-lg) var(--spacing-sm) var(--spacing-lg) var(--spacing-lg);
+    border-right: 1px solid var(--border-color);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.md-toc[hidden] { display: none; }
+.md-toc-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+.md-toc-link {
+    display: block;
+    padding: 3px 8px 3px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+.md-toc-link:hover {
+    color: var(--primary-color);
+    background: var(--hover-bg);
+}
+.md-toc-link.active {
+    color: var(--primary-color);
+    font-weight: 600;
+    background: var(--primary-light);
+}
+/* 三级标题缩进一级 */
+.md-toc-link.md-toc-l3 {
+    padding-left: 22px;
+    font-size: 0.78rem;
+}
+/* 正文栏自带内边距（左内边距交由两栏 gap 承担） */
+#aboutModal .md-reader {
+    flex: 1;
+    min-width: 0;
+    padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-lg) 0;
+}
+/* 窄屏空间不足以并排两栏：隐藏目录，正文恢复原有内边距 */
+@media (max-width: 768px) {
+    #aboutModal .md-toc { display: none; }
+    #aboutModal .md-reader { padding: var(--spacing-lg); }
 }
 
 /* 词书设置菜单 */
@@ -9592,6 +10244,36 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .setting-input:focus {
     border-color: var(--primary-color);
     outline: none;
+}
+
+/* 自定义模型：模型ID + 名称（选填）+ 添加按钮 的单行布局（左右分栏，右侧小「+」） */
+.custom-model-add-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: var(--spacing-xs);
+    align-items: center;
+}
+
+/* 行内输入比设置项默认更紧凑：两栏并排时侧栏（窄屏）也能完整显示 */
+.custom-model-add-row .setting-input {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.85rem;
+    min-width: 0;
+}
+
+.custom-model-add-btn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.custom-model-add-btn:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+    color: var(--primary-color);
 }
 
 .setting-hint {
@@ -10020,7 +10702,17 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     .stats-panel {
         width: 240px;
     }
-    
+
+    /* 侧栏/统计面板收窄至 240px，边缘折叠控制同步内收，
+       否则仍停在桌面端的 260px，与侧栏之间空出 20px */
+    .edge-toggle-left {
+        left: 240px;
+    }
+
+    .edge-toggle-right {
+        right: 240px;
+    }
+
     .main-content {
         padding: var(--spacing-md);
     }
@@ -12116,6 +12808,559 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* ============================================
+   微信读书划线导出（wre）
+   复用 ob- 系列面板布局，仅补充书籍项 / 分组折叠 / 勾选项 / 预览
+   ============================================ */
+.wre-app-container {
+    height: 80%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.wre-app-container > .ai-feature-card {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 应用页占满高度，与英文原著榜一致 */
+.ai-workshop-screen:has(> .wre-app-container:not(.hidden)) {
+    display: flex;
+    flex-direction: column;
+    height: calc(100% - 20px);
+}
+
+/* 书名筛选框 */
+.wre-search {
+    flex-shrink: 0;
+    position: relative;
+    margin-bottom: var(--spacing-sm);
+}
+
+.wre-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+    pointer-events: none;
+}
+
+.wre-search-input {
+    width: 100%;
+    padding: 6px 32px 6px 30px;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.wre-search-input:focus {
+    border-color: var(--primary-color);
+}
+
+/* 导出按钮：左右两个半圆长矩形合并 —— 左半「导出」，右半格式下拉 */
+.wre-export-split {
+    position: relative;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: stretch;
+    height: 35px;
+    width: 180px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.wre-export-main,
+.wre-export-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 5px 0 14px;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #fff;
+    
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+}
+
+/* 左半：仅左侧两端为半圆 */
+.wre-export-main {
+    background: var(--primary-color);
+    flex: 1 1 80%;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+/* 右半：仅右侧两端为半圆，与左半以分隔线相接 */
+.wre-export-toggle {
+    flex: 1 1 50%;
+    justify-content: flex-end; /* 内容右对齐 */
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.35);
+    min-width: 62px;
+    background: var(--primary-deep);
+}
+
+.wre-export-main:hover:not(:disabled),
+.wre-export-toggle:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.wre-export-main:disabled,
+.wre-export-toggle:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 未选中书籍时：生成词书的等级下拉呈现与「导出」一致的暗淡效果（仍可点开查看） */
+.wre-export-toggle.wre-dim {
+    opacity: 0.5;
+}
+
+/* 下拉箭头：原始路径朝左，旋转 -90° 使其朝下 */
+.wre-export-caret {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    transform: rotate(-90deg);
+}
+
+/* 格式下拉浮层：操作行位于面板底部，故向上展开并右对齐 */
+.wre-export-split .ai-picker-panel {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: auto;
+    right: 0;
+    min-width: 120px;
+}
+
+/* 清空按钮：复用 dict-lookup-clear 外观，尺寸与间距按本搜索框微调 */
+.wre-search .dict-lookup-clear {
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    font-size: 16px;
+}
+
+/* 书籍项：封面 + 书名作者 + 划线/想法条数 */
+.wre-book-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.wre-book-item:hover {
+    background: var(--hover-bg);
+}
+
+.wre-book-item.active {
+    border-color: var(--primary-color);
+    background: var(--hover-bg);
+}
+
+.wre-book-cover {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: var(--background);
+}
+
+.wre-book-cover-ph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.wre-book-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wre-book-title {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wre-book-author {
+    margin-top: 2px;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wre-book-counts {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+/* 分组折叠分支 */
+.wre-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.wre-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+}
+
+.wre-group-head:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.wre-group-caret {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+    transition: transform var(--transition-fast);
+}
+
+.wre-group.collapsed .wre-group-caret {
+    transform: rotate(-90deg);
+}
+
+.wre-group.collapsed .wre-group-body {
+    display: none;
+}
+
+.wre-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    padding-left: 8px;
+}
+
+.wre-group-num {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-tertiary);
+}
+
+/* 右侧导出设置 */
+.wre-section-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: var(--spacing-sm) 0 6px;
+}
+
+/* 左右分栏：左「导出内容」/ 右「CEFR 标记」 */
+.wre-cols {
+    display: flex;
+    gap: var(--spacing-lg);
+    align-items: flex-start;
+}
+
+.wre-col {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wre-col-desc {
+    margin-top: 6px;
+    font-size: 0.74rem;
+    line-height: 1.55;
+    color: var(--text-tertiary);
+}
+
+.wre-cefr-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 4px;
+}
+
+.wre-cefr-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+}
+
+.wre-cefr-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* CEFR 六色（与 .cefr-level-badge 保持一致） */
+.wre-cefr-dot.cefr-a1, .wre-cefr-word.cefr-a1, .wre-cefr-pick.cefr-a1 { color: #57912b; }
+.wre-cefr-dot.cefr-a2, .wre-cefr-word.cefr-a2, .wre-cefr-pick.cefr-a2 { color: #93a418; }
+.wre-cefr-dot.cefr-b1, .wre-cefr-word.cefr-b1, .wre-cefr-pick.cefr-b1 { color: #b9780f; }
+.wre-cefr-dot.cefr-b2, .wre-cefr-word.cefr-b2, .wre-cefr-pick.cefr-b2 { color: #b6620e; }
+.wre-cefr-dot.cefr-c1, .wre-cefr-word.cefr-c1, .wre-cefr-pick.cefr-c1 { color: #b32e27; }
+.wre-cefr-dot.cefr-c2, .wre-cefr-word.cefr-c2, .wre-cefr-pick.cefr-c2 { color: #b1296d; }
+
+.wre-cefr-word {
+    font-weight: 600;
+}
+
+/* 生成词书：沿用导出按钮的分体样式，紧随其右侧（不再左推） */
+.wre-book-split {
+    margin-left: 0;
+    width: 200px;
+}
+
+/* 右侧下拉需容纳单词数，宽度略大于「导出」的格式下拉，保持一致观感 */
+.wre-book-split .wre-export-main {
+    flex: 1 1 auto;
+}
+
+.wre-book-split .wre-export-toggle {
+    flex: 0 0 72px;
+    min-width: 72px;
+}
+
+/* 等级下拉浮层：与格式下拉一致，向上展开并右对齐；高度按内容自动撑开，不出现滚动条 */
+.wre-book-split .ai-picker-panel {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: auto;
+    right: 0;
+    min-width: 168px;
+    max-height: none;
+    overflow: visible;
+}
+
+/* 等级勾选项：左侧色点 + 名称，右侧 ic-ok 勾选标记 */
+.wre-cefr-opt {
+    gap: 8px;
+}
+
+.wre-cefr-opt .wre-cefr-check {
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+    color: var(--primary-color);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.wre-cefr-opt.on .wre-cefr-check {
+    opacity: 1;
+}
+
+.wre-cefr-opt.on .ai-picker-item-id {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* CEFR 分组标题：整行可点击切换全选，右侧显示「全选」与 ic-ok 勾选标记 */
+.wre-cefr-all-title {
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background var(--transition-fast);
+}
+
+.wre-cefr-all-title:hover {
+    background: var(--hover-bg, #f4f4f5);
+}
+
+.wre-cefr-all-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 500;
+    letter-spacing: normal;
+}
+
+.wre-cefr-all-title .wre-cefr-check {
+    width: 14px;
+    height: 14px;
+    color: var(--primary-color);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.wre-cefr-all-title.on .wre-cefr-check {
+    opacity: 1;
+}
+
+.wre-cefr-all-title.on .ai-picker-item-id {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* 预览中将被收录的单词：圆角矩形包围圈 + 右侧勾选图标 */
+.wre-cefr-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 4px;
+    margin: 0 1px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    line-height: 1.5;
+}
+
+.wre-cefr-pick .wre-cefr-ok {
+    width: 11px;
+    height: 11px;
+    opacity: 0.9;
+}
+
+/* 生成词书确认弹窗：底部词书名称行 + 形近词文本 */
+.wre-book-name-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.wre-book-sim {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+}
+
+.wre-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+}
+
+.wre-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.84rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.wre-check input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.wre-summary {
+    margin-top: var(--spacing-sm);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+/* 预览列表 */
+.wre-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.78rem;
+}
+
+.wre-preview-item {
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--surface);
+    border-left: 3px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    line-height: 1.9;
+}
+
+.wre-preview-item.kind-mark {
+    border-left-color: #3b82f6;
+}
+
+.wre-preview-item.kind-thought {
+    border-left-color: #ef4444;
+}
+
+.wre-preview-tag {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+}
+
+.wre-preview-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+/* 划线时间：右侧次要色小字 */
+.wre-preview-time {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.wre-preview-anchor {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+.wre-key-question {
+    font-size: 0.86rem;
+    color: var(--text-primary);
+    line-height: 1.7;
+}
+
+.wre-key-question code {
+    padding: 1px 6px;
+    font-size: 0.8rem;
+    background: var(--hover-bg);
+    border-radius: var(--radius-sm);
+    color: var(--primary-color);
+}
+
+/* ============================================
    熟词僻义练习（liyi）
    ============================================ */
 .liyi-app-container {
@@ -12842,21 +14087,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .auto-select-control {
-        flex-wrap: wrap;
         gap: var(--spacing-sm);
     }
-    
-    .auto-select-control label,
-    .auto-select-unit {
-        font-size: 0.85rem;
-    }
-    
-    .btn-auto-select {
-        width: 100%;
-        margin-left: 0;
-        margin-top: var(--spacing-sm);
-    }
-    
+
     /* 填空题输入框在移动端自适应 */
     .fill-blank-input-inline {
         min-width: 120px;
@@ -12979,7 +14212,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .writing-settings-form {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
+    /* 与 .ai-story-form（阅读联想记忆 / 文字游戏）保持一致的分组间距 */
+    gap: var(--spacing-lg);
 }
 
 .ws-row {
@@ -13166,7 +14400,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     margin-top: 1rem;
     padding-top: 0.85rem;
     border-top: 1px dashed var(--border-color);
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 400;
     line-height: 1.7;
     color: var(--text-tertiary);
@@ -13551,7 +14785,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: #fff;
     border-radius: 14px;
     width: 100%;
-    height: 100%;
+    height: 95%;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -13574,7 +14808,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     left: 0;
     top: 8px;
     width: 100%;
-    height: 100%;
+    height: 95%;
     border-radius: 14px;
     z-index: 1;
     transition: background-color 1s ease;
@@ -14314,6 +15548,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     height: 18px;
     flex-shrink: 0;
     stroke-width: 2;
+}
+
+/* uicon 字体图标变体：尺寸由 font-size 决定，需与 svg 图标 18px 对齐 */
+i.dropdown-item-icon {
+    font-size: 18px;
 }
 
 /* 桌面端顶部已有独立按钮，仅移动端在用户下拉菜单中显示收纳的暗黑模式/设置项 */
@@ -15105,6 +16344,16 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-sm);
 }
 
+/* 表格类滚动容器：滚动条略加宽便于拖拽（颜色沿用全局主题兜底） */
+.basic-words-list::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.basic-words-list::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+}
+
 .basic-word-item {
     display: flex;
     align-items: center;
@@ -15301,6 +16550,16 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: block;
     padding: 0;
     overflow: auto;
+}
+
+/* 表格类滚动容器：滚动条略加宽便于拖拽（颜色沿用全局主题兜底） */
+.fill-words-table-wrap::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.fill-words-table-wrap::-webkit-scrollbar-thumb {
+    border-radius: 4px;
 }
 
 .fill-words-table {
@@ -15613,7 +16872,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 #textGameDisplay .reply-bar {
     position: sticky;
     bottom: 0;
-    background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,0.5));
+    
     padding-top: 8px;
 }
 
@@ -16024,14 +17283,29 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
 
 .ai-picker-trigger:hover,
 .ai-picker.open .ai-picker-trigger {
-    border-color: var(--primary-color, #667eea);
+    border-color: var(--primary-color);
 }
 
+/* 下拉标识：chevron 图标（源路径 M15 18l-6-6 6-6 为朝左，rotate(-90deg) 转成朝下）。
+   用 mask + currentColor 上色，随触发器文字颜色与深浅主题自适应；改图标时同步 path */
 .ai-picker-trigger::after {
-    content: '▾';
+    content: '';
     flex-shrink: 0;
+    width: 1.1rem;
+    height: 1.1rem;
     color: var(--text-secondary, #888);
-    font-size: 0.7rem;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    transform: rotate(-90deg);
+    transition: transform var(--transition-fast, 0.2s);
+}
+
+/* 展开时箭头反向朝上：
+   .open 由弹窗内自建面板使用；:has() 兜住其余按 inline display 展开的面板 */
+.ai-picker.open .ai-picker-trigger::after,
+.ai-picker:has(.ai-picker-panel[style*="block"]) .ai-picker-trigger::after {
+    transform: rotate(90deg);
 }
 
 .ai-picker-trigger-id {
@@ -16090,7 +17364,7 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
     font-size: 0.72rem;
     font-weight: 600;
     letter-spacing: 0;
-    color: var(--primary-color, #667eea);
+    color: var(--primary-color);
     cursor: pointer;
     transition: background 0.15s ease;
 }
@@ -16134,6 +17408,89 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
     font-size: 0.8rem;
 }
 
+/* ---- 自绘下拉的富文本行：图标方块 + 徽标 + 名称 + 说明 ----
+   对齐参考项目 tools/阅读联想记忆---智能生词串文 的 ConfigSection 格式。
+   由 _appendPickerRichContent() / _makeAiItem() 在 option 带 data-icon 等时生成，
+   未携带这些数据的下拉不受影响。 */
+.ai-picker-lead {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+/* 左侧图标方块（uicon 或 emoji），底色/文字随主题变量自适应 */
+.ai-picker-icon-box {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    border-radius: var(--radius-sm);
+    background: var(--primary-light);
+    color: var(--primary-emphasis);
+    font-size: 0.8rem;
+    line-height: 1;
+}
+
+.ai-picker-text {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
+}
+
+/* 名称前的徽标（如难度代码 B2）：正方形状，高宽一致；长文本（IELTS/考研）自动撑宽不裁切 */
+.ai-picker-badge {
+    flex-shrink: 0;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.22rem;
+    border-radius: 4px;
+    background: var(--primary-light);
+    color: var(--primary-color);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+/* 名称后的浅色说明文字 */
+.ai-picker-desc {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary, #888);
+    font-size: 0.76rem;
+}
+
+/* 触发器内主文本需可收缩省略（箭头仍由 ::after 固定在右侧） */
+.ai-picker-lead .ai-picker-trigger-id {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+/* 选项行内：图标组按内容宽度，第2列标签继续占满剩余空间 */
+.ai-picker-item .ai-picker-lead {
+    flex: 0 1 auto;
+}
+
+/* 单选下拉选中项右侧的勾选（margin-left: auto 顶到行尾） */
+.ai-picker-item-check {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--primary-color);
+    font-size: 0.85rem;
+}
+
 /* 设置面板下拉（复用 ai-picker，占满整行、选中高亮） */
 .setting-picker {
     display: block;
@@ -16149,10 +17506,10 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
 }
 .ai-picker-item-active {
     background: var(--primary-light, #eef0ff);
-    color: var(--primary-color, #667eea);
+    color: var(--primary-color);
 }
 .ai-picker-item-active .ai-picker-item-id {
-    color: var(--primary-color, #667eea);
+    color: var(--primary-color);
     font-weight: 600;
 }
 
@@ -16173,3 +17530,4 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
 }
 
 
+r

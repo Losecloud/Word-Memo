@@ -1862,8 +1862,9 @@ class WordMemoryApp {
                 // 稳定标识：优先用 app 名，占位卡用序号
                 const key = card.dataset.app || ('ph' + index);
                 card.dataset.favKey = key;
-                // 未发布（敬请期待）的应用不提供收藏入口
-                if (card.classList.contains('placeholder')) return;
+                // 未发布（敬请期待）的应用不提供收藏入口；
+                // 词典卡片也不提供——收藏只适用于其他应用类，词典改用右上角的启用/停用开关
+                if (card.classList.contains('placeholder') || card.dataset.cat === 'dict') return;
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'workshop-card-fav';
@@ -12444,6 +12445,9 @@ ${example ? `- 例句：${example}` : ''}
     initEnglishDictionaryLoader() {
         if (this.englishDictInitStarted) return;
         this.englishDictInitStarted = true;
+        // 用户已停用「基础词典」：不再后台加载，省下 8.8MB 的下载与解析开销
+        // （未设置过启用记录时按默认加载，保持原有行为）
+        if (this.isBaseDictDisabled()) return;
         this.englishDictReady = (typeof ENGLISHWORDS_DICT !== 'undefined' && !!ENGLISHWORDS_DICT); // 已被兜底脚本加载时的快速路径
         this.englishDictWorker = null;
         this.englishDictWaiters = new Map();
@@ -12481,13 +12485,13 @@ ${example ? `- 例句：${example}` : ''}
                     worker.onerror = () => {
                         if (this.englishDictWorker === worker) this.englishDictWorker = null;
                         this.englishDictLoadPromise = null;
-                        this._injectEnglishDictScript();
+                        this._loadEnglishDictFallback();
                         resolve({ ok: false });
                     };
                     worker.postMessage({ type: 'load', url });
                 });
             } catch (err) {
-                this._injectEnglishDictScript();
+                this._loadEnglishDictFallback();
             }
         };
 
@@ -15477,16 +15481,8 @@ ${example ? `- 例句：${example}` : ''}
                 `<div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">${this.formatDictSize(d.size)}</span></div>`;
             const row = card.querySelector('.dict-apply-row');
             if (meta) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'dict-apply-btn';
-                row.appendChild(btn);
-                this.renderDictApplyBtn(btn, varName);
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation(); // 避免触发卡片本身的「打开词典浏览器」
-                    this.toggleDictApplied(varName, !this.isDictApplied(varName));
-                    this.renderDictApplyBtn(btn, varName);
-                });
+                this.renderDictUninstallRow(row, d, meta, varName);
+                this.renderDictSwitch(card, d, meta, varName);
             } else {
                 this.renderDictDownloadRow(row, d, varName);
             }
@@ -15502,7 +15498,93 @@ ${example ? `- 例句：${example}` : ''}
         return Math.max(1, Math.round(bytes / 1024)) + ' KB';
     }
 
-    // 未安装的词典数据：显示「下载」按钮，点击后流式下载并在原位显示进度
+    // 已安装的词典数据：主按钮为「卸载」——真正删除本地词典数据文件（卸载后需重新下载）
+    renderDictUninstallRow(row, entry, meta, varName) {
+        const file = meta.file || entry.file;
+        const label = entry.label || file;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dict-apply-btn applied';
+        btn.textContent = '卸载';
+        btn.title = '删除本地词典数据文件，之后需重新下载才能使用';
+        row.appendChild(btn);
+
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation(); // 避免触发卡片本身的「打开词典浏览器」
+            if (!confirm('确定卸载「' + label + '」吗？\n\n将删除本地词典数据文件，之后需重新下载才能使用。')) return;
+            btn.disabled = true;
+            btn.textContent = '卸载中…';
+            try {
+                await this.deleteDictData(file);
+                this.unregisterDict(varName);
+                this.showToast('词典数据「' + label + '」已卸载', 'success');
+                setTimeout(() => window.location.reload(), 600);
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = '卸载';
+                this.showToast('卸载失败：' + ((err && err.message) || err), 'error');
+            }
+        });
+    }
+
+    // 词典卡片右上角：启用/停用开关（web 与 Obsidian 通用）。
+    // 开关本体悬浮卡片时才露出，下方常驻「已启用/已停用」小字；
+    // 指到开关上浮出用途提示。状态写共享的 localStorage.enabledDicts，刷新后生效。
+    renderDictSwitch(card, entry, meta, varName) {
+        const label = entry.label || meta.file;
+        const wrap = document.createElement('div');
+        wrap.className = 'dict-switch-wrap';
+        wrap.innerHTML =
+            '<span class="dict-switch-state"></span>' +
+            '<button type="button" class="dict-switch" role="switch">' +
+                '<span class="dict-switch-knob"></span>' +
+            '</button>' +
+            '<span class="dict-switch-tip">如暂时不希望使用该词典，可以点击停用，减少内存占用和启动时间</span>';
+        const sw = wrap.querySelector('.dict-switch');
+        const state = wrap.querySelector('.dict-switch-state');
+
+        const paint = () => {
+            const on = this.isDictEnabledForUi(varName);
+            sw.classList.toggle('on', on);
+            sw.setAttribute('aria-checked', on ? 'true' : 'false');
+            state.textContent = on ? '已启用' : '已停用';
+        };
+        paint();
+
+        sw.addEventListener('click', (e) => {
+            e.stopPropagation(); // 避免触发卡片本身的「打开词典浏览器」
+            const on = !this.isDictEnabledForUi(varName);
+            // 「基础词典」由主页直接加载，不写入引擎清单（避免引擎重复解析同一份数据）；
+            // 停用时需额外把它移出引擎清单，让引擎那边也一并停掉
+            if (varName === 'ENGLISHWORDS_DICT') {
+                try { localStorage.setItem('baseDictDisabled', on ? '0' : '1'); } catch (err) { /* 忽略 */ }
+                if (!on) this.toggleDictApplied(varName, false);
+            } else {
+                this.toggleDictApplied(varName, on);
+            }
+            paint();
+            this.showToast('「' + label + '」已' + (on ? '启用' : '停用') + '，刷新页面后生效', 'success');
+        });
+
+        card.appendChild(wrap);
+    }
+
+    // 卡片开关显示的状态。多数词典与查词引擎共享 enabledDicts；
+    // 「基础词典」例外——它由主页后台 Worker 直接加载（不进引擎清单），
+    // 故以独立的 baseDictDisabled 标记为准；无标记即启用（保持历史行为，老记录不会被误判为停用）。
+    isDictEnabledForUi(varName) {
+        if (varName === 'ENGLISHWORDS_DICT') return !this.isBaseDictDisabled();
+        return this.isDictApplied(varName);
+    }
+
+    // 「基础词典」（data/englishwords-dict.json）是否被用户显式停用
+    isBaseDictDisabled() {
+        try { return localStorage.getItem('baseDictDisabled') === '1'; } catch (e) { return false; }
+    }
+
+    // 未安装的词典数据：按钮本身即进度条外壳（下载时内部从左侧以主色填满，
+    // 文字双色图层保证两种底色下都高对比），不再另占一行显示进度
     renderDictDownloadRow(row, entry, varName) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -15511,29 +15593,63 @@ ${example ? `- 例句：${example}` : ''}
         btn.title = entry.note || '下载词典数据到本地，完成后自动刷新并启用';
         row.appendChild(btn);
 
-        const prog = document.createElement('div');
-        prog.className = 'dict-dl-progress hidden';
-        prog.innerHTML = '<div class="dict-dl-track"><div class="dict-dl-fill"></div></div><div class="dict-dl-text"></div>';
-        row.appendChild(prog);
-        const fill = prog.querySelector('.dict-dl-fill');
-        const text = prog.querySelector('.dict-dl-text');
+        // 把按钮切换为进度条外壳，返回进度控制句柄
+        const enterProgress = () => {
+            btn.classList.add('dict-dl-btn');
+            btn.disabled = true;
+            btn.title = '';
+            btn.innerHTML =
+                '<span class="dict-dl-fill"></span>' +
+                '<span class="dict-dl-label dict-dl-label-base"></span>' +
+                '<span class="dict-dl-label dict-dl-label-on"></span>';
+            const base = btn.querySelector('.dict-dl-label-base');
+            const on = btn.querySelector('.dict-dl-label-on');
+            return {
+                // ratio 为 null 表示总大小未知，填充走不确定态动画
+                set(ratio, label) {
+                    btn.classList.toggle('dict-dl-unknown', ratio == null);
+                    btn.style.setProperty('--dl-progress', ratio == null ? '100%' : (ratio * 100).toFixed(1) + '%');
+                    base.textContent = label;
+                    on.textContent = label;
+                },
+                // 退出进度态，恢复为普通按钮文案
+                reset(label) {
+                    btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
+                    btn.style.removeProperty('--dl-progress');
+                    btn.innerHTML = '';
+                    btn.textContent = label;
+                }
+            };
+        };
 
         btn.addEventListener('click', async (e) => {
             e.stopPropagation(); // 避免触发卡片本身的「打开词典浏览器」
-            btn.disabled = true;
-            btn.textContent = '下载中…';
-            prog.classList.remove('hidden');
+            const p = enterProgress();
+            p.set(0, '准备下载…');
+            // 速度取指数滑动平均，并把刷新节流到约 8 次/秒，避免逐块刷新导致文字抖动
+            let lastT = performance.now();
+            let lastBytes = 0;
+            let speed = 0;
+            let lastPaint = 0;
             const onProgress = (ratio, loaded) => {
-                // ratio 为 null 表示总大小未知，进度条退化为不确定态（仅显示已下载量）
-                fill.style.width = ratio == null ? '100%' : (ratio * 100).toFixed(1) + '%';
-                fill.classList.toggle('indeterminate', ratio == null);
-                text.textContent = ratio == null
-                    ? '已下载 ' + this.formatDictSize(loaded)
-                    : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + ' / ' + this.formatDictSize(entry.size);
+                const now = performance.now();
+                const dt = (now - lastT) / 1000;
+                if (dt > 0) {
+                    const inst = (loaded - lastBytes) / dt;
+                    speed = speed > 0 ? speed * 0.75 + inst * 0.25 : inst;
+                    lastT = now;
+                    lastBytes = loaded;
+                }
+                if (now - lastPaint < 120) return;
+                lastPaint = now;
+                const spd = speed > 0 ? ' · ' + this.formatDictSize(speed) + '/s' : '';
+                p.set(ratio, ratio == null
+                    ? '已下载 ' + this.formatDictSize(loaded) + spd
+                    : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + '/' + this.formatDictSize(entry.size) + spd);
             };
             try {
                 const jsText = await this.downloadDictData(entry.url, entry.size, onProgress);
-                text.textContent = '正在写入本地…';
+                p.set(1, '正在写入本地…');
                 const saved = await this.saveDictToData(jsText, varName, entry.file);
                 // 自动启用：写入引擎的持久化清单 + 启用记录，刷新后即被加载，无需用户再点「应用」
                 this.registerDictMeta({
@@ -15544,15 +15660,12 @@ ${example ? `- 例句：${example}` : ''}
                     size: entry.size
                 });
                 this.toggleDictApplied(varName, true);
-                fill.classList.remove('indeterminate');
-                fill.style.width = '100%';
-                text.textContent = '安装完成，正在刷新…';
+                p.set(1, '安装完成，正在刷新…');
                 this.showToast('词典数据「' + (entry.label || entry.file) + '」已安装并启用', 'success');
                 setTimeout(() => window.location.reload(), 600);
             } catch (err) {
+                p.reset('重试');
                 btn.disabled = false;
-                btn.textContent = '重试';
-                prog.classList.add('hidden');
                 this.showToast('下载失败：' + ((err && err.message) || err), 'error');
             }
         });
@@ -15612,13 +15725,38 @@ ${example ? `- 例句：${example}` : ''}
         } catch (e) { /* 无痕模式忽略 */ }
     }
 
-    // 词典卡片底部按钮：已应用显示「卸载」，未应用显示「应用」
-    renderDictApplyBtn(btn, varName) {
-        if (!btn) return;
-        const applied = this.isDictApplied(varName);
-        btn.textContent = applied ? '卸载' : '应用';
-        btn.title = applied ? '卸载后刷新页面将不再加载该词典' : '应用后刷新页面即加载该词典';
-        btn.classList.toggle('applied', applied);
+    // 卸载词典数据：删除服务根 data/ 下的词典文件，并移除查词引擎清单中的条目
+    async deleteDictData(file) {
+        const base = /^https?:$/.test(location.protocol) ? location.origin : 'http://localhost:8377';
+        const resp = await fetch(base + '/delete-dict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: file })
+        });
+        const data = await resp.json().catch(() => ({ ok: false, error: '响应解析失败' }));
+        if (!data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+        return data;
+    }
+
+    // 卸载后清理引擎侧的持久化记录（启用清单、已见清单、词典清单、首选词典），
+    // 使该词典彻底回到「未安装」状态；IndexedDB 里的词条缓存由引擎下次启动按清单对账清掉
+    unregisterDict(varName) {
+        if (!varName) return;
+        // 「基础词典」的停用标记一并清掉：重新下载后按默认启用
+        if (varName === 'ENGLISHWORDS_DICT') {
+            try { localStorage.removeItem('baseDictDisabled'); } catch (e) { /* 忽略 */ }
+        }
+        ['enabledDicts', 'knownDicts', 'dictMetas'].forEach((key) => {
+            try {
+                const arr = JSON.parse(localStorage.getItem(key) || '[]');
+                if (!Array.isArray(arr)) return;
+                const next = arr.filter(x => (typeof x === 'string' ? x : (x && x.varName)) !== varName);
+                if (next.length !== arr.length) localStorage.setItem(key, JSON.stringify(next));
+            } catch (e) { /* 忽略 */ }
+        });
+        try {
+            if (localStorage.getItem('browseDictCur') === varName) localStorage.removeItem('browseDictCur');
+        } catch (e) { /* 忽略 */ }
     }
 
     // 默认应用的词典（与查词引擎 tools/browse-dict.html 的 DEFAULT_ENABLED_VARS 保持一致）
@@ -15629,7 +15767,7 @@ ${example ? `- 例句：${example}` : ''}
         return manifest.filter(m => defFiles.indexOf(m.file) >= 0).map(m => m.varName);
     }
 
-    // 已应用的词典 varName 列表（与查词引擎共享 localStorage.enabledDicts；无记录时回落默认三本）
+    // 已启用的词典 varName 列表（与查词引擎共享 localStorage.enabledDicts；无记录时回落默认三本）
     getAppliedDictVars() {
         try {
             const raw = localStorage.getItem('enabledDicts');

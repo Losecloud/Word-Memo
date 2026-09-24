@@ -597,7 +597,7 @@ if (typeof window.define !== 'function') {
     try { localStorage.setItem('knownDicts', JSON.stringify(arr)); } catch (e) { /* 无痕模式忽略 */ }
   }
   function isEnabled(varName) { return getEnabledDicts().includes(varName); }
-  // 首次进入默认应用的词典（其余默认卸载，可在 AI 工坊的词典卡片上按需「应用」）
+  // 首次进入默认启用的词典（其余默认停用，可在 AI 工坊的词典卡片右上角开关按需启用）
   const DEFAULT_ENABLED_VARS = ['OALDPE_DICT', 'COLLINS_DICT', '英语词根词缀词频_DICT'];
 
   // ---- 词典清单持久化：进入网页直接加载已启用的词典，跳过每次清单扫描 ----
