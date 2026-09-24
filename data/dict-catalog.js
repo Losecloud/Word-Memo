@@ -56,16 +56,6 @@ var DICT_CATALOG = {
    "icon": "📘",
    "size": 60870776,
    "url": "https://raw.githubusercontent.com/Losecloud/reciting/main/data/collins-dict.json"
-  },
-  {
-   "file": "oaldpe-dict.json",
-   "varName": "OALDPE_DICT",
-   "label": "牛津10双解",
-   "desc": "牛津高阶英汉双解词典（第10版），释义权威、例句丰富",
-   "icon": "📕",
-   "note": "体积较大（约 320MB），从 word-memo 的 Release 资产下载",
-   "size": 335261961,
-   "url": "https://github.com/Losecloud/word-memo/releases/download/dict-v1/oaldpe-dict.json"
   }
  ]
 };

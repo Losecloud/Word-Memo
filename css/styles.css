@@ -7442,6 +7442,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: var(--background);
     color: var(--text-primary);
     transition: all var(--transition-fast);
+}
+
+.form-select {
     max-width: 35vw;
 }
 
@@ -9814,7 +9817,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .modal-medium {
-    max-width: 800px;
+    max-width: 600px;
 }
 
 .modal-large {

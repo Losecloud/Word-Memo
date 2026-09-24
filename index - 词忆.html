@@ -3015,8 +3015,11 @@
                                     <div class="oral-empty">在左侧勾选热点话题（最多 3 个），然后点击「AI生成」</div>
                                 </div>
 
-                                <!-- 底部操作行：模型 / 产出形态 / 生成 -->
+                                <!-- 底部操作行：设置（热点榜单 Key 收进弹窗） / 模型 / 产出形态 / 生成 -->
                                 <div class="oral-result-actions">
+                                    <button class="ob-settings-btn" id="oralSettingsBtn" title="口语角设置">
+                                        <i class="fi-rr-menu-burger"></i>
+                                    </button>
                                     <select class="form-select" id="oralAiModel" title="AI模型" data-ai-model-select data-short-label="true"></select>
                                     <select class="setting-select" id="oralOutputType">
                                         <option value="full">完整口语角话题包</option>
@@ -4161,15 +4164,6 @@
                         </div>
                     </div>
 
-                    <!-- 英语角热点榜单接口（选填） -->
-                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
-                        <label class="setting-label" style="margin:0 0 8px;">英语角热点榜单 Key（选填）</label>
-                        <input type="password" class="setting-input" id="oralTianKey" placeholder="tianapi.com 的 Key，留空则只用微博 / 百度榜单">
-                        <div class="setting-hint" style="margin-top: 8px;">
-                            「AI 工坊 → 英语角」搜索热点时，抖音与备用榜单经 tianapi.com 获取，需自备 Key；留空则跳过这几路，仅拉取微博与百度。
-                        </div>
-                    </div>
-
                     <!-- 自定义模型管理 -->
                     <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
                         <label class="setting-label" style="margin:0 0 8px;">自定义模型列表</label>
@@ -4899,6 +4893,36 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-primary" data-close-modal="writingSettingsModal">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 口语角话题：设置弹窗（热点榜单 Key） -->
+    <div class="modal hidden" id="oralSettingsModal">
+        <div class="modal-overlay" data-close-modal="oralSettingsModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>口语角设置</h3>
+                <button class="btn-icon" data-close-modal="oralSettingsModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="ob-settings-form">
+                    <div class="ws-field">
+                        <label for="oralTianKey">热点榜单 Key</label>
+                        <input type="password" class="form-input" id="oralTianKey" placeholder="tianapi.com 的 Key（选填）">
+                        <div class="setting-hint">
+                            搜索热点时，抖音与备用榜单经 <a href="https://www.tianapi.com/" target="_blank" rel="noopener">tianapi.com</a> 获取，需自备 Key；留空则跳过这几路，仅拉取微博与百度。Key 仅保存在本机浏览器中，不会上传到其它服务。
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" data-close-modal="oralSettingsModal">完成</button>
             </div>
         </div>
     </div>

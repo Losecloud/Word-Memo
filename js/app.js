@@ -9859,7 +9859,7 @@ ${example ? `- 例句：${example}` : ''}
             hoverLookup: document.getElementById('hoverLookup').checked, // Obsidian 悬浮取词
             selectionTranslate: document.getElementById('selectionTranslate').checked, // Obsidian 划词右键「翻译」
             hideSidebarImport: document.getElementById('hideSidebarImport').checked, // Obsidian 隐藏右侧栏导入词典拖入区
-            oralTianKey: String((document.getElementById('oralTianKey') || {}).value || '').trim(), // 英语角热点榜单 Key（tianapi，选填）
+            oralTianKey: String(this.settings.oralTianKey || ''), // 已移至「口语角设置」弹窗，此处仅沿用
             obWereadKey: String(this.settings.obWereadKey || ''), // 已移至「原著榜设置」弹窗，此处仅沿用
             obWereadProxy: String(this.settings.obWereadProxy || '') // 已移至「微信读书设置」弹窗，此处仅沿用
         };
@@ -19059,6 +19059,24 @@ When including options, each must have an "impact" field. Use the available keyw
             outputSel.addEventListener('change', () => {
                 // 切换产出形态后，若已生成过内容则按新形态重新生成
                 if (this.oralGeneratedOnce && this.oralSelectedIndices.length) this.generateOralTopic();
+            });
+        }
+
+        // 热点榜单 Key：收入「口语角设置」弹窗，改动即时落盘（该输入框不再由主设置页同步）
+        const oralKeyInput = document.getElementById('oralTianKey');
+        const oralSettingsBtn = document.getElementById('oralSettingsBtn');
+        if (oralSettingsBtn) {
+            oralSettingsBtn.addEventListener('click', () => {
+                // 弹窗打开前回填已保存的 Key
+                if (oralKeyInput) oralKeyInput.value = this.settings.oralTianKey || '';
+                const m = document.getElementById('oralSettingsModal');
+                if (m) m.classList.remove('hidden');
+            });
+        }
+        if (oralKeyInput) {
+            oralKeyInput.addEventListener('input', () => {
+                this.settings.oralTianKey = oralKeyInput.value.trim();
+                Storage.saveSettings(this.settings);
             });
         }
     }

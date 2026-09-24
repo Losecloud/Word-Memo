@@ -101,15 +101,20 @@ DICT_CATALOG = [
         "icon": "📘",
         "source": "reciting",
     },
-    {
-        "file": "oaldpe-dict.json",
-        "varName": "OALDPE_DICT",
-        "label": "牛津10双解",
-        "desc": "牛津高阶英汉双解词典（第10版），释义权威、例句丰富",
-        "icon": "📕",
-        "source": "release",
-        "note": "体积较大（约 320MB），从 word-memo 的 Release 资产下载",
-    },
+    # 牛津10双解（oaldpe）：v0.1.0 暂不分发，故注释掉。
+    # 原因不只是 oaldpe-dict.json 320MB——配套的 data/oaldpe/ 还有约 2GB 资源
+    # （数千个发音 mp3、css/scripts 样式、fonts/images、简繁词条），该目录一直 gitignore。
+    # 且 mdd 资源目录只有本地 serve.js 扫描同级目录时才会写入（前端 catalog 安装流程不设 mdd），
+    # 所以只传 json 也拿不到发音与样式。恢复分发时需连同整套资源一起解决。
+    # {
+    #     "file": "oaldpe-dict.json",
+    #     "varName": "OALDPE_DICT",
+    #     "label": "牛津10双解",
+    #     "desc": "牛津高阶英汉双解词典（第10版），释义权威、例句丰富",
+    #     "icon": "📕",
+    #     "source": "release",
+    #     "note": "体积较大（约 320MB），从 word-memo 的 Release 资产下载",
+    # },
 ]
 
 # 整体纳入的目录
