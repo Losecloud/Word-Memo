@@ -53,6 +53,8 @@ _site/
 /CEFR Shadow_uni
 data/englishwords-dict.py
 data/englishwords.db
+# 基础词典的 <script> 兜底副本（由 tools/web2ob.py 按需生成，供 file:// 直开时读取；体积大不入库）
+data/englishwords-dict.js
 data/kaoyan-words.json
 examples/扇贝考研.xlsx
 examples/扇贝考研.xls

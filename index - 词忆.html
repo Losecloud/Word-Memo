@@ -982,15 +982,15 @@
             </div>
             <!-- 底部「导入词典」拖入区：仅在 Obsidian 右侧栏模式（?wmView=dict）显示，
                  与结果区互为兄弟节点，故结果展开时不会覆盖它；解析复用引擎 browse-dict.html -->
-            <div class="dict-import-area" id="dictImportArea" title="支持 MDX/MDD/JS等 词典文件">
+            <div class="dict-import-area" id="dictImportArea" title="支持 MDX/JSON/JS等 词典文件">
                 <svg class="dict-import-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="17 8 12 3 7 8"/>
                     <line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
                 <div class="dict-import-text">导入词典</div>
-                <div class="dict-import-hint" id="dictImportHint">拖入/点选 .mdx 文件</div>
-                <input type="file" id="dictImportInput" accept=".mdx" hidden>
+                <div class="dict-import-hint" id="dictImportHint">拖入/点选 .mdx / json / js 文件</div>
+                <input type="file" id="dictImportInput" accept=".mdx,.json,.js" hidden>
             </div>
             <div class="header-actions">
                 <button class="btn-icon" id="darkModeToggle" title="切换暗黑模式">
@@ -1665,6 +1665,7 @@
                                         <span class="meaning-part-of-speech" id="meaningPartOfSpeech">n.</span>
                                         <p class="meaning-text" id="meaningText">苹果；苹果树</p>
                                         <div class="word-meta-inline">
+                                            <span class="word-stats" id="wordStats2" style="display: none;"></span>
                                             <span class="meaning-pos" id="meaningPos">A1</span>
                                             <button class="btn-favorite" id="favoriteBtn2" title="收藏/取消收藏">
                                                 <i class="favorite-icon fi-rr-star favorite-gray"></i>
@@ -1710,6 +1711,7 @@
                                 <p class="word-phonetic" id="rememberWordPhonetic">/ˈæpl/</p>
                                 <div class="word-meta">
                                     <span class="word-pos" id="rememberWordPos">n.</span>
+                                    <span class="word-stats" id="wordStats3" style="display: none;"></span>
                                     <span class="word-book-info" id="wordBookInfo3" title="所属词书"></span>
                                 </div>
                                 <!-- 单词快捷操作：太简单（不再复习）/ 收藏 -->
@@ -3946,7 +3948,15 @@
                 <div class="setting-group">
                     <label class="setting-label">学习模式</label>
                     <div class="switch-buttons" id="learningModeButtons">
-                        <button class="switch-btn active" data-mode="selectOnly">看单词选释义</button>
+                        <button class="switch-btn pro-holdable active" data-mode="selectOnly" id="selectOnlyBtn">
+                            <span class="btn-label">看单词选释义</span>
+                            <!-- 悬停浮现提示：长按切换 Pro 版（干扰项改用基础词典的形近/近似词释义） -->
+                            <span class="btn-pro-hint"><i class="fi-rr-refresh"></i>切换Pro模式</span>
+                            <!-- 强调色扫入填充层：长按进度与 Pro 激活状态共用 -->
+                            <span class="btn-pro-fill" aria-hidden="true"></span>
+                            <!-- Pro 角标：开启时占据按钮右上角的 primary-light 色块 -->
+                            <span class="btn-pro-corner" id="selectProBadge">PRO</span>
+                        </button>
                         <button class="switch-btn" data-mode="spellOnly">看释义拼单词</button>
                         <button class="switch-btn" data-mode="rememberOnly">记得么</button>
                     </div>
@@ -4298,17 +4308,17 @@
                     <div class="setting-group">
                         <label class="setting-label">导入词典</label>
                         <div class="setting-hint">
-                            拖入或点选 .mdx 词典文件，解析后自动保存到 data/ 目录并加入下方词典列表。
+                            拖入或点选 .mdx / .json / .js 词典文件，解析后自动保存到 data/ 目录并加入下方词典列表。
                         </div>
-                        <div class="dict-import-area dict-import-area-settings" id="settingsDictImportArea" title="支持 MDX/MDD/JS等 词典文件">
+                        <div class="dict-import-area dict-import-area-settings" id="settingsDictImportArea" title="支持 MDX/JSON/JS等 词典文件">
                             <svg class="dict-import-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                 <polyline points="17 8 12 3 7 8"/>
                                 <line x1="12" y1="3" x2="12" y2="15"/>
                             </svg>
                             <div class="dict-import-text">导入词典</div>
-                            <div class="dict-import-hint" id="settingsDictImportHint">拖入/点选 .mdx 文件</div>
-                            <input type="file" id="settingsDictImportInput" accept=".mdx" hidden>
+                            <div class="dict-import-hint" id="settingsDictImportHint">拖入/点选 .mdx / json / js 文件</div>
+                            <input type="file" id="settingsDictImportInput" accept=".mdx,.json,.js" hidden>
                         </div>
                     </div>
                     <div class="setting-group">
@@ -4464,6 +4474,12 @@
                     <label class="book-settings-mode-label">每题计时秒数（覆盖全局设定）</label>
                     <input type="number" class="setting-input" id="bookSettingsAnswerTimeLimit"
                            value="" min="0" placeholder="使用全局设置">
+                    
+                </div>
+                <div class="book-settings-mode-row">
+                    <label class="book-settings-mode-label">自动切换秒数（0.1-10，覆盖全局设定）</label>
+                    <input type="number" class="setting-input" id="bookSettingsAutoNextTime"
+                           value="" min="0.1" max="10" step="0.1" placeholder="使用全局设置">
                     
                 </div>
                 <div class="book-settings-divider"></div>
@@ -4768,10 +4784,10 @@
         </div>
     </div>
 
-    <!-- 换个模式练习弹窗（单模式一轮结束后可选） -->
+    <!-- 换个模式练习弹窗（整轮学习结束后可选，建议换模式加深巩固） -->
     <div class="modal hidden" id="switchModeModal" style="z-index: 9999;">
         <div class="modal-overlay" data-close-modal="switchModeModal"></div>
-        <div class="modal-content modal-small">
+        <div class="modal-content modal-middle">
             <div class="modal-header">
                 <h3>换个模式练习</h3>
                 <button class="btn-icon" data-close-modal="switchModeModal">
@@ -4782,12 +4798,32 @@
                 </button>
             </div>
             <div class="modal-body">
-                <div class="setting-hint" style="margin-bottom: 12px;">选择接下来要使用的练习模式</div>
-                <div class="switch-buttons" id="switchModeOptions">
-                    <button class="switch-btn" data-mode="selectOnly">看单词选释义</button>
-                    <button class="switch-btn" data-mode="spellOnly">看释义拼单词</button>
-                    <button class="switch-btn" data-mode="rememberOnly">记得么</button>
+                <div class="mode-pick-lead">
+                    <div class="mode-pick-title">建议换个模式加深巩固，你想选择哪个模式？</div>
+                    <div class="setting-hint">可多选，选中几种就随机轮换；默认沿用当前模式</div>
                 </div>
+                <!-- 模式选择栏：与设置弹窗「学习模式」完全同一套交互（多选 + 至少保留一种）；
+                     「看单词选释义」同样支持长按切换 Pro（干扰项改用基础词典的形近/近似词释义） -->
+                <div class="switch-buttons" id="switchModeOptions">
+                    <button class="switch-btn pro-holdable" data-mode="selectOnly" id="switchSelectBtn" type="button">
+                        <span class="btn-label">看单词选释义</span>
+                        <span class="btn-pro-hint"><i class="fi-rr-refresh"></i>切换Pro模式</span>
+                        <span class="btn-pro-fill" aria-hidden="true"></span>
+                        <span class="btn-pro-corner" id="switchSelectProBadge">PRO</span>
+                    </button>
+                    <button class="switch-btn" data-mode="spellOnly" type="button">看释义拼单词</button>
+                    <button class="switch-btn" data-mode="rememberOnly" type="button">记得么</button>
+                </div>
+                <!-- 各模式巩固效果提示：与上方按钮列一一对齐 -->
+                <div class="mode-hint-row">
+                    <div class="mode-hint" id="switchSelectHint">基础提升</div>
+                    <div class="mode-hint">巩固听力 &amp; 写作</div>
+                    <div class="mode-hint">加强阅读 · 单词印象</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close-modal="switchModeModal">取消</button>
+                <button class="btn-primary" id="switchModeStartBtn">开始练习</button>
             </div>
         </div>
     </div>
@@ -5119,7 +5155,6 @@
     <!-- data/ 顶层为词典目录（*-dict.json，全部按需下载）；此处只引入清单与目录 -->
     <script src="data/dict-manifest.js"></script>
     <script src="data/dict-catalog.js"></script>
-    <script src="lib/about-readme.js"></script>
     <script src="lib/uicons-icons.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>
@@ -6208,15 +6243,15 @@
             }
             openSentenceDetail(t);
         }
-        // 「导入词典」拖入区（拖入或点击选择 .mdx）：文件转交引擎（browse-dict.html）
-        // 解析并落盘到 data/ 目录，复用其 MDX 解析工具链。
+        // 「导入词典」拖入区（拖入或点击选择 .mdx / .json / .js）：文件转交引擎（browse-dict.html）
+        // 解析并落盘到 data/ 目录，复用其词典解析工具链。
         // 侧栏底部与页面设置内共用本工厂，两处功能一致
         function createDictImportArea(cfg) {
             const area = document.getElementById(cfg.area);
             const fileInput = document.getElementById(cfg.input);
             const hint = document.getElementById(cfg.hint);
             if (!area || !fileInput || !hint) return;
-            const DEFAULT_HINT = '拖入或点击选择 .mdx 文件';
+            const DEFAULT_HINT = '拖入或点击选择 .mdx / .json / .js 文件';
             let busy = false;
             function setHint(text, isError) {
                 hint.textContent = text || DEFAULT_HINT;
@@ -6224,7 +6259,7 @@
             }
             function handleFile(file) {
                 if (!file || busy) return;
-                if (!/\.mdx$/i.test(file.name)) { setHint('仅支持 .mdx 词典文件', true); return; }
+                if (!/\.(mdx|json|js)$/i.test(file.name)) { setHint('仅支持 .mdx / .json / .js 词典文件', true); return; }
                 busy = true;
                 setHint('正在解析 ' + file.name + '…');
                 // File 可结构化克隆：直接转交引擎，由其完成解析与保存
@@ -6301,7 +6336,7 @@
                 }
             });
         };
-        
+
         (function () {
             ['wordText', 'rememberWordText', 'synonymWordText', 'liyiWordText'].forEach(function (id) {
                 const wt = document.getElementById(id);

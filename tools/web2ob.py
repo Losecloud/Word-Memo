@@ -173,6 +173,25 @@ def build_manifest():
             "var DICT_MANIFEST = [];\n").encode("utf-8")
 
 
+def sync_base_dict_js_fallback():
+    """生成 data/englishwords-dict.js：基础词典的 <script> 兜底副本。
+
+    web 端以 file:// 直接打开时，浏览器禁止页面 fetch 本地 json（Worker 同样不可用），
+    主线程拿不到基础词典，形近/近似词、词义分类映射、Pro 干扰项会整片失效；
+    <script> 不受该限制，故按需生成一份 window.ENGLISHWORDS_DICT = {...} 的副本。
+    json 未更新则跳过；该副本不进内嵌包（体积考虑），也不入库（见 .gitignore）。
+    """
+    src = ROOT / "data" / "englishwords-dict.json"
+    dst = ROOT / "data" / "englishwords-dict.js"
+    if not src.exists():
+        return False
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+        return True
+    dst.write_text("window.ENGLISHWORDS_DICT = " + src.read_text(encoding="utf-8").strip() + ";\n",
+                   encoding="utf-8")
+    return True
+
+
 def sync_repo_manifest():
     """重建仓库 data/dict-manifest.js：列出随主仓库分发的词典（catalog 中 source=reciting）。
 
@@ -221,6 +240,47 @@ def build_dict_catalog():
     data = text.encode("utf-8")
     (ROOT / "data" / "dict-catalog.js").write_bytes(data)
     return data
+
+
+README_SHARED_BEGIN = "<!-- SHARED:BEGIN -->"
+README_SHARED_END = "<!-- SHARED:END -->"
+
+
+def _shared_block(text, path):
+    """取出标记界定的共享块（含标记本身）；缺失即报错，避免静默同步出错误内容"""
+    i = text.find(README_SHARED_BEGIN)
+    j = text.find(README_SHARED_END)
+    if i < 0 or j < i:
+        raise SystemExit("未找到共享块标记 %s / %s：%s"
+                         % (README_SHARED_BEGIN, README_SHARED_END, path))
+    return text[i:j + len(README_SHARED_END)]
+
+
+def sync_plugin_readmes():
+    """把根 README 的共享块同步进插件仓库的 README，头尾各端自留。
+
+    主仓库与插件仓库的 README 面向不同受众（Web 用户 / Obsidian 用户）：安装方式、
+    开发说明各写各的；中间由标记界定的「共享块」（核心能力、词典数据、网络使用、
+    数据与隐私）必须逐字一致。以根 README 为准，构建时覆盖插件侧共享块，
+    防止两份文档越改越偏。
+    """
+    for name in ("README.md", "README_EN.md"):
+        src = ROOT / name
+        dst = OUT_DIR / name
+        if not src.exists() or not dst.exists():
+            continue
+        want = _shared_block(src.read_text(encoding="utf-8"), src)
+        # newline=""：不做 CRLF↔LF 转换。否则比对时两边都被归一化而漏判，
+        # 且写入会把共享块变成 CRLF，与文件其余部分换行风格不一致
+        cur = dst.read_text(encoding="utf-8", newline="")
+        begin = cur.find(README_SHARED_BEGIN)
+        end = cur.find(README_SHARED_END)
+        if begin < 0 or end < begin:
+            raise SystemExit("插件 README 缺少共享块标记：%s" % dst)
+        new = cur[:begin] + want + cur[end + len(README_SHARED_END):]
+        if new != cur:
+            dst.write_text(new, encoding="utf-8", newline="")
+            print("已同步插件 README 共享块：%s" % dst)
 
 
 def collect():
@@ -288,6 +348,8 @@ def main():
         return 0
 
     sync_repo_manifest()  # 仓库清单：GitHub Pages 无 serve.js 时由查词引擎回退读取
+    sync_base_dict_js_fallback()  # file:// 直开时的基础词典 <script> 兜底副本（按需生成）
+    sync_plugin_readmes()  # 文档同步：根 README 的共享块覆盖插件仓库 README
 
     manifest = json.loads((OUT_DIR / "manifest.json").read_text(encoding="utf-8"))
     version = manifest["version"]

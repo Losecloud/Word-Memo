@@ -747,6 +747,24 @@
     // 无分类词的统一星团名（collectWords 与 buildClusters 共用同一常量，避免口径不一致）
     var UNCLASSIFIED = '未分类';
 
+    // 词义分类映射（外圈聚类）取自基础词典 ENGLISHWORDS_DICT 的分类路径字段，
+    // 该词典由查词引擎在 Worker 线程内加载，主线程全局并不存在，故此处补一次惰性加载：
+    // 复用 nebula.js 的加载器（同一份数据、同一份「基础词典」开关），未就绪期间先按
+    // 「未分类」正常渲染，数据到位后再重建一次补齐分类，避免为等 8.8MB 卡住白屏。
+    var categoryDictPending = false;
+    function ensureCategoryDict() {
+        if (global.ENGLISHWORDS_DICT || categoryDictPending) return;
+        var nc = global.NebulaCover;
+        if (!nc || typeof nc.loadBaseDict !== 'function') return;
+        categoryDictPending = true;
+        nc.loadBaseDict().then(function (d) {
+            categoryDictPending = false;
+            if (!d) return; // 加载失败或用户已停用基础词典：保持未分类
+            if (coverVisible() && state.initialized && collectWords().length) { rebuild(); start(); }
+            else state.lastBuildKey = ''; // 不在前台或尚未初始化：作废构建键，下次进入封面时重建
+        });
+    }
+
     // 聚类配色：按一级分类名固定映射，保证同一分类在不同词单下颜色一致
     var CLUSTER_COLOR_BY_NAME = {
         '政法与军事': '#3d9988',
@@ -3055,6 +3073,7 @@
                 }
                 setLoaderVisible(false);
                 start();
+                ensureCategoryDict();
             });
         });
     }

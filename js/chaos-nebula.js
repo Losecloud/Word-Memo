@@ -479,6 +479,24 @@
         return entry[2] ? String(entry[2]) : '';
     }
 
+    // 语义星团取词义分类路径，而该路径字段位于基础词典 ENGLISHWORDS_DICT——
+    // 它由查词引擎在 Worker 线程内加载，主线程全局并不存在，故此处补一次惰性加载：
+    // 复用 nebula.js 的加载器（同一份数据、同一份「基础词典」开关），未就绪期间先按
+    // 「未分类」正常渲染，数据到位后再重建一次补齐星团，避免为等 8.8MB 卡住白屏。
+    var categoryDictPending = false;
+    function ensureCategoryDict() {
+        if (global.ENGLISHWORDS_DICT || categoryDictPending) return;
+        var nc = global.NebulaCover;
+        if (!nc || typeof nc.loadBaseDict !== 'function') return;
+        categoryDictPending = true;
+        nc.loadBaseDict().then(function (d) {
+            categoryDictPending = false;
+            if (!d) return; // 加载失败或用户已停用基础词典：保持未分类
+            if (coverVisible() && state.initialized && collectWords().length) { build(); if (!state.raf) animate(); }
+            else state.lastBuildKey = ''; // 不在前台或尚未初始化：作废构建键，下次进入封面时重建
+        });
+    }
+
     // 名称 → 稳定色（同名星团颜色恒定）
     function colorOf(name, idx) {
         return CLUSTER_COLORS[idx % CLUSTER_COLORS.length];
@@ -669,6 +687,7 @@
             w.path = path;
             var segs = path ? path.split('/') : [];
             w.cluster = segs[0] || '未分类';
+            w.path0 = segs[0] || ''; // 一级分类原文（供孤立词判定，不受星团合并影响）
             w.sub = segs[1] || '';
             // 释义优先取词单数据，缺失时回落到基础词典，保证释义重合度有足够覆盖
             var mean = w.meaning;
@@ -700,6 +719,7 @@
         });
 
         buildNodes(pickNodes(words));
+        applyIsolation();
         buildParticles(state.particleCount);
         buildLines();
         rebuildLinks();
@@ -1086,6 +1106,23 @@
     var ROOT_CAP = 0.85;     // 词根同源度上限
     var MIN_LINK = 0.2;      // 低于此强度不成连线，避免释义里的常用字造成虚假关联
 
+    // 分类共祖深度 → 权重（W_CAT × depth/PATH_MAX_DEPTH）：理想值 0 / 0.2 / 0.4 / 0.6。
+    // 必须查表，不能现算 W_CAT×depth/PATH_MAX_DEPTH：JS 浮点下 depth=1 得 0.19999999999999998，
+    // 刚好低于 MIN_LINK(0.2)。后果是「仅一级分类相同」（标签为「星团同类」）的词对全部被判为
+    // 不成连线 —— 而 applyIsolation 按「一级分类计数」却认定它们有关联，两者自相矛盾：
+    // 圆标不灰（有同类）却画不出任何连线。×1e12 取整用于消掉这点浮点误差
+    var CAT_W = (function () {
+        var t = [];
+        for (var d = 0; d <= PATH_MAX_DEPTH; d++) {
+            t.push(Math.round(W_CAT * d / PATH_MAX_DEPTH * 1e12) / 1e12);
+        }
+        return t;
+    })();
+    function catScore(depth) {
+        if (depth <= 0) return 0;
+        return CAT_W[depth < PATH_MAX_DEPTH ? depth : PATH_MAX_DEPTH];
+    }
+
     // 释义 → 用于比对的字集合。
     // 先剥离 [植]/[军]/[医] 这类领域标记与括号补充：它们是分类信息的重复，
     // 当作词义内容会人为抬高任意两词的相似度（同领域词都带同一个标记字）
@@ -1186,7 +1223,7 @@
     // 一对词的关联：强度（0~1）+ 最强的那项理由 + 分类共祖深度
     function pairStrength(a, b) {
         var depth = pathDepth(a.data.path, b.data.path);
-        var sem = W_CAT * Math.min(1, depth / PATH_MAX_DEPTH) +
+        var sem = catScore(depth) +
             W_MEAN * meaningSim(a.data.units, b.data.units);
         var root = rootSim(a, b);
         var spell = spellingSim(a.data.word, b.data.word);
@@ -1293,6 +1330,41 @@
         state.lineGeo.attributes.position.needsUpdate = true;
         state.lineGeo.attributes.color.needsUpdate = true;
         state.lineGeo.setDrawRange(0, lineIndex * 2);
+    }
+
+    // 两词是否成连线：条件同 pairStrength 的 strength ≥ MIN_LINK，但按「先便宜后昂贵」
+    // 早退，避免构建期批量判定孤立词时为形近项付出编辑距离的代价
+    function hasLink(a, b) {
+        var cat = catScore(pathDepth(a.data.path, b.data.path));
+        if (cat >= MIN_LINK) return true;
+        if (cat + W_MEAN * meaningSim(a.data.units, b.data.units) >= MIN_LINK) return true;
+        if (rootSim(a, b) >= MIN_LINK) return true;
+        return spellingSim(a.data.word, b.data.word) >= MIN_LINK;
+    }
+
+    // 孤立词的圆标常驻灰色：与词单中任何其他词都不成连线时点亮，
+    // 无需悬停即可一眼看出（悬停/选中态的周圈发光由 CSS 一并转灰）。
+    // 判定走语义口径（与视角无关），避免相机旋转导致标记闪变。
+    function applyIsolation() {
+        var nodes = state.nodes, i, j;
+        // 同「一级分类」的两词必然构成共祖深度 1（catScore(1) = 0.2 ≥ MIN_LINK），
+        // 故只有一级分类唯一的词才需逐对精算，避免大词单退化为 O(n²)
+        var firstCount = {};
+        for (i = 0; i < nodes.length; i++) {
+            var p0 = nodes[i].data.path0;
+            if (p0) firstCount[p0] = (firstCount[p0] || 0) + 1;
+        }
+        for (i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            var iso = !(n.data.path0 && firstCount[n.data.path0] > 1);
+            if (iso) {
+                for (j = 0; j < nodes.length; j++) {
+                    if (nodes[j] === n) continue;
+                    if (hasLink(n, nodes[j])) { iso = false; break; }
+                }
+            }
+            if (iso && n.el) n.el.classList.add('is-isolated');
+        }
     }
 
     // 高亮语义连线（SVG 贝塞尔 + 流光光子 + 关系标签）
@@ -1898,6 +1970,7 @@
                     setTimeout(function () {
                         setLoaderVisible(false);
                         if (typeof onDone === 'function') onDone();
+                        ensureCategoryDict();
                     }, wait);
                 });
             });

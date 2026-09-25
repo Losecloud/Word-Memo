@@ -1801,6 +1801,19 @@ i[class^="fi-"], i[class*=" fi-"] {
     box-shadow: 0 0 6px var(--chaos-node-color, var(--primary-color));
 }
 
+/* 当前词与词单中其他词无任何语义连线：左上角星团圆标转为灰色（孤立词提示） */
+.chaos-word-node.is-isolated .chaos-node-dot {
+    background: var(--text-tertiary);
+    box-shadow: none;
+}
+
+/* 孤立词悬停/选中：周圈发光一并转灰，避免蓝色光晕与灰色圆标语义相悖 */
+.chaos-word-node.is-isolated:hover,
+.chaos-word-node.is-isolated.is-active {
+    border-color: var(--text-tertiary);
+    box-shadow: 0 0 20px var(--text-tertiary);
+}
+
 .chaos-word-node.is-neighbor {
     border-color: color-mix(in srgb, var(--chaos-node-color, var(--primary-color)) 70%, transparent);
 }
@@ -3403,7 +3416,8 @@ body.nebula-word-themed .nebula-card {
     font-size: 2rem !important;
     font-weight: 600;
     color: var(--text-primary);
-    padding-bottom: 4px;
+    padding-bottom: var(--spacing-md);
+    line-height: 1.1;
 }
 
 /* 上一题悬浮卡片中的音标：单独一行，较小字号，次要色 */
@@ -3777,6 +3791,13 @@ body.nebula-word-themed .nebula-card {
     font-size: 0.75rem;
 }
 
+/* 拼写模式的错误率内联在 word-meta-inline（CEFR 等级左侧），需收紧内边距以贴合一行 */
+.word-meta-inline .word-stats {
+    padding: 0;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+}
+
 .options-container {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -3786,6 +3807,22 @@ body.nebula-word-themed .nebula-card {
     bottom: 1rem;
     width: 100%;
     left: 0;
+}
+
+/* Pro 版：干扰项池（形近词释义）异步载入时的占位提示，避免选项区瞬时空白 */
+.options-pro-loading {
+    grid-column: 1 / -1;
+    align-self: center;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+    padding: var(--spacing-md);
+    animation: proLoadingPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes proLoadingPulse {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 1; }
 }
 
 .option-btn {
@@ -4810,6 +4847,15 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-md);
     justify-content: center;
     flex-wrap: wrap;
+}
+
+/* 艾宾浩斯复习结算页：按钮需容纳「继续复习 (50/83)」进度文本，加宽并保持单行 */
+.btn-primary.btn-sm2-continue {
+    width: auto;
+    min-width: 150px;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    white-space: nowrap;
 }
 
 /* ============================================
@@ -10305,6 +10351,125 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* Switch Button 样式 */
+/* ===== 「看单词选释义」Pro 版（长按激活 + 悬停提示 + PRO 角标） =====
+   同一套交互服务两处：设置弹窗的学习模式按钮、整轮结束后的「换个模式」弹窗模式栏，
+   故以下规则挂在 .pro-holdable 类上（两处按钮结构与交互完全一致）。
+   长按（时长 PRO_HOLD_MS，见 app.js）激活 Pro，激活后右上角落 primary-light 色块显示 PRO。
+   填充动画与文字游戏选项 quick-reply-btn 同一套做法：transition 恒定、只切 width，
+   中途松开时过渡依然有效，填充必定立刻反向缩回（切 transition 值会让浏览器取消过渡）。 */
+.pro-holdable {
+    position: relative;
+    overflow: hidden;
+    user-select: none; /* 长按时不选中按钮文案 */
+    -webkit-touch-callout: none; /* 移动端长按不弹系统菜单 */
+}
+
+/* 强调色填充层：width 0→100% 实现「左→右」扫入 */
+.pro-holdable .btn-pro-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    z-index: 0;
+    background: var(--primary-emphasis);
+    border-radius: inherit;
+    transition: width var(--pro-hold-ms, 1s) linear;
+    pointer-events: none;
+}
+
+/* 长按进行中：按 --pro-hold-ms（由 JS 注入，与激活计时同源）线性扫满作进度反馈 */
+.pro-holdable.pro-holding .btn-pro-fill { width: 100%; }
+
+/* Pro 已开启且该模式处于选中态：填充保持铺满 */
+#selectOnlyBtn.active.pro-on .btn-pro-fill,
+#switchSelectBtn.active.pro-on .btn-pro-fill { width: 100%; }
+
+/* 常态文案与悬停提示：同一位置叠放，靠透明度互换 */
+.pro-holdable .btn-label,
+.pro-holdable .btn-pro-hint {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: opacity var(--transition-fast);
+}
+
+.pro-holdable .btn-pro-hint {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    opacity: 0;
+}
+
+.pro-holdable:hover .btn-label { opacity: 0; }
+.pro-holdable:hover .btn-pro-hint { opacity: 1; }
+
+/* Pro 状态填充为强调色实底：压过 .switch-btn:hover 的浅底深字，文案与悬停提示保持白字 */
+#selectOnlyBtn.active.pro-on,
+#selectOnlyBtn.active.pro-on:hover,
+#switchSelectBtn.active.pro-on,
+#switchSelectBtn.active.pro-on:hover { color: #fff; }
+
+/* PRO 角标：primary-light 色块贴按钮右上角，待填充扫满后淡入 */
+.pro-holdable .btn-pro-corner {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 2;
+    padding: 1px 5px;
+    border-bottom-left-radius: 6px;
+    border-top-right-radius: var(--radius-sm);
+    background: var(--primary-light);
+    color: var(--primary-deep);
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.6;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease 0.25s;
+}
+
+#selectOnlyBtn.active.pro-on .btn-pro-corner,
+#switchSelectBtn.active.pro-on .btn-pro-corner { opacity: 1; }
+
+/* 深色模式：--primary-light 偏暗，角标文字改用亮色保证对比度 */
+[data-theme="dark"] .pro-holdable .btn-pro-corner {
+    color: var(--text-primary);
+}
+
+/* ===== 整轮结束「换个模式」弹窗：模式选择栏（与设置栏同款 switch-buttons）+ 各模式提示 ===== */
+.mode-pick-lead { margin-bottom: var(--spacing-md); }
+
+.mode-pick-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+/* 提示行与上方按钮列一一对齐：列宽 1:1:1，间距/左右内边距与 .switch-buttons 保持一致 */
+.mode-hint-row {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: 0 4px 0;
+    margin-top: -5px;
+}
+
+.mode-hint {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--text-tertiary);
+}
+
 .switch-buttons {
     display: flex;
     gap: var(--spacing-xs);
@@ -10396,6 +10561,23 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
         linear-gradient(135deg, #3E3520 0%, #4A3F26 100%) padding-box,
         var(--border-gradient) border-box;
 }
+
+/* “记得”状态：释义区（含释义+例句）按答对主色调（绿色）显示，加深记忆印象 */
+.remember-meaning-display.meaning-correct {
+    border: 1px solid transparent;
+    background:
+        linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%) padding-box,
+        var(--border-gradient) border-box;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.3s ease-out, border-color 0.3s ease-out;
+    animation: slideDown 0.3s ease-out;
+    min-height: 60px;
+}
+[data-theme="dark"] .remember-meaning-display.meaning-correct {
+    background:
+        linear-gradient(135deg, #14301F 0%, #1A3B27 100%) padding-box,
+        var(--border-gradient) border-box;
+}
 /* 例句中的单词高亮 - 不知道样式（橙色），与模式1的 example-sentence-choice 一致 */
 .remember-example-text .word-highlight-unknown {
     color: #ffa502;
@@ -10403,6 +10585,17 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-style: italic;
     background: transparent;
     text-decoration: underline #ffa502;
+    padding: 0.1rem 0.1rem;
+    border-radius: var(--radius-sm);
+}
+
+/* 例句中的单词高亮 - 记得样式（绿色，答对主色调） */
+.remember-example-text .word-list-highlight {
+    color: var(--success);
+    font-weight: 700;
+    font-style: italic;
+    background: transparent;
+    text-decoration: underline var(--success);
     padding: 0.1rem 0.1rem;
     border-radius: var(--radius-sm);
 }
@@ -10678,6 +10871,56 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* ============================================
+   静默提示（顶部居中浮层）
+   替代原生 alert：不打断操作、无按钮，浮出 3 秒后淡出（长内容自动顺延，见 showNotice）。
+   颜色全部走 :root 变量（surface / text / border-gradient），深浅主题自动适配，无需另写深色覆盖。
+   ============================================ */
+.silent-notice {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    z-index: 20002; /* 高于 toast(20001)、模态与粒子画布，保证可见 */
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 0.75rem 1.25rem;
+    background:
+        linear-gradient(var(--surface), var(--surface)) padding-box,
+        var(--border-gradient) border-box;
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.5;
+    text-align: center;
+    white-space: pre-line; /* 保留原 alert 文案里的换行 */
+    word-break: break-word;
+    pointer-events: none; /* 静默：不拦截任何点击 */
+    opacity: 0;
+    transform: translate(-50%, -12px);
+    transition: opacity var(--transition-normal), transform var(--transition-normal);
+}
+
+.silent-notice.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* 深色模式：surface 已随主题变深，仅加重阴影避免浮层发飘 */
+[data-theme="dark"] .silent-notice {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+@media (max-width: 768px) {
+    .silent-notice {
+        top: 16px;
+        max-width: calc(100vw - 20px);
+        padding: 0.625rem 1rem;
+        font-size: 0.875rem;
+    }
+}
+
+/* ============================================
    粒子动画
    ============================================ */
 .particle-canvas {
@@ -10885,6 +11128,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .completion-actions button {
+        width: 100%;
+    }
+
+    /* 移动端「继续复习 (50/83)」同样占满整行 */
+    .completion-actions .btn-sm2-continue {
         width: 100%;
     }
 }
@@ -17531,6 +17779,3 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
     width: 100%;
     max-width: none;
 }
-
-
-r

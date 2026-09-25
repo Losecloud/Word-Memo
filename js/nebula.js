@@ -50,6 +50,8 @@
         rootDictLoaded: false,
         rootFamilyCache: {}, // word -> { root, family }
         simKeys: null, // 形近词索引：基础词典全部键（惰性构建一次，只存引用）
+        baseDictPromise: null, // 基础词典加载中的 Promise（并发去重，避免重复 fetch 8.8MB）
+        simSortedKeys: null, // 近似词索引：基础词典全部键的字典序副本（前缀区间二分用）
         simLenIndex: null, // 形近词索引：Map<长度, [键,...]>（长度分桶粗筛）
         simCache: {}, // word -> [{ w, sim }]（形近词匹配结果内存缓存，相似度降序；收藏词等无词单归属的词用）
         simBookCache: {}, // bookId -> { word: [{w,sim}] }（从词单 similarCache 加载的持久化缓存，优先读取）
@@ -536,12 +538,34 @@
         if (global.ENGLISHWORDS_DICT) return Promise.resolve(global.ENGLISHWORDS_DICT);
         // 已停用：不加载，形近词/释义补充随之缺省（省下 8.8MB 的下载与解析开销）
         if (baseDictDisabled()) return Promise.resolve(null);
-        return new Promise(function (resolve) {
+        // 并发去重：形近词/近似词/词卡详情可能同时需要，只加载一次
+        if (state.baseDictPromise) return state.baseDictPromise;
+        state.baseDictPromise = new Promise(function (resolve) {
             fetch('data/englishwords-dict.json', { cache: 'no-cache' })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                 .then(function (data) { global.ENGLISHWORDS_DICT = data || null; resolve(global.ENGLISHWORDS_DICT); })
-                .catch(function () { resolve(null); });
+                // fetch 失败：file:// 直开时浏览器禁止页面读取本地 json（Worker 同样不可用），
+                // 退到 data/englishwords-dict.js 兜底脚本（<script> 可执行本地 js，由其写入全局）
+                .catch(function () { loadBaseDictViaScript(resolve); });
         });
+        return state.baseDictPromise;
+    }
+
+    // 兜底脚本注入：成功则全局就绪，缺失（未生成该文件）则按不可用处理，不影响其他功能
+    function loadBaseDictViaScript(resolve) {
+        var existing = document.querySelector('script[data-base-dict-fallback]');
+        if (existing) {
+            if (global.ENGLISHWORDS_DICT) { resolve(global.ENGLISHWORDS_DICT); return; }
+            existing.addEventListener('load', function () { resolve(global.ENGLISHWORDS_DICT || null); });
+            existing.addEventListener('error', function () { resolve(null); });
+            return;
+        }
+        var s = document.createElement('script');
+        s.src = 'data/englishwords-dict.js';
+        s.setAttribute('data-base-dict-fallback', '1');
+        s.onload = function () { resolve(global.ENGLISHWORDS_DICT || null); };
+        s.onerror = function () { resolve(null); };
+        document.head.appendChild(s);
     }
 
     // 从基础词典查询单词的音标与释义：数据格式 { word: [音标, 释义] }，未命中返回 null
@@ -693,7 +717,7 @@
     function ensureSimIndexes() {
         if (state.simKeys) return;
         var d = global.ENGLISHWORDS_DICT;
-        if (!d) { state.simKeys = []; state.simLenIndex = new Map(); return; }
+        if (!d) { state.simKeys = []; state.simSortedKeys = []; state.simLenIndex = new Map(); return; }
         var keys = Object.keys(d);
         var lenIndex = new Map();
         for (var i = 0; i < keys.length; i++) {
@@ -705,7 +729,61 @@
             bucket.masks.push(letterMask(k));
         }
         state.simKeys = keys;
+        state.simSortedKeys = keys.slice().sort(); // 近似词前缀区间二分要求字典序
         state.simLenIndex = lenIndex;
+    }
+    // 有序数组中第一个 >= val 的下标（二分）
+    function lowerBound(arr, val) {
+        var lo = 0, hi = arr.length;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            if (arr[mid] < val) lo = mid + 1; else hi = mid;
+        }
+        return lo;
+    }
+    // 有序数组中所有以 q 为前缀的键（连续区间，O(log n) 定位 + 切片）
+    function prefixRange(sorted, q) {
+        if (!q) return [];
+        return sorted.slice(lowerBound(sorted, q), lowerBound(sorted, q + '\uffff'));
+    }
+    // Levenshtein 编辑距离（滚动一维 DP）
+    function editDistance(a, b) {
+        var n = b.length;
+        var prev = new Array(n + 1);
+        for (var j = 0; j <= n; j++) prev[j] = j;
+        for (var i = 1; i <= a.length; i++) {
+            var cur = new Array(n + 1);
+            cur[0] = i;
+            var aCh = a.charCodeAt(i - 1);
+            for (var j1 = 1; j1 <= n; j1++) {
+                var cost = aCh === b.charCodeAt(j1 - 1) ? 0 : 1;
+                var del = prev[j1] + 1, ins = cur[j1 - 1] + 1, sub = prev[j1 - 1] + cost;
+                cur[j1] = del < ins ? (del < sub ? del : sub) : (ins < sub ? ins : sub);
+            }
+            prev = cur;
+        }
+        return prev[n];
+    }
+    // 近似词：与查词引擎 fuzzyMatch 同一套做法（前缀二分收敛 + 编辑距离），
+    // 但词集固定为基础词典——Pro 版干扰项要求「形近、近似词均来自基础词典」
+    function findNearWords(q, maxN) {
+        if (!q || q.length < 2) return [];
+        var keys = state.simSortedKeys || [];
+        if (!keys.length) return [];
+        // 候选集：优先前 2 字符前缀，候选不足 30 个时降级为首字符前缀
+        var cand = prefixRange(keys, q.slice(0, 2));
+        if (cand.length < 30) cand = prefixRange(keys, q.charAt(0));
+        var lenLo = Math.max(1, q.length - 2), lenHi = q.length + 2;
+        var scored = [];
+        for (var i = 0; i < cand.length; i++) {
+            var w = cand[i];
+            if (w === q) continue;
+            if (w.length < lenLo || w.length > lenHi) continue;
+            scored.push({ w: w, d: editDistance(q, w) });
+            if (scored.length > 3000) break; // 防极端：只对前 3000 个长度相近候选算距离
+        }
+        scored.sort(function (a, b) { return a.d - b.d || a.w.length - b.w.length; });
+        return scored.slice(0, maxN).map(function (x) { return { w: x.w, d: x.d }; });
     }
     // LCS 长度（滚动一维 DP）
     function lcsLength(a, b) {
@@ -2657,6 +2735,19 @@
         else loadBaseDict().then(run);
     }
 
+    // 供主页「看单词选释义」Pro 版补充"近似词"：前缀收敛 + 编辑距离（与查词引擎同算法），
+    // 词集固定为基础词典；同样等基础词典就绪后计算，首次调用触发惰性加载
+    function nearWordsOf(word, maxN, callback) {
+        var w = String(word || '').trim().toLowerCase();
+        if (!w) { if (callback) callback([]); return; }
+        var run = function () {
+            if (global.ENGLISHWORDS_DICT) ensureSimIndexes();
+            if (callback) callback(findNearWords(w, maxN || 12));
+        };
+        if (global.ENGLISHWORDS_DICT) run();
+        else loadBaseDict().then(run);
+    }
+
     global.NebulaCover = {
         apply: apply,
         init: init,
@@ -2668,7 +2759,9 @@
         refresh: refresh,
         switchFromImport: switchFromImport,
         similar: similarWordsOf,
+        near: nearWordsOf, // 近似词（基础词典，前缀收敛 + 编辑距离），Pro 版干扰项补位用
         lookup: lookupBaseDict, // 基础词典查询（{phonetic, meaning}），供主页形近词展示释义
+        loadBaseDict: loadBaseDict, // 惰性加载基础词典到主线程全局（封面分类映射等共用）
         searchZh: searchChinese, // 中文逆向查词：扫描基础词典释义返回英文单词
         cefr: cefrOf // CEFR 等级查询（'A1'~'C2'，未命中 ''），供主页查词下拉显示等级 tag
     };

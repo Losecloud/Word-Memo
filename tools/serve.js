@@ -51,15 +51,16 @@ const DICT_DISPLAY_NAMES = { 'englishwords-dict.json': '基础词典' };
 // 更新 dict-manifest.js：只 upsert 本次导入的词典条目，保留其余条目原样。
 // 不用整表重扫，避免抹掉已有条目的 mdd 资源目录（如 oaldpe 的样式/发音）等字段
 // varNameHint：JSON 内容无法解析出变量名，由调用方（/save-dict 请求）显式提供
+// 返回 { count, mdd }：mdd 为同名资源目录名（样式/图片/真人发音），供 /save-dict 响应回传给前端
 function upsertManifest(fname, content, varNameHint) {
-  if (!fs.existsSync(DATA_DIR)) return 0;
+  if (!fs.existsSync(DATA_DIR)) return { count: 0, mdd: '' };
   let varName = varNameHint || '';
   if (!varName) {
     const m = VAR_RE.exec(String(content || '').slice(0, 4096));
     if (m) varName = m[1];
   }
   if (!varName && /-dict\.json$/i.test(fname)) varName = varNameFromFile(fname);
-  if (!varName) return 0;
+  if (!varName) return { count: 0, mdd: '' };
   const mf = path.join(DATA_DIR, 'dict-manifest.js');
   let list = [];
   try {
@@ -67,19 +68,23 @@ function upsertManifest(fname, content, varNameHint) {
     if (arr) list = JSON.parse(arr[0]);
   } catch (e) { /* 无清单或格式异常：从空表开始 */ }
   if (!Array.isArray(list)) list = [];
-  const name = DICT_DISPLAY_NAMES[fname] || fname.replace(/-dict\.(js|json)$/i, '');
+  // 资源目录按文件名主干探测，与显示名无关——若按 name（可能被 DICT_DISPLAY_NAMES 改写成中文）探测，
+  // 一旦词典配了显示名就找不到 data/<主干>/ 资源目录，样式会静默失效
+  const stem = fname.replace(/-dict\.(js|json)$/i, '');
+  const name = DICT_DISPLAY_NAMES[fname] || stem;
   const entry = { file: fname, name: name, varName: varName };
   if (/-dict\.json$/i.test(fname)) entry.format = 'json';
   // 同名资源目录存在则记录 mdd（词条 HTML 中的图片/音频/CSS 均相对该目录解析）
-  const cand = path.join(DATA_DIR, name);
-  if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) entry.mdd = name;
+  const cand = path.join(DATA_DIR, stem);
+  const mdd = (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) ? stem : '';
+  if (mdd) entry.mdd = mdd;
   const i = list.findIndex(x => x && x.file === fname);
   if (i >= 0) list[i] = Object.assign({}, list[i], entry);
   else list.push(entry);
   list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const out = '// 自动生成：浏览器导入或 tools/convert-mdx.js 更新，请勿手改\nvar DICT_MANIFEST = ' + JSON.stringify(list, null, 1) + ';\n';
   fs.writeFileSync(mf, out, 'utf8');
-  return list.length;
+  return { count: list.length, mdd: mdd };
 }
 
 // 从 dict-manifest.js 移除指定文件的条目（卸载词典时用），保留其余条目原样
@@ -179,6 +184,48 @@ http.createServer((req, res) => {
 
   // 保存词典到 data/ 目录：{varName, content} → 写入 data/<fname> 并重建 dict-manifest.js
   if (req.method === 'POST' && url === '/save-dict') {
+    // raw=1&file=<fname>：已解析词典（.json / .js）原始字节直传。
+    // 不做 JSON.parse、不构造文本，直接落盘并登记清单——超大词典（oaldpe 约 320MB）
+    // 若走 {content} 通道，浏览器要 stringify、服务端还要再 parse，内存会被撑爆。
+    const query = (req.url.split('?')[1] || '');
+    const params = new URLSearchParams(query);
+    if (params.get('raw') === '1') {
+      // URLSearchParams 已完成一次解码，此处直接取用（再 decode 会把文件名里的 % 误解析）
+      const fname = params.get('file') || '';
+      const safe = /^[^\\/:*?"<>|]+-dict\.(js|json)$/i.test(fname) && fname.charAt(0) !== '.' ? fname : '';
+      if (!safe) {
+        res.writeHead(400, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: false, error: '文件名不合法' }));
+        req.destroy();
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      req.on('data', c => {
+        size += c.length;
+        if (size > 512 * 1024 * 1024) { req.destroy(); return; }
+        chunks.push(c);
+      });
+      req.on('end', () => {
+        try {
+          if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+          fs.writeFileSync(path.join(DATA_DIR, safe), Buffer.concat(chunks));
+          let varName = /-dict\.json$/i.test(safe) ? varNameFromFile(safe) : '';
+          if (!varName) {
+            const head = fs.readFileSync(path.join(DATA_DIR, safe), 'utf8').slice(0, 4096);
+            const m = VAR_RE.exec(head);
+            varName = m ? m[1] : '';
+          }
+          const r = varName ? upsertManifest(safe, '', varName) : { count: 0, mdd: '' };
+          res.writeHead(200, { 'Content-Type': MIME['.json'] });
+          res.end(JSON.stringify({ ok: true, file: safe, count: r.count, varName: varName, mdd: r.mdd }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': MIME['.json'] });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+      return;
+    }
     let body = '';
     req.on('data', c => { body += c; if (body.length > 500 * 1024 * 1024) req.destroy(); });
     req.on('end', () => {
@@ -190,9 +237,9 @@ http.createServer((req, res) => {
           && /^[^\\/:*?"<>|]+-dict\.(js|json)$/i.test(file) && file.charAt(0) !== '.' ? file : '';
         const fname = safe || fnameOf(varName, /-dict\.json$/i.test(String(file || '')) ? 'json' : 'js');
         fs.writeFileSync(path.join(DATA_DIR, fname), content, 'utf8');
-        const count = upsertManifest(fname, content, varName);
+        const r = upsertManifest(fname, content, varName);
         res.writeHead(200, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({ ok: true, file: fname, count: count }));
+        res.end(JSON.stringify({ ok: true, file: fname, count: r.count, mdd: r.mdd }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: false, error: e.message }));

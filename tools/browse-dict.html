@@ -406,7 +406,7 @@
 <header>
   <h1>词典数据浏览</h1>
   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-    <button id="importBtn" title="导入 MDX 词库" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#2563eb; color:#fff; cursor:pointer; font-weight:600;">📥 导入</button>
+    <button id="importBtn" title="导入 MDX / JSON / JS 词库" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#2563eb; color:#fff; cursor:pointer; font-weight:600;">📥 导入</button>
     <button id="scan" title="选择文件夹扫描 *-dict.json" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;">📁 扫描</button>
     <button id="reload" title="刷新页面" style="padding:7px 12px; font-size:14px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;">⟳</button>
   </div>
@@ -1608,10 +1608,15 @@ if (typeof window.define !== 'function') {
       setEnabledDicts(arr);
       d.enabled = false;
       unloadDict(varName);
-      // 当前选中的是被禁用的词典 → 切到第一个已启用的
+      // 禁用即撤销首选：browseDictCur 若继续指向已禁用词典，查词会静默落不到它身上、
+      // 而下拉仍标着「★ 首选」，用户只会觉得「怎么都选不中」——故此处一并清掉，交由用户重新指定
+      try {
+        if (localStorage.getItem('browseDictCur') === varName) localStorage.removeItem('browseDictCur');
+      } catch (e) { /* 忽略 */ }
+      // 当前浏览的正好是被禁用的词典 → 切到第一个已启用的（仅换浏览目标，不改写用户首选）
       if (cur === varName) {
         const first = Object.keys(DICTS).find(v2 => DICTS[v2].enabled && DICTS[v2].data);
-        if (first) switchDict(first);
+        if (first) switchDict(first, { keepPref: true });
         else {
           cur = null; keys = []; filtered = [];
           $('detail').style.display = 'none';
@@ -1640,17 +1645,23 @@ if (typeof window.define !== 'function') {
   }
   initDictPicker();
 
-  function switchDict(v) {
+  // 切换「当前浏览的词典」。
+  // 注意 cur（当前浏览目标）与 browseDictCur（用户首选查词词典）是两个概念：
+  // 前者会因临时查看他词典、禁用词典兜底、导入新词典等内部原因变动，后者只应由用户显式指定。
+  // 早期两者共用 browseDictCur，导致任何内部切换都会把首选悄悄改掉，故此处用 opts.keepPref 区分：
+  // 内部调用一律传 { keepPref: true }，只有用户主动选词库时才写首选。
+  function switchDict(v, opts) {
+    const keepPref = !!(opts && opts.keepPref);
     const d = DICTS[v];
     if (!d || !d.enabled) return; // 禁用的不可切换
     if (!d.data) {
       // 后台加载尚未完成：触发加载，完成后自动切换
-      loadDict(d.meta).then(() => switchDict(v)).catch(() => {});
+      loadDict(d.meta).then(() => switchDict(v, opts)).catch(() => {});
       return;
     }
     cur = v;
-    // 记住本次选择，刷新后自动恢复
-    try { localStorage.setItem('browseDictCur', v); } catch (e) { /* 无痕模式忽略 */ }
+    // 记住本次选择，刷新后自动恢复（仅用户主动选择时写首选）
+    if (!keepPref) { try { localStorage.setItem('browseDictCur', v); } catch (e) { /* 无痕模式忽略 */ } }
     const r = DICTS[v].redirects || {};
     // sortedKeys 缓存：词典数据不可变，首次构建后直接复用，切词库不再重复排序（O(n log n) → O(1)）
     if (!DICTS[v].sortedKeys) {
@@ -1960,21 +1971,23 @@ if (typeof window.define !== 'function') {
       } catch (e) { /* 忽略 */ }
       refresh();
     } else {
-      // 当前无有效词库：切到第一个已启用的
+      // 当前无有效词库：切到第一个已启用的（兜底浏览目标，不改写用户首选）
       const first = Object.keys(DICTS).find(v => DICTS[v].enabled && DICTS[v].data);
-      if (first) switchDict(first);
+      if (first) switchDict(first, { keepPref: true });
       else refresh();
     }
   }
 
   // 后台对账 dict-manifest.js：补齐本地缓存 dictMetas 缺失的词典（含 mdd 资源目录）。
-  // 手动放回 data/ 的词典文件（如恢复 oaldpe-dict.json）不在缓存里，快速路径不会识别，需借此补注册
+  // 手动放回 data/ 的词典文件（如恢复 oaldpe-dict.json）不在缓存里，快速路径不会识别，需借此补注册。
+  // 注意要比对 mdd：缓存里 mdd 为空（如导入时资源目录尚未放好）而清单已有资源目录时，也必须补登记，
+  // 否则词典样式/图片/发音永远不会加载
   function reconcileManifest(saved) {
     loadManifest().then(list => {
       if (!list || !list.length) return;
       const cached = {};
-      saved.forEach(m => { cached[m.varName] = 1; });
-      if (list.every(m => cached[m.varName])) return; // 清单与缓存一致，无需处理
+      saved.forEach(m => { cached[m.varName] = m.mdd || ''; });
+      if (list.every(m => cached[m.varName] === (m.mdd || ''))) return; // 清单与缓存一致，无需处理
       return applyMetas(list).then(() => {
         renderSelect();
         broadcastPickerState();
@@ -2244,17 +2257,64 @@ if (typeof window.define !== 'function') {
     return { dict, name: attrs.Title || 'unnamed' };
   }
 
-  // ---- 导入流程 ----
-  function pickMdxFile() {
+  // ---- 导入流程（.mdx 走 MDX 解析；.json / .js 直接解析为纯数据词典） ----
+  function pickDictFile() {
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.mdx';
+      input.accept = '.mdx,.json,.js';
       input.onchange = () => resolve(input.files && input.files[0]);
       input.click();
     });
   }
-  async function importMdx(presetFile) {
+  // .js 词典文本 → 纯 JSON 文本：形如 var NAME = {...}; 或 window.NAME = {...};
+  // 只剥离外层赋值语句（头尾切分），不做 JSON.parse / stringify，也不执行任何脚本。
+  // 超大词典（oaldpe 约 320MB）因此只需一份字符串即可落盘，不会在内存里反复翻倍。
+  function stripJsWrapper(text) {
+    const s = String(text).replace(/^\uFEFF/, '');
+    const start = s.search(/[{[]/);
+    if (start < 0) throw new Error('未找到 JSON 数据对象（{ 或 [）');
+    const end = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+    if (end < start) throw new Error('JSON 数据不完整（缺少结尾 } 或 ]）');
+    // 仅当 = 与首个 { 之间只有空白时，才认定它是赋值语句（否则按裸 JSON 处理）
+    const eq = s.lastIndexOf('=', start);
+    return (eq >= 0 && !s.slice(eq + 1, start).trim()) ? s.slice(eq + 1, end + 1) : s.slice(start, end + 1);
+  }
+  // 已解析词典（.json / .js）导入：内容本身就是最终数据格式，这里只做两件事——
+  // 按命名约定落盘到 data/、登记进词典清单；词条数据则交由标准加载通道
+  // （loadDict：fetch + IndexedDB 缓存）在选用时读取。
+  // 关键：不再 file.text() → JSON.parse → JSON.stringify → 服务端 JSON.parse。
+  // 那种全量往返会在内存里同时留下多份词典副本，320MB 级词典（oaldpe）足以把页面整崩溃。
+  async function importParsedDict(file, ext, baseName, fileVarName, hostDriven) {
+    let payload = file;      // .json：原始字节直接交给落盘通道，浏览器按流发送
+    let varName = fileVarName;
+    if (ext === 'js') {
+      // .js 只剥离外层 `var X = {...}` 赋值语句（头尾切分），不做解析
+      const text = await file.text();
+      varName = parseVarName(text) || varName;
+      payload = new Blob([stripJsWrapper(text)], { type: 'application/json' });
+    }
+    const name = baseName.replace(/-dict$/i, '') || baseName;
+    const fname = varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.json';
+    // 先登记占位（不加载数据）：立即出现在词典下拉，选用时经标准加载通道读取
+    registerDict({ varName: varName, name: name, url: '../data/' + fname, size: file.size, file: fname, format: 'json' });
+    const enabled = getEnabledDicts();
+    if (!enabled.includes(varName)) { enabled.push(varName); setEnabledDicts(enabled); }
+    const known = getKnownDicts();
+    if (!known.includes(varName)) { known.push(varName); setKnownDicts(known); }
+    DICTS[varName].enabled = true;
+    ilog('  · 检测为已解析词典（.' + ext + '）：跳过解析，直接写入 data/ 并登记清单');
+    const saved = await saveDictToData(payload, baseName, varName, hostDriven, true);
+    renderSelect();
+    broadcastPickerState();
+    if (saved) post({ type: 'dicts-updated' }); // 通知宿主按当前输入重新检索
+    importReport(saved
+      ? ('已导入「' + name + '」，选用该词典时自动加载')
+      : saveBlockedHint(), saved ? '' : 'err', true);
+    return saved;
+  }
+
+  async function importDict(presetFile) {
     // 宿主（Obsidian 右侧栏拖入区）驱动：文件由宿主经 postMessage 传入，解析后自动落盘，
     // 进度经 importReport 回传宿主显示，不再走本页的「保存/跳过」按钮流程
     const hostDriven = !!presetFile;
@@ -2262,17 +2322,41 @@ if (typeof window.define !== 'function') {
     const bar = $('importBar');
     if (bar) bar.style.display = 'block';
     setStatus('选择文件…');
-    const file = presetFile || await pickMdxFile();
+    const file = presetFile || await pickDictFile();
     if (!file) { setStatus('已取消'); return; }
-    const baseName = file.name.replace(/\.mdx$/i, '');
+    const ext = ((file.name.match(/\.([^.]+)$/) || [''])[0] || '').slice(1).toLowerCase();
+    if (ext !== 'mdx' && ext !== 'json' && ext !== 'js') {
+      ilog('✗ 不支持的文件类型：' + file.name, 'err');
+      setStatus('失败 ✗');
+      importReport('仅支持 .mdx / .json / .js 词典文件', 'err', true);
+      return;
+    }
+    const baseName = file.name.replace(/\.(mdx|json|js)$/i, '');
+    // 词库变量名：保留 Unicode 字母/数字（含中文），其余字符归一为下划线，避免纯中文名被清空导致碰撞。
+    // 先剥掉文件名的 -dict 后缀再拼变量名——否则 oaldpe-dict.json 会拼成 OALDPE-DICT_DICT，
+    // 落盘成 oaldpe-dict-dict.json，既不符合既有命名约定，也与 data/oaldpe/ 资源目录对不上
+    const stem = baseName.replace(/-dict$/i, '') || baseName;
+    const fileVarName = stem.replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toUpperCase() + '_DICT';
     logActions.style.display = 'none';
     ilog('▶ 导入: ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)');
+    // 分流：.mdx 是二进制格式，必须解析成词条对象；.json / .js 的内容本身就是最终
+    // 数据格式，导入时应「走加载」——原样落盘 + 登记清单，不在此处解析
+    if (ext !== 'mdx') {
+      setStatus('登记中…');
+      try {
+        await importParsedDict(file, ext, baseName, fileVarName, hostDriven);
+      } catch (e) {
+        ilog('✗ 导入失败: ' + e.message, 'err');
+        setStatus('失败 ✗');
+        importReport('导入失败：' + e.message, 'err', true);
+      }
+      return;
+    }
     setStatus('解析中…');
     try {
       const buf = await file.arrayBuffer();
-      const { dict, name } = await parseMDX(buf);
-      // 词库变量名：保留 Unicode 字母/数字（含中文），其余字符归一为下划线，避免纯中文名被清空导致碰撞
-      const varName = baseName.replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toUpperCase() + '_DICT';
+      const parsed = await parseMDX(buf);
+      const dict = parsed.dict, name = parsed.name, varName = fileVarName;
       // 词典统一为纯 JSON 文本（不含可执行代码）：不再生成 var 声明，也不 eval 执行
       const jsonText = JSON.stringify(dict);
 
@@ -2285,14 +2369,16 @@ if (typeof window.define !== 'function') {
       d.count = normal;
       d.redirects = redirects;
       d.enabled = true;
-      d.mdd = null;
+      // 保留清单里已知的同名资源目录（样式/真人发音），避免重复导入把 mdd 关联抹掉
+      d.mdd = d.mdd || null;
       DICTS[varName] = d;
       // 同步启用状态
       let arr = getEnabledDicts();
       if (!arr.includes(varName)) { arr.push(varName); setEnabledDicts(arr); }
       ilog('  ✓ 已加载到当前页面（可立即浏览）');
       finishLoad();
-      switchDict(varName);
+      // 导入只是把词典加入并设为浏览目标，不应顺手改写用户的首选查词词典
+      switchDict(varName, { keepPref: true });
 
       if (hostDriven) {
         // 宿主驱动：解析成功即自动落盘到 data/（仅走本地服务，无用户手势不弹目录选择器）
@@ -2300,7 +2386,7 @@ if (typeof window.define !== 'function') {
         const saved = await saveDictToData(jsonText, baseName, varName, true);
         // 通知宿主按当前输入重新检索，让新词典的释义立即出现在结果中
         if (saved) post({ type: 'dicts-updated' });
-        importReport(saved ? ('已导入「' + (name || baseName) + '」') : ('已解析但未保存到 data/，请检查本地服务'),
+        importReport(saved ? ('已导入「' + (name || baseName) + '」') : saveBlockedHint(),
           saved ? '' : 'err', true);
         return;
       }
@@ -2314,7 +2400,7 @@ if (typeof window.define !== 'function') {
       setStatus('转换成功 ✓');
     } catch (e) {
       ilog('✗ 转换失败: ' + e.message, 'err');
-      ilog('  troubleshooting: 请确认文件是标准 MDX；或改用 node tools/convert-mdx.js 转换；若为加密词典请查看上方格式信息', 'warn');
+      ilog('  troubleshooting: .mdx 请确认是标准 MDX 词典（或改用 node tools/convert-mdx.js 转换）', 'warn');
       setStatus('失败 ✗');
       importReport('解析失败：' + e.message, 'err', true);
     }
@@ -2339,16 +2425,45 @@ if (typeof window.define !== 'function') {
     if (!data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
     return data;
   }
+  // 已解析词典（.json / .js，内容即最终数据）：原始字节直传落盘（raw=1），
+  // 服务端只写文件不解析，浏览器也按流发送，双方都不构造文本副本
+  async function saveViaServerRaw(payload, fname) {
+    const resp = await fetch(serverBase() + '/save-dict?raw=1&file=' + encodeURIComponent(fname), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: payload
+    });
+    const data = await resp.json().catch(() => ({ ok: false, error: '响应解析失败' }));
+    if (!data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+    return data;
+  }
+
+  // 落盘不可用时的引导：区分「file:// 直开」与「服务未启动」两种情况。
+  // file:// 下浏览器既禁止 fetch 本地词典、也没有可供写入的 HTTP 服务，
+  // 目录选择器又因 iframe 内无用户手势而不可用，故直接引导到 serve.js / Obsidian 插件端。
+  function saveBlockedHint() {
+    if (location.protocol === 'file:') {
+      return 'file:// 直开无法写入 data/（浏览器禁止本地写盘与 fetch 词典）。请运行 node tools/serve.js 后改用 http://localhost:8377 打开，或在 Obsidian 插件端导入';
+    }
+    return '未连接本地服务，无法写入 data/ 目录。请运行 node tools/serve.js 后重试';
+  }
 
   // serverOnly：为真时仅尝试本地服务落盘，不做目录选择（宿主驱动、无用户手势时使用）
-  async function saveDictToData(jsonText, baseName, varName, serverOnly) {
+  // payload：MDX 解析结果为 JSON 文本（字符串）；已解析词典直接传 File/Blob 原始字节
+  // raw：为真表示 payload 是原始字节，经 raw=1 通道落盘（服务端不做 JSON 解析）
+  async function saveDictToData(payload, baseName, varName, serverOnly, raw) {
     const fname = varName.replace(/_DICT$/i, '').toLowerCase() + '-dict.json';
     // 保存成功后的收尾：更新内存 meta、持久化清单 dictMetas、刷新下拉/状态
-    const applySaved = () => {
+    // mdd：同名资源目录名（样式/图片/真人发音），由服务端或所选目录探测得出，缺失则样式不会加载
+    const applySaved = (mdd) => {
       const d = DICTS[varName];
       const displayName = d ? d.name : baseName;
-      if (d) d.meta = { varName, name: displayName, url: '../data/' + fname, text: null, size: 0, mdd: null };
-      upsertSavedMeta({ varName: varName, name: displayName, file: fname, mdd: null, size: 0 });
+      const dir = mdd || null;
+      if (d) {
+        d.mdd = dir;
+        d.meta = { varName, name: displayName, url: '../data/' + fname, text: null, size: 0, mdd: dir };
+      }
+      upsertSavedMeta({ varName: varName, name: displayName, file: fname, mdd: dir, size: 0 });
       broadcastPickerState();
       logActions.style.display = 'none';
       setStatus('保存完成 ✓（已写入 data/ 目录，下次打开自动加载）');
@@ -2357,17 +2472,18 @@ if (typeof window.define !== 'function') {
     // 方式 1：本地服务写入 data/（无需用户选目录）
     try {
       setStatus('保存到 data/ 目录…');
-      const r = await saveViaServer(jsonText, varName, fname);
+      const r = raw ? await saveViaServerRaw(payload, fname) : await saveViaServer(payload, varName, fname);
       ilog('  ✓ 已保存到 data/：' + r.file, 'ok');
       ilog('  ✓ 已更新清单 dict-manifest.js（' + r.count + ' 本词典）', 'ok');
-      applySaved();
+      if (r.mdd) ilog('  ✓ 已关联资源目录 data/' + r.mdd + '/（样式/图片/发音）', 'ok');
+      applySaved(r.mdd);
       return true;
     } catch (e) {
       ilog('  本地服务不可用（' + e.message + '），改为目录选择方式…', 'warn');
     }
 
-    // serverOnly：宿主驱动（无用户手势）时不做目录选择，直接判定未保存
-    if (serverOnly) { setStatus('未保存（本地服务不可用）'); return false; }
+    // serverOnly：宿主驱动（无用户手势）时不做目录选择，直接按不可用处理
+    if (serverOnly) { setStatus(saveBlockedHint()); return false; }
 
     // 方式 2：File System Access API 手动选择目录
     try {
@@ -2376,26 +2492,36 @@ if (typeof window.define !== 'function') {
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
       const fh = await dir.getFileHandle(fname, { create: true });
       const w = await fh.createWritable();
-      await w.write(jsonText);
+      await w.write(payload);
       await w.close();
       ilog('  ✓ 已保存: ' + fname, 'ok');
+
+      // 探测同名资源目录（data/<主干>/，样式/图片/发音所在），失败表示该词典不含外部资源
+      const mddName = fname.replace(/-dict\.json$/i, '');
+      let mddSaved = '';
+      try { await dir.getDirectoryHandle(mddName); mddSaved = mddName; } catch (e) { /* 无同名资源目录 */ }
 
       // 更新 dict-manifest.js（重新扫描该目录下所有 *-dict.js / *-dict.json）
       setStatus('更新清单…');
       const manifest = [];
       for await (const entry of dir.values()) {
         if (entry.kind !== 'file' || !/^.+?-dict\.(js|json)$/i.test(entry.name) || entry.name === 'dict-manifest.js') continue;
+        // 资源目录按文件名主干（与显示名无关）：详见服务端 upsertManifest 同名逻辑
+        const stem = entry.name.replace(/-dict\.(js|json)$/i, '');
         let vname = '';
         if (/-dict\.json$/i.test(entry.name)) {
           // JSON 词典无 var 声明，按文件名约定推导（与 varNameFromFile 一致）
-          vname = entry.name.replace(/-dict\.json$/i, '').replace(/-/g, '_').toUpperCase() + '_DICT';
+          vname = stem.replace(/-/g, '_').toUpperCase() + '_DICT';
         } else {
           const f = await entry.getFile();
           const head = (await f.text()).slice(0, 4096);
           const mv = /var\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*=\s*\{/u.exec(head);
           if (mv) vname = mv[1];
         }
-        if (vname) manifest.push({ file: entry.name, name: entry.name.replace(/-dict\.(js|json)$/i, ''), varName: vname });
+        if (!vname) continue;
+        const item = { file: entry.name, name: stem, varName: vname };
+        try { await dir.getDirectoryHandle(stem); item.mdd = stem; } catch (e) { /* 无同名资源目录 */ }
+        manifest.push(item);
       }
       manifest.sort((a, b) => a.name.localeCompare(b.name));
       const mh = await dir.getFileHandle('dict-manifest.js', { create: true });
@@ -2403,7 +2529,7 @@ if (typeof window.define !== 'function') {
       await mw.write('// 自动生成：浏览器导入或 tools/convert-mdx.js 更新，请勿手改\nvar DICT_MANIFEST = ' + JSON.stringify(manifest, null, 1) + ';\n');
       await mw.close();
       ilog('  ✓ 已更新清单 dict-manifest.js（' + manifest.length + ' 本词典）', 'ok');
-      applySaved();
+      applySaved(mddSaved);
       return true;
     } catch (e) {
       ilog('✗ 保存失败: ' + e.message, 'err');
@@ -2413,7 +2539,8 @@ if (typeof window.define !== 'function') {
     }
   }
 
-  $('importBtn').onclick = importMdx;
+  // 点击「导入」：不传文件，走本页文件选择器（不能直接挂 importDict，否则事件对象会被当成文件参数）
+  $('importBtn').onclick = () => importDict();
   $('scan').onclick = doScan;
   $('reload').onclick = () => location.reload();
   // 即时检索：输入/删减立即刷新列表（IME 组合期间不触发，候选上屏后刷新）
@@ -2471,6 +2598,9 @@ if (typeof window.define !== 'function') {
   function pickerState() {
     let pref = null;
     try { pref = localStorage.getItem('browseDictCur'); } catch (e) { /* 忽略 */ }
+    // 首选已失效（被禁用/已卸载）时不再上报：否则下拉会把「★ 首选」标在查不到释义的词库上，
+    // 用户看到的偏好与实际生效的偏好不一致，只会觉得「选不中」
+    if (pref && !(DICTS[pref] && DICTS[pref].enabled)) pref = null;
     return {
       preferred: pref || cur,
       list: Object.keys(DICTS)
@@ -2619,11 +2749,9 @@ if (typeof window.define !== 'function') {
   function extractExampleFromDicts(word) {
     const w = String(word).toLowerCase().trim();
     if (!w) return { text: '', dictName: '' };
-    // 按首选词典顺序：先当前首选，再遍历其他已启用词典
-    const dicts = Object.keys(DICTS).filter(v => DICTS[v].enabled && DICTS[v].data);
-    // 把当前首选词典排到最前
-    const curIdx = dicts.indexOf(cur);
-    if (curIdx > 0) { dicts.splice(curIdx, 1); dicts.unshift(cur); }
+    // 按首选词典顺序（preferredOrder 会把 browseDictCur 排到最前）：
+    // 用首选而非 cur —— cur 会因临时查看其他词典而变，会导致例句取自与释义不同的词典
+    const dicts = preferredOrder().filter(v => DICTS[v].enabled && DICTS[v].data);
 
     for (let di = 0; di < dicts.length; di++) {
       const v = dicts[di];
@@ -2698,14 +2826,8 @@ if (typeof window.define !== 'function') {
       const target = resolveRedirect(dict, w);
       const has = d.data[target] != null || d.data[w] != null;
       if (has && cur !== dict) {
-        // 打开其他词典词条仅为临时查看：先记下用户首选词典，切换后恢复，
-        // 避免"首选查词词典"被本次查看的词典覆盖（如看完 Collins 后首选变 Collins）
-        let savedPref = null;
-        try { savedPref = localStorage.getItem('browseDictCur'); } catch (e) { /* 忽略 */ }
-        switchDict(dict);
-        if (savedPref) {
-          try { localStorage.setItem('browseDictCur', savedPref); } catch (e) { /* 忽略 */ }
-        }
+        // 打开其他词典词条仅为临时查看：keepPref 保证不改写用户首选词典
+        switchDict(dict, { keepPref: true });
         broadcastPickerState(); // 校正广播：preferred 以用户首选（browseDictCur）为准
       }
     }
@@ -2715,7 +2837,7 @@ if (typeof window.define !== 'function') {
     post({ type: 'opened', w, height: detailBox ? detailBox.scrollHeight || 0 : 0 });
   }
   if (LOOKUP) {
-    window.addEventListener('message', (ev) => {
+    window.addEventListener('message', async (ev) => {
       const d = ev.data || {};
       if (d.__dictLookup !== 1) return;
       if (d.cmd === 'search') lookupSearch(d.q);
@@ -2736,12 +2858,15 @@ if (typeof window.define !== 'function') {
       }
       else if (d.cmd === 'set-enabled') setDictEnabled(d.varName, !!d.enable);
       else if (d.cmd === 'import-mdx-file') {
-        // 宿主（Obsidian 右侧栏拖入区）拖入/选择的 MDX 文件：复用本页解析工具链，
+        // 宿主（Obsidian 右侧栏拖入区）拖入/选择的词典文件（.mdx / .json / .js）：复用本页解析工具链，
         // 解析成功后自动落盘到 data/，进度经 import-status 回传宿主
-        if (d.file) importMdx(d.file);
+        if (d.file) importDict(d.file);
       }
       else if (d.cmd === 'set-preferred') {
-        // 设为首选查词词典：切换到该词典（若未加载完成 switchDict 内部会先加载）
+        // 设为首选查词词典：切换到该词典（若未加载完成 switchDict 内部会先加载）。
+        // 词典已被禁用时不能静默忽略——「点了没反应」正是用户说的「始终选不中」，
+        // 故先自动启用（host 只对已启用项提供该操作，这里主要兜底残缺状态）再设为首选
+        if (DICTS[d.varName] && !DICTS[d.varName].enabled) await setDictEnabled(d.varName, true);
         if (DICTS[d.varName] && DICTS[d.varName].enabled) switchDict(d.varName);
       }
       else if (d.cmd === 'set-name') {
@@ -2760,7 +2885,7 @@ if (typeof window.define !== 'function') {
     // 在此即时应用新清单，使侧栏无需重启页面即可使用新词典。
     window.addEventListener('storage', (ev) => {
       if (!ev) return;
-      // 跨文档同步新导入词典：另一视图（如 Obsidian 侧栏拖入区）导入 MDX 后写入 dictMetas，
+      // 跨文档同步新导入词典：另一视图（如 Obsidian 侧栏拖入区）导入词典后写入 dictMetas，
       // 本视图据此加载尚未注册的词典，无需重启页面即可查到新词典的释义
       if (ev.key === 'dictMetas') {
         const metas = getSavedMetas();
