@@ -2,7 +2,7 @@
 // 蒲公英聚类封面（原生 Canvas 2D 移植自 js/dandelion-vocabulary-cluster）
 // 核心：仿生蒲公英冠毛聚类 + 自研力导向（径向弹簧 / 电荷斥力 / 碰撞分离）
 //      + 植物学草地场景（起伏草坪、野花、莲座叶、飘散种子）+ 悬臂微风摇曳
-// 数据：用户词书 / 收藏；语义聚类取词义一级分类，种子大小取 CEFR 词频，重点难词取高错误率
+// 数据：用户词书 / 收藏；语义聚类取词义一级分类，种子大小取 CEFR 词频，重点难词取低正确率
 // 依赖：Storage（无第三方库）
 // 独立模块，避免污染主应用类
 // ============================================
@@ -648,7 +648,7 @@
                       含逾期），按到期时间升序 —— 最该复习的排最前，封面即复习清单。
                       取法刻意与 Storage.getDueWords 一致：封面提示的词，在「待复习」里
                       一定数得出来，否则两边对不上会让人以为封面在乱标
-         error       错误率最高 10%：只统计真正练过的词，同错误率时练习次数多的更可信
+         error       正确率最低 10%：只统计真正练过的词，同正确率时练习次数多的更可信
          favorite    收藏单词：用户主动加星的词。收藏这个动作本身就说明"这个我记不住"，
                       与练习数据无关，故不过滤、不排序，沿用 list 的难词优先次序
 
@@ -680,9 +680,9 @@
             return due;
         }
         if (mode === 'error') {
-            var practiced = list.filter(function (w) { return w.total > 0 && w.errorRate > 0; });
+            var practiced = list.filter(function (w) { return w.total > 0 && w.accuracyRate < 100; });
             practiced.sort(function (a, b) {
-                if (b.errorRate !== a.errorRate) return b.errorRate - a.errorRate;
+                if (a.accuracyRate !== b.accuracyRate) return a.accuracyRate - b.accuracyRate;
                 return b.total - a.total;
             });
             return practiced.slice(0, Math.ceil(practiced.length * 0.1));
@@ -839,7 +839,7 @@
             }
             var category = categoryOf(key, w.category);
             var freq = freqOf(key);
-            var errRate = total > 0 ? Math.round((wrong / total) * 100) : 0;
+            var accRate = total > 0 ? Math.round(((total - wrong) / total) * 100) : 0;
             // 艾宾浩斯到期时间（毫秒）：无记忆记录或时间戳非法时为 0，即"谈不上到期"
             var mem = memByWord[key];
             var due = mem && mem.nextReviewDate ? Date.parse(mem.nextReviewDate) : 0;
@@ -849,12 +849,12 @@
                 pos: def0.pos || '',
                 meaning: def0.meaning || '',
                 frequency: freq,
-                errorRate: errRate,
+                accuracyRate: accRate,
                 total: total,
                 due: isFinite(due) ? due : 0,
                 proficiency: proficiencyOf(total, wrong, learned),
-                // 重点难词：练过且错误率偏高（"专供难词"的视觉重心）
-                isHotspot: total >= 2 && errRate >= 50,
+                // 重点难词：练过且正确率偏低（"专供难词"的视觉重心）
+                isHotspot: total >= 2 && accRate <= 50,
                 // 是否被收藏（忘记词的 favorite 口径据此挑选）
                 favorite: favSet[key] === true,
                 // 与 buildClusters 的星团名保持同一口径：无分类统一落为「未分类」，
@@ -2377,7 +2377,7 @@
         if (w.pos) meta.push(w.pos);
         meta.push('词频 ★' + w.frequency);
         meta.push(stars);
-        meta.push(w.total > 0 ? ('错误率 ' + w.errorRate + '%') : '尚未练习');
+        meta.push(w.total > 0 ? ('正确率 ' + w.accuracyRate + '%') : '尚未练习');
         setText('dandelionCardSource', meta.join(' · '));
 
         var favBtn = document.getElementById('dandelionCardFav');

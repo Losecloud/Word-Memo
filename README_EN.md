@@ -47,7 +47,7 @@ Search for `Word Memo` in Obsidian under **Settings → Community plugins → Br
 
 > Two self-built covers — a 2D force-directed biomimetic dandelion, and a WebGL flow-field particle nebula
 
-**Dandelion Clustering** groups words into an outer ring by top-level meaning category, sizes each seed by CEFR frequency and flags focus words with an error rate ≥ 50% in red; switch the "forgotten word" criterion and words due for review drift out of the flower head into the air — what stays is what you know, what drifts is what to review, and you can drag them to tidy the list.
+**Dandelion Clustering** groups words into an outer ring by top-level meaning category, sizes each seed by CEFR frequency and flags focus words with an accuracy ≤ 50% in red; switch the "forgotten word" criterion and words due for review drift out of the flower head into the air — what stays is what you know, what drifts is what to review, and you can drag them to tidy the list.
 **Chaos Nebula** drives tens of thousands of particles through a divergence-free flow field; click any word to link its strongest relations with Bézier curves (word-root and similar-form links may cross clusters), each labelled with the reason. Hard words stop being scattered points and become a network with priorities and associative paths.
 
 ![Dandelion clustering](https://raw.githubusercontent.com/Losecloud/reciting/main/static/md-image/%E8%92%B2%E5%85%AC%E8%8B%B1%E8%81%9A%E7%B1%BB.png)

@@ -358,9 +358,9 @@
             var key = String((w.word || (w.name || '')).trim()).toLowerCase();
             if (!key || seen[key]) return;
             seen[key] = true;
-            var errRate = -1;
+            var accuracyRate = -1;
             if ((w.totalAttempts || 0) > 0) {
-                errRate = Math.round(((w.wrongTimes || 0) / w.totalAttempts) * 100);
+                accuracyRate = Math.round(((w.totalAttempts - (w.wrongTimes || 0)) / w.totalAttempts) * 100);
             }
             var def0 = (w.definitions && w.definitions[0]) || {};
             words.push({
@@ -370,7 +370,7 @@
                 meaning: def0.meaning || '',
                 example: def0.example || '',
                 createdAt: createdAt || '',
-                errorRate: errRate,
+                accuracyRate: accuracyRate,
                 source: source || '',
                 bookId: bookId || '' // 所属词单 id（形近词结果持久化到该词单缓存）；收藏固定 'favorites'
             });
@@ -422,10 +422,10 @@
                     w._raw = 1 - lv / 5; // 等级越低越靠里
                 }
             });
-        } else if (sortBy === 'error') {
+        } else if (sortBy === 'error') { // 正确率：正确率越高越靠里
             words.forEach(function (w) {
-                var er = w.errorRate < 0 ? Math.random() * 60 : w.errorRate; // 未练习按随机 0-60%
-                w._raw = Math.max(0, Math.min(1, 1 - er / 100));
+                var acc = w.accuracyRate < 0 ? Math.random() * 60 : w.accuracyRate; // 未练习按随机 0-60%
+                w._raw = Math.max(0, Math.min(1, acc / 100));
             });
         } else { // imported：越旧越靠里，按加入时间相对归一
             var times = words.map(function (w) {

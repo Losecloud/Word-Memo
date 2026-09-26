@@ -8,7 +8,7 @@
 var 词义分类_DICT = {
   "version": 2,
   "source": "https://publish.obsidian.md/thesaurus",
-  "note": "嵌套树：每级节点 {code,name,children}；code=父级code+2位序号全局唯一；children=下一级（空数组为末级）。一级=10个大类，二级=100个分组，三级=1472个具体分类。按需截取任意层级打标。",
+  "note": "嵌套树：每级节点 {code,name,children}；code=父级code+2位序号全局唯一；children=下一级（空数组为末级）。一级=10个大类，二级=120个分组，三级=1632个具体分类。按需截取任意层级打标。",
   "children": [
     {
       "code": "01",
@@ -918,6 +918,98 @@ var 词义分类_DICT = {
               "children": []
             }
           ]
+        },
+        {
+          "code": "0111",
+          "name": "外交与谈判",
+          "children": [
+            {
+              "code": "011101",
+              "name": "外交使节",
+              "children": []
+            },
+            {
+              "code": "011102",
+              "name": "条约协定",
+              "children": []
+            },
+            {
+              "code": "011103",
+              "name": "双边关系",
+              "children": []
+            },
+            {
+              "code": "011104",
+              "name": "使领馆",
+              "children": []
+            },
+            {
+              "code": "011105",
+              "name": "国际组织",
+              "children": []
+            },
+            {
+              "code": "011106",
+              "name": "制裁禁运",
+              "children": []
+            },
+            {
+              "code": "011107",
+              "name": "谈判磋商",
+              "children": []
+            },
+            {
+              "code": "011108",
+              "name": "联盟结盟",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0112",
+          "name": "公共管理",
+          "children": [
+            {
+              "code": "011201",
+              "name": "公共事务",
+              "children": []
+            },
+            {
+              "code": "011202",
+              "name": "政务服务",
+              "children": []
+            },
+            {
+              "code": "011203",
+              "name": "社会保障",
+              "children": []
+            },
+            {
+              "code": "011204",
+              "name": "福利救济",
+              "children": []
+            },
+            {
+              "code": "011205",
+              "name": "社区服务",
+              "children": []
+            },
+            {
+              "code": "011206",
+              "name": "公益慈善",
+              "children": []
+            },
+            {
+              "code": "011207",
+              "name": "志愿义工",
+              "children": []
+            },
+            {
+              "code": "011208",
+              "name": "登记备案",
+              "children": []
+            }
+          ]
         }
       ]
     },
@@ -1645,6 +1737,144 @@ var 词义分类_DICT = {
             {
               "code": "020915",
               "name": "围墙门出入口",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0210",
+          "name": "财政税收",
+          "children": [
+            {
+              "code": "021001",
+              "name": "财政收入",
+              "children": []
+            },
+            {
+              "code": "021002",
+              "name": "税收税种",
+              "children": []
+            },
+            {
+              "code": "021003",
+              "name": "预算拨款",
+              "children": []
+            },
+            {
+              "code": "021004",
+              "name": "国债公债",
+              "children": []
+            },
+            {
+              "code": "021005",
+              "name": "补贴津贴",
+              "children": []
+            },
+            {
+              "code": "021006",
+              "name": "财政赤字",
+              "children": []
+            },
+            {
+              "code": "021007",
+              "name": "审计核查",
+              "children": []
+            },
+            {
+              "code": "021008",
+              "name": "财政政策",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0211",
+          "name": "贸易物流",
+          "children": [
+            {
+              "code": "021101",
+              "name": "进出口贸易",
+              "children": []
+            },
+            {
+              "code": "021102",
+              "name": "关税壁垒",
+              "children": []
+            },
+            {
+              "code": "021103",
+              "name": "批发零售",
+              "children": []
+            },
+            {
+              "code": "021104",
+              "name": "仓储堆场",
+              "children": []
+            },
+            {
+              "code": "021105",
+              "name": "供应链",
+              "children": []
+            },
+            {
+              "code": "021106",
+              "name": "货运配送",
+              "children": []
+            },
+            {
+              "code": "021107",
+              "name": "代理商经销",
+              "children": []
+            },
+            {
+              "code": "021108",
+              "name": "结算汇兑",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0212",
+          "name": "企业经营",
+          "children": [
+            {
+              "code": "021201",
+              "name": "公司企业",
+              "children": []
+            },
+            {
+              "code": "021202",
+              "name": "创业开办",
+              "children": []
+            },
+            {
+              "code": "021203",
+              "name": "品牌商誉",
+              "children": []
+            },
+            {
+              "code": "021204",
+              "name": "并购重组",
+              "children": []
+            },
+            {
+              "code": "021205",
+              "name": "破产清算",
+              "children": []
+            },
+            {
+              "code": "021206",
+              "name": "产能产量",
+              "children": []
+            },
+            {
+              "code": "021207",
+              "name": "成本费用",
+              "children": []
+            },
+            {
+              "code": "021208",
+              "name": "客户市场",
               "children": []
             }
           ]
@@ -2430,6 +2660,144 @@ var 词义分类_DICT = {
             {
               "code": "030907",
               "name": "导游",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0310",
+          "name": "城乡聚落",
+          "children": [
+            {
+              "code": "031001",
+              "name": "城市都市",
+              "children": []
+            },
+            {
+              "code": "031002",
+              "name": "乡村农村",
+              "children": []
+            },
+            {
+              "code": "031003",
+              "name": "郊区郊外",
+              "children": []
+            },
+            {
+              "code": "031004",
+              "name": "社区街区",
+              "children": []
+            },
+            {
+              "code": "031005",
+              "name": "城镇市镇",
+              "children": []
+            },
+            {
+              "code": "031006",
+              "name": "聚落定居",
+              "children": []
+            },
+            {
+              "code": "031007",
+              "name": "城乡规划",
+              "children": []
+            },
+            {
+              "code": "031008",
+              "name": "城镇建设",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0311",
+          "name": "水域海洋",
+          "children": [
+            {
+              "code": "031101",
+              "name": "海洋海面",
+              "children": []
+            },
+            {
+              "code": "031102",
+              "name": "河流溪流",
+              "children": []
+            },
+            {
+              "code": "031103",
+              "name": "湖泊水库",
+              "children": []
+            },
+            {
+              "code": "031104",
+              "name": "港口码头",
+              "children": []
+            },
+            {
+              "code": "031105",
+              "name": "海峡海湾",
+              "children": []
+            },
+            {
+              "code": "031106",
+              "name": "水域水面",
+              "children": []
+            },
+            {
+              "code": "031107",
+              "name": "潮汐波浪",
+              "children": []
+            },
+            {
+              "code": "031108",
+              "name": "岸边海滩",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0312",
+          "name": "公共设施",
+          "children": [
+            {
+              "code": "031201",
+              "name": "道路设施",
+              "children": []
+            },
+            {
+              "code": "031202",
+              "name": "桥梁隧道",
+              "children": []
+            },
+            {
+              "code": "031203",
+              "name": "车站机场",
+              "children": []
+            },
+            {
+              "code": "031204",
+              "name": "公共建筑",
+              "children": []
+            },
+            {
+              "code": "031205",
+              "name": "管网管线",
+              "children": []
+            },
+            {
+              "code": "031206",
+              "name": "供水供电",
+              "children": []
+            },
+            {
+              "code": "031207",
+              "name": "广场公园",
+              "children": []
+            },
+            {
+              "code": "031208",
+              "name": "设施维护",
               "children": []
             }
           ]
@@ -3220,6 +3588,144 @@ var 词义分类_DICT = {
             {
               "code": "040912",
               "name": "故障病毒",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0410",
+          "name": "工程制造",
+          "children": [
+            {
+              "code": "041001",
+              "name": "机械工程",
+              "children": []
+            },
+            {
+              "code": "041002",
+              "name": "制造加工",
+              "children": []
+            },
+            {
+              "code": "041003",
+              "name": "零件部件",
+              "children": []
+            },
+            {
+              "code": "041004",
+              "name": "装配组装",
+              "children": []
+            },
+            {
+              "code": "041005",
+              "name": "工具设备",
+              "children": []
+            },
+            {
+              "code": "041006",
+              "name": "生产线",
+              "children": []
+            },
+            {
+              "code": "041007",
+              "name": "材料工艺",
+              "children": []
+            },
+            {
+              "code": "041008",
+              "name": "质量检验",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0411",
+          "name": "环境与保护",
+          "children": [
+            {
+              "code": "041101",
+              "name": "环境污染",
+              "children": []
+            },
+            {
+              "code": "041102",
+              "name": "废气废水",
+              "children": []
+            },
+            {
+              "code": "041103",
+              "name": "废物回收",
+              "children": []
+            },
+            {
+              "code": "041104",
+              "name": "减排低碳",
+              "children": []
+            },
+            {
+              "code": "041105",
+              "name": "生态保护",
+              "children": []
+            },
+            {
+              "code": "041106",
+              "name": "气候变暖",
+              "children": []
+            },
+            {
+              "code": "041107",
+              "name": "资源节约",
+              "children": []
+            },
+            {
+              "code": "041108",
+              "name": "环保政策",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0412",
+          "name": "实验与测量",
+          "children": [
+            {
+              "code": "041201",
+              "name": "科学实验",
+              "children": []
+            },
+            {
+              "code": "041202",
+              "name": "仪器仪表",
+              "children": []
+            },
+            {
+              "code": "041203",
+              "name": "测量计量",
+              "children": []
+            },
+            {
+              "code": "041204",
+              "name": "观测采样",
+              "children": []
+            },
+            {
+              "code": "041205",
+              "name": "数据分析",
+              "children": []
+            },
+            {
+              "code": "041206",
+              "name": "假设验证",
+              "children": []
+            },
+            {
+              "code": "041207",
+              "name": "变量参数",
+              "children": []
+            },
+            {
+              "code": "041208",
+              "name": "误差精度",
               "children": []
             }
           ]
@@ -4015,6 +4521,144 @@ var 词义分类_DICT = {
             {
               "code": "050905",
               "name": "并列",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0510",
+          "name": "传媒与新闻",
+          "children": [
+            {
+              "code": "051001",
+              "name": "新闻时事",
+              "children": []
+            },
+            {
+              "code": "051002",
+              "name": "记者媒体",
+              "children": []
+            },
+            {
+              "code": "051003",
+              "name": "报道采访",
+              "children": []
+            },
+            {
+              "code": "051004",
+              "name": "广播电视",
+              "children": []
+            },
+            {
+              "code": "051005",
+              "name": "报刊杂志",
+              "children": []
+            },
+            {
+              "code": "051006",
+              "name": "舆论舆情",
+              "children": []
+            },
+            {
+              "code": "051007",
+              "name": "头条热搜",
+              "children": []
+            },
+            {
+              "code": "051008",
+              "name": "传播扩散",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0511",
+          "name": "广告与营销",
+          "children": [
+            {
+              "code": "051101",
+              "name": "广告宣传",
+              "children": []
+            },
+            {
+              "code": "051102",
+              "name": "营销推广",
+              "children": []
+            },
+            {
+              "code": "051103",
+              "name": "品牌形象",
+              "children": []
+            },
+            {
+              "code": "051104",
+              "name": "促销优惠",
+              "children": []
+            },
+            {
+              "code": "051105",
+              "name": "公关活动",
+              "children": []
+            },
+            {
+              "code": "051106",
+              "name": "代言赞助",
+              "children": []
+            },
+            {
+              "code": "051107",
+              "name": "市场调查",
+              "children": []
+            },
+            {
+              "code": "051108",
+              "name": "客户吸引",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0512",
+          "name": "演讲与辩论",
+          "children": [
+            {
+              "code": "051201",
+              "name": "演讲发言",
+              "children": []
+            },
+            {
+              "code": "051202",
+              "name": "辩论争论",
+              "children": []
+            },
+            {
+              "code": "051203",
+              "name": "陈述说明",
+              "children": []
+            },
+            {
+              "code": "051204",
+              "name": "说服劝导",
+              "children": []
+            },
+            {
+              "code": "051205",
+              "name": "质疑反驳",
+              "children": []
+            },
+            {
+              "code": "051206",
+              "name": "观点立场",
+              "children": []
+            },
+            {
+              "code": "051207",
+              "name": "口才技巧",
+              "children": []
+            },
+            {
+              "code": "051208",
+              "name": "主持串场",
               "children": []
             }
           ]
@@ -5060,6 +5704,52 @@ var 词义分类_DICT = {
               "children": []
             }
           ]
+        },
+        {
+          "code": "0612",
+          "name": "时尚美容",
+          "children": [
+            {
+              "code": "061201",
+              "name": "服装设计",
+              "children": []
+            },
+            {
+              "code": "061202",
+              "name": "时尚潮流",
+              "children": []
+            },
+            {
+              "code": "061203",
+              "name": "美容护理",
+              "children": []
+            },
+            {
+              "code": "061204",
+              "name": "化妆造型",
+              "children": []
+            },
+            {
+              "code": "061205",
+              "name": "配饰珠宝",
+              "children": []
+            },
+            {
+              "code": "061206",
+              "name": "发型美发",
+              "children": []
+            },
+            {
+              "code": "061207",
+              "name": "护肤保养",
+              "children": []
+            },
+            {
+              "code": "061208",
+              "name": "奢侈品牌",
+              "children": []
+            }
+          ]
         }
       ]
     },
@@ -5929,6 +6619,52 @@ var 词义分类_DICT = {
             {
               "code": "071107",
               "name": "饰物化妆",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "0712",
+          "name": "公共卫生",
+          "children": [
+            {
+              "code": "071201",
+              "name": "公共卫生",
+              "children": []
+            },
+            {
+              "code": "071202",
+              "name": "疫情防控",
+              "children": []
+            },
+            {
+              "code": "071203",
+              "name": "疫苗接种",
+              "children": []
+            },
+            {
+              "code": "071204",
+              "name": "卫生保健",
+              "children": []
+            },
+            {
+              "code": "071205",
+              "name": "疾病预防",
+              "children": []
+            },
+            {
+              "code": "071206",
+              "name": "健康体检",
+              "children": []
+            },
+            {
+              "code": "071207",
+              "name": "卫生习惯",
+              "children": []
+            },
+            {
+              "code": "071208",
+              "name": "医疗保障",
               "children": []
             }
           ]
@@ -8024,6 +8760,190 @@ var 词义分类_DICT = {
             {
               "code": "100809",
               "name": "接受拒绝",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "1009",
+          "name": "意图动机",
+          "children": [
+            {
+              "code": "100901",
+              "name": "意图目的",
+              "children": []
+            },
+            {
+              "code": "100902",
+              "name": "动机缘由",
+              "children": []
+            },
+            {
+              "code": "100903",
+              "name": "决心决意",
+              "children": []
+            },
+            {
+              "code": "100904",
+              "name": "志向抱负",
+              "children": []
+            },
+            {
+              "code": "100905",
+              "name": "计划打算",
+              "children": []
+            },
+            {
+              "code": "100906",
+              "name": "志愿意愿",
+              "children": []
+            },
+            {
+              "code": "100907",
+              "name": "欲望渴求",
+              "children": []
+            },
+            {
+              "code": "100908",
+              "name": "目标追求",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "1010",
+          "name": "兴趣偏好",
+          "children": [
+            {
+              "code": "101001",
+              "name": "兴趣爱好",
+              "children": []
+            },
+            {
+              "code": "101002",
+              "name": "喜好偏爱",
+              "children": []
+            },
+            {
+              "code": "101003",
+              "name": "倾向趋势",
+              "children": []
+            },
+            {
+              "code": "101004",
+              "name": "好感青睐",
+              "children": []
+            },
+            {
+              "code": "101005",
+              "name": "热衷沉迷",
+              "children": []
+            },
+            {
+              "code": "101006",
+              "name": "厌恶厌烦",
+              "children": []
+            },
+            {
+              "code": "101007",
+              "name": "好奇求知",
+              "children": []
+            },
+            {
+              "code": "101008",
+              "name": "冷漠无感",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "1011",
+          "name": "信念态度",
+          "children": [
+            {
+              "code": "101101",
+              "name": "信念信仰",
+              "children": []
+            },
+            {
+              "code": "101102",
+              "name": "信任信赖",
+              "children": []
+            },
+            {
+              "code": "101103",
+              "name": "怀疑猜疑",
+              "children": []
+            },
+            {
+              "code": "101104",
+              "name": "态度立场",
+              "children": []
+            },
+            {
+              "code": "101105",
+              "name": "观念看法",
+              "children": []
+            },
+            {
+              "code": "101106",
+              "name": "偏见成见",
+              "children": []
+            },
+            {
+              "code": "101107",
+              "name": "接受认可",
+              "children": []
+            },
+            {
+              "code": "101108",
+              "name": "反对抵制",
+              "children": []
+            }
+          ]
+        },
+        {
+          "code": "1012",
+          "name": "意志品质",
+          "children": [
+            {
+              "code": "101201",
+              "name": "意志毅力",
+              "children": []
+            },
+            {
+              "code": "101202",
+              "name": "坚持坚韧",
+              "children": []
+            },
+            {
+              "code": "101203",
+              "name": "自律克制",
+              "children": []
+            },
+            {
+              "code": "101204",
+              "name": "忍耐耐心",
+              "children": []
+            },
+            {
+              "code": "101205",
+              "name": "果断决断",
+              "children": []
+            },
+            {
+              "code": "101206",
+              "name": "勇气胆量",
+              "children": []
+            },
+            {
+              "code": "101207",
+              "name": "懦弱退缩",
+              "children": []
+            },
+            {
+              "code": "101208",
+              "name": "懒散懈怠",
               "children": []
             }
           ]

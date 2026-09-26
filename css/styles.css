@@ -17,6 +17,12 @@
     --text-tertiary: #9CA3AF;
     --border-color: #E5E7EB;
     --hover-bg: #ECEDEF;
+    /* 结算页散点图象限底色：右上「快而准」/ 左下「慢而易错」（深色模式在下方覆盖） */
+    --scatter-quad-tr: #f4dee1;
+    --scatter-quad-bl: #dee2ed;
+    /* switch 开关：关闭态轨道色与滑块色（深色模式在下方覆盖） */
+    --switch-off: #ccc;
+    --switch-knob: #ffffff;
     /* 渐变边框颜色：浅色模式用白色主题 */
     --border-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2));
     --success: #10B981;
@@ -59,6 +65,12 @@
     --border-color: #3A3F4B;
     --hover-bg: #3A3F4B;
     --primary-light: #2d4443;
+    /* 散点图象限底色：深色模式改用以 --surface 为基底的暗色块，避免浅色块刺眼 */
+    --scatter-quad-tr: #3E2C31;
+    --scatter-quad-bl: #2A3346;
+    /* switch 开关：深色模式改用暗色轨道 + 浅灰滑块，避免浅色轨道刺眼 */
+    --switch-off: #4A5060;
+    --switch-knob: #D8DCE2;
     /* 渐变边框颜色：深色模式用黑色主题 */
     --border-gradient: linear-gradient(135deg, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.2));
 }
@@ -156,7 +168,7 @@ body {
 .logo {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-xs);
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--primary-color);
@@ -1427,15 +1439,35 @@ i[class^="fi-"], i[class*=" fi-"] {
     font-weight: 700;
 }
 .stubborn-word-item:nth-child(n+4) .sw-rank { background: #f59e0b; }
-.stubborn-word-item .sw-word {
+.stubborn-word-item .sw-main {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    overflow: hidden;
+}
+.stubborn-word-item .sw-word {
+    flex: 0 1 auto;
+    min-width: 0;
     font-weight: 600;
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.stubborn-word-item .sw-book {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--text-tertiary);
+    font-size: 0.66rem;
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .stubborn-word-item .sw-meta { color: var(--text-secondary); font-size: 0.7rem; flex-shrink: 0; }
+.stubborn-word-item .sw-ef { color: var(--text-secondary); font-size: 0.7rem; flex-shrink: 0; }
 
 /* ============================================
    Emoji选择器
@@ -1735,6 +1767,9 @@ i[class^="fi-"], i[class*=" fi-"] {
     z-index: 3;
     pointer-events: none;
     --chaos-font: 15px;
+    /* 拖动星云（左键平移）时禁止文字被选中，否则会残留无法取消的划线高亮 */
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .chaos-word-node {
@@ -2964,10 +2999,9 @@ body.nebula-word-themed .nebula-card {
 }
 
 .welcome-icon {
-    width: 160px;
-    height: 160px;
+    width: 320px;
+    height: 320px;
     margin: 0 auto var(--spacing-lg);
-    animation: float 3s ease-in-out infinite;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2978,11 +3012,6 @@ body.nebula-word-themed .nebula-card {
     height: 100%;
     object-fit: contain;
     filter: drop-shadow(0 4px 12px rgba(74, 157, 154, 0.2));
-}
-
-@keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-20px); }
 }
 
 .welcome-title {
@@ -3767,7 +3796,7 @@ body.nebula-word-themed .nebula-card {
     color: #b1296d;
 }
 
-/* 单词统计信息（错误率）*/
+/* 单词统计信息（正确率）*/
 .word-stats {
     display: inline-flex;
     align-items: center;
@@ -3791,7 +3820,7 @@ body.nebula-word-themed .nebula-card {
     font-size: 0.75rem;
 }
 
-/* 拼写模式的错误率内联在 word-meta-inline（CEFR 等级左侧），需收紧内边距以贴合一行 */
+/* 拼写模式的正确率内联在 word-meta-inline（CEFR 等级左侧），需收紧内边距以贴合一行 */
 .word-meta-inline .word-stats {
     padding: 0;
     gap: 0.25rem;
@@ -4018,14 +4047,15 @@ body.nebula-word-themed .nebula-card {
     border-color: var(--border-color);
 }
 
-/* 错误答案下方的原词标签 */
+/* 选项下方的原词标签（答错时显示所选原词；答对时显示其余选项的原词）。
+   颜色取 currentColor，跟随选项当前状态色（普通白模=正文色、答错=白字） */
 .original-word-label {
     position: absolute;
     bottom: 0px;
     left: 50%;
     transform: translateX(-50%) translateY(10px);
     background: transparent;
-    color: var(--text-primary);
+    color: currentColor;
     opacity: 0;
     font-size: 1rem;
     font-weight: 500;
@@ -4037,7 +4067,7 @@ body.nebula-word-themed .nebula-card {
 }
 
 .original-word-label.show {
-    opacity: 0.5;
+    opacity: 0.7;
     transform: translateX(-50%) translateY(0);
 }
 
@@ -4189,6 +4219,24 @@ body.nebula-word-themed .nebula-card {
     background:
         linear-gradient(135deg, #3E3520 0%, #4A3F26 100%) padding-box,
         var(--border-gradient) border-box;
+}
+
+/* 答对样式（主色调/绿色），与记得么模式 meaning-correct 保持一致 */
+.wrong-answer-example.example-correct {
+    border: 1px solid transparent;
+    background:
+        linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%) padding-box,
+        var(--border-gradient) border-box;
+}
+
+[data-theme="dark"] .wrong-answer-example.example-correct {
+    background:
+        linear-gradient(135deg, #14301F 0%, #1A3B27 100%) padding-box,
+        var(--border-gradient) border-box;
+}
+
+.wrong-answer-example.example-correct .example-label {
+    color: var(--success);
 }
 
 /* 显示状态 */
@@ -4596,6 +4644,17 @@ body.nebula-word-themed .nebula-card {
     border-radius: var(--radius-sm);
 }
 
+/* 例句中的单词高亮 - 答对样式（主色调/绿色） */
+.example-sentence-choice .word-highlight-correct {
+    color: var(--success);
+    font-weight: 700;
+    font-style: italic;
+    background: transparent;
+    text-decoration: underline var(--success);
+    padding: 0.1rem 0.1rem;
+    border-radius: var(--radius-sm);
+}
+
 @keyframes slideDown {
     from {
         opacity: 0;
@@ -4668,6 +4727,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .letter-slot.wrong {
     color: var(--error);
     animation: shake var(--transition-fast);
+}
+
+/* 长单词（>8 字母）仅拼错 1 个字母：黄色警告（warning 主题色，参考模式1的「不知道」色），
+   给一次改错机会，不算答错 */
+.letter-slot.warn {
+    color: var(--warning);
 }
 
 .letter-slot.correct {
@@ -4847,6 +4912,54 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-md);
     justify-content: center;
     flex-wrap: wrap;
+}
+
+/* 结算页散点图：作答节奏 × 掌握程度（田字十字轴，颜色红→黄→绿） */
+.completion-scatter {
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--border-color);
+}
+
+.cs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-md);
+}
+
+/* 右上角「正确率位移」开关 */
+.cs-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cs-switch-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.cs-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+}
+
+.cs-title i {
+    color: var(--primary-color);
+    margin-right: 4px;
+}
+
+#completionScatterCanvas {
+    display: block;
+    margin: 0 auto;
 }
 
 /* 艾宾浩斯复习结算页：按钮需容纳「继续复习 (50/83)」进度文本，加宽并保持单行 */
@@ -5504,7 +5617,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: var(--surface);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    overflow: hidden;
+    /* 列宽可拖拽调整：超出容器时允许横向滚动（同时保留圆角裁切） */
+    overflow-x: auto;
     max-height: calc(100vh - 300px);
     overflow-y: auto;
     position: relative;
@@ -5579,6 +5693,38 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 .word-list-table thead th > * {
     vertical-align: middle;
+}
+
+/* 列宽拖拽手柄：隐形铺在列分隔线上，悬浮时才显示分隔光标与指示线 */
+.wl-col-resizer {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 9px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 20;
+    user-select: none;
+    touch-action: none;
+}
+.wl-col-resizer::after {
+    content: '';
+    position: absolute;
+    top: 18%;
+    bottom: 18%;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    border-radius: 1px;
+    transition: background var(--transition-fast);
+}
+.wl-col-resizer:hover::after {
+    background: var(--primary-color);
+}
+/* 最后一列右侧无相邻列，不显示手柄 */
+.word-list-table thead th:last-child .wl-col-resizer {
+    display: none;
 }
 .word-list-table.edit-mode .word-list-col-delete-btn {
     display: inline-block;
@@ -5665,12 +5811,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .word-list-col-example {
-    min-width: 300px;
+    min-width: 150px;
 }
 
 /* 场景类别列（浏览词单时展示该词的场景分类标签） */
 .word-list-col-category {
-    min-width: 150px;
+    min-width: 75px;
 }
 
 /* 单元格刷新按钮（悬浮时显示） */
@@ -5730,23 +5876,65 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     overflow-wrap: break-word;
 }
 
-/* 场景类别标签样式 */
+/* 场景类别文本样式：纯文字按层级路径显示，可换行折叠（不用标签填充） */
 .word-list-cat-tag {
-    display: inline-block;
-    padding: 1px 8px;
-    border: 1px solid var(--primary-color);
-    border-radius: 10px;
-    background: var(--primary-light);
-    color: var(--primary-color);
-    font-size: 0.75rem;
-    font-weight: 500;
+    display: inline;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 400;
     cursor: default;
-    white-space: nowrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
 }
 
 /* 形近词列（浏览词单时展示该词已缓存的形近词，跟随词单 similarCache 持久化） */
 .word-list-col-similar {
     min-width: 180px;
+}
+
+/* 正确率 / 联想时间列（浏览词单时展示该词的累计练习统计） */
+.word-list-col-accuracy {
+    width: 100px;
+}
+
+.word-list-col-avgtime {
+    width: 90px;
+}
+
+.word-list-cell-accuracy,
+.word-list-cell-avgtime {
+    text-align: center;
+    white-space: nowrap;
+    /* 移动端 .word-list-cell 为 flex，需显式居中 */
+    justify-content: center;
+    align-items: baseline;
+}
+
+.wl-accuracy {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wl-accuracy-detail {
+    margin-left: 4px;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+.wl-avgtime {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wl-avgtime-unit {
+    margin-left: 2px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
 }
 
 /* ===== 场景类别筛选下拉面板 ===== */
@@ -5791,7 +5979,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     position: absolute;
     z-index: 999;
     top: 100%;
-    left: 0;
+    /* 向右下方展开会被表格右缘/滚动容器裁切，改为锚定列头右缘向左展开 */
+    right: 0;
     min-width: 280px;
     max-width: 360px;
     max-height: 60vh;
@@ -6230,7 +6419,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .word-list-cell-index {
     font-weight: 500;
     color: var(--text-tertiary);
-    
+    position: relative; /* 「不再学」角标以此为定位基准 */
 }
 
 /* 正序模式下序号列可点击修改练习进度 */
@@ -6311,6 +6500,24 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .word-list-cell-word strong {
     color: var(--primary-color);
     font-size: 1.05rem;
+}
+
+/* 「不再学」角标：贴在序号格左上角（已标记「太简单」，不再参与学习/复习） */
+.wl-tooeasy-badge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 0 3px;
+    border-radius: 0 0 var(--radius-sm) 0;
+    background: var(--text-tertiary);
+    color: var(--surface);
+    font-size: 0.56rem;
+    font-weight: 600;
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
 }
 
 .word-list-cell-phonetic {
@@ -6655,7 +6862,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .ai-workshop-screen .reading-app-container,
 .ai-workshop-screen .textgame-app-container,
 .ai-workshop-screen .synonym-app-container,
-.ai-workshop-screen .liyi-app-container {
+.ai-workshop-screen .liyi-app-container,
+.ai-workshop-screen .ep-app-container {
     max-width: 1000px;
     margin-left: auto;
     margin-right: auto;
@@ -9731,7 +9939,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .word-list-col-example {
-        min-width: 200px;
+        min-width: 100px;
     }
 
     /* 移动端 tooltip 放大 */
@@ -11102,8 +11310,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .welcome-icon {
-        width: 120px;
-        height: 120px;
+        width: 240px;
+        height: 240px;
     }
     
     .stats-summary {
@@ -14464,7 +14672,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: flex;
     flex-direction: column;
     /* 与 .ai-story-form（阅读联想记忆 / 文字游戏）保持一致的分组间距 */
-    gap: var(--spacing-lg);
+    gap: var(--spacing-md);
 }
 
 .ws-row {
@@ -15083,6 +15291,29 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     white-space: nowrap;
 }
 
+/* score-btn 底部：AI 综合评估请求进度条（点击后显示，返回后隐藏） */
+.score-btn-progress {
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    bottom: 8px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.3);
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+.score-btn-progress.show { opacity: 1; }
+.score-btn-progress-fill {
+    width: 0;
+    height: 100%;
+    border-radius: 2px;
+    background: #fff;
+    transition: width 0.3s ease;
+}
+
 /* 输入区 + 渲染区叠加 */
 .writing-input-wrapper {
     position: relative;
@@ -15166,55 +15397,261 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     padding-bottom: 1px;
 }
 
-/* 纠错弹窗样式 */
-.writing-editor .error-vocab {
-    background-color: color-mix(in srgb, var(--error) 12%, transparent) !important;
+/* AI纠正：错误位置直接用低透明红色色块标记（词汇 / 语法一致） */
+.writing-editor .writing-error-mark {
+    background-color: color-mix(in srgb, var(--error) 14%, transparent) !important;
     padding: 0 3px !important;
     border-radius: 4px !important;
     cursor: pointer !important;
     transition: background-color 0.2s;
 }
-
-.writing-editor .error-grammar {
-    border-bottom: 2px dashed color-mix(in srgb, var(--warning) 45%, transparent) !important;
-    padding-bottom: 1px !important;
-    cursor: pointer !important;
-    transition: border-color 0.2s;
+.writing-editor .writing-error-mark:hover {
+    background-color: color-mix(in srgb, var(--error) 28%, transparent) !important;
+}
+/* 当前纠正窗口中正在查看的错误：加深底色以示定位 */
+.writing-editor .writing-error-mark.active {
+    background-color: color-mix(in srgb, var(--error) 34%, transparent) !important;
 }
 
-/* 纠错弹窗 */
-.correction-popup {
-    animation: correctionSlideIn 0.2s ease-out;
+/* AI 分析中：被分析文本下方漂浮的呼吸虚线（每个虚线条纹为独立元素，各自缓慢上下浮动） */
+.writing-editor .writing-ai-underline {
+    --spd: 1;
+    --dot-alpha: 0.5;
 }
-@keyframes correctionSlideIn {
-    from { opacity: 0; transform: translate(-50%, -46%); }
-    to { opacity: 1; transform: translate(-50%, -50%); }
+/* 等待期（防抖中）：更缓慢、更清淡 */
+.writing-editor .writing-ai-underline.is-wait {
+    --spd: 1.6;
+    --dot-alpha: 0.26;
 }
-@keyframes correctionFadeIn {
-    from { opacity: 0; transform: translateY(-8px); }
+/* 承载虚线的词/片段：作为条纹的定位容器 */
+.writing-editor .writing-ai-underline .ai-u {
+    position: relative;
+    display: inline-block;
+}
+.writing-editor .writing-ai-underline .ai-dot {
+    position: absolute;
+    bottom: -1px;
+    width: 3px;
+    height: 3px;
+    margin-left: 1.5px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    opacity: var(--dot-alpha);
+    pointer-events: none;
+    user-select: none;
+    animation: writingDotFloat calc(3.4s * var(--spd)) ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * -0.27s);
+}
+/* 组内条纹的周期再错开几档，使同一行内每个点节奏都不同 */
+.writing-editor .writing-ai-underline .ai-dot:nth-child(3n) {
+    animation-duration: calc(4.1s * var(--spd));
+}
+.writing-editor .writing-ai-underline .ai-dot:nth-child(3n + 2) {
+    animation-duration: calc(2.9s * var(--spd));
+}
+@keyframes writingDotFloat {
+    0%, 100% { transform: translateY(1.4px) translateX(0); opacity: calc(var(--dot-alpha) * 0.75); }
+    35% { transform: translateY(-0.6px) translateX(0.6px); opacity: var(--dot-alpha); }
+    70% { transform: translateY(-1.6px) translateX(-0.5px); opacity: calc(var(--dot-alpha) * 0.9); }
+}
+/* 结果返回后淡出 */
+.writing-editor .writing-ai-underline.out .ai-dot {
+    animation: writingUnderlineOut 0.4s ease forwards;
+}
+@keyframes writingUnderlineOut {
+    from { opacity: var(--dot-alpha); }
+    to { opacity: 0; }
+}
+
+/* ============ AI 纠正窗口（照抄小程序 writing 的 tip-popup） ============ */
+/* 在题目卡片内由顶部向下浮出，覆盖卡片内容 */
+.writing-tip-popup {
+    --tip-correct-color: #57912b;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    background: var(--background);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+.writing-tip-popup.show {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+[data-theme="dark"] .writing-tip-popup {
+    --tip-correct-color: #7dbd4e;
+    background: linear-gradient(135deg, #23242a 0%, #2c2c2e 100%);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.writing-tip-popup .tip-popup-content {
+    padding: 0.9rem 1rem 0.75rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    min-height: 0;
+}
+.writing-tip-popup .tip-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+.writing-tip-popup .tip-popup-count {
+    color: var(--text-tertiary);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.writing-tip-popup .tip-popup-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.7rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: flex-start;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+    animation: writingTipFadeInUp 0.4s ease;
+}
+.writing-tip-popup .tip-popup-body::-webkit-scrollbar { width: 5px; }
+.writing-tip-popup .tip-popup-body::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+@keyframes writingTipFadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
 }
-
-/* 错误高亮增强 */
-.error-vocab {
-    background-color: color-mix(in srgb, var(--error) 12%, transparent) !important;
-    padding: 0 3px !important;
-    border-radius: 4px !important;
-    cursor: pointer !important;
-    transition: background-color 0.2s, transform 0.15s;
+.writing-tip-popup .tip-popup-wrong,
+.writing-tip-popup .tip-popup-correct {
+    font-size: 1.2rem;
+    line-height: 1.5;
+    border-radius: 10px;
+    padding: 0.35rem 0.75rem;
+    word-break: break-all;
+    display: inline-block;
+    max-width: 100%;
+    box-sizing: border-box;
+    animation: writingTipPopIn 0.4s ease;
 }
-.error-vocab:hover {
-    background-color: color-mix(in srgb, var(--error) 22%, transparent) !important;
-    transform: scale(1.05);
+.writing-tip-popup .tip-popup-wrong {
+    color: var(--error);
+    background: color-mix(in srgb, var(--error) 12%, transparent);
 }
-.error-grammar {
-    border-bottom: 2px dashed color-mix(in srgb, var(--warning) 45%, transparent) !important;
-    padding-bottom: 1px !important;
-    cursor: pointer !important;
-    transition: border-color 0.2s;
+.writing-tip-popup .tip-popup-correct {
+    color: var(--tip-correct-color);
+    background: color-mix(in srgb, var(--tip-correct-color) 12%, transparent);
 }
-.error-grammar:hover {
-    border-bottom-color: color-mix(in srgb, var(--warning) 70%, transparent) !important;
+@keyframes writingTipPopIn {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
+}
+.writing-tip-popup .tip-popup-context {
+    color: var(--text-secondary);
+    font-size: 1rem;
+    line-height: 1.55;
+    background-color: var(--surface);
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    word-break: break-all;
+    max-height: 110px;
+    overflow-y: auto;
+    width: 100%;
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+.writing-tip-popup .tip-popup-footer {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.6rem;
+    border-top: 2px solid var(--border-color);
+}
+.writing-tip-popup .tip-popup-nav {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+.writing-tip-popup .tip-popup-btn,
+.writing-tip-popup .tip-popup-close {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+    cursor: pointer;
+    user-select: none;
+    font-size: 1rem;
+}
+.writing-tip-popup .tip-popup-btn:hover,
+.writing-tip-popup .tip-popup-close:hover {
+    background: var(--hover-bg, color-mix(in srgb, var(--text-primary) 8%, transparent));
+}
+.writing-tip-popup .tip-popup-btn:active,
+.writing-tip-popup .tip-popup-close:active {
+    transform: scale(0.93);
+}
+.writing-tip-popup .tip-popup-btn.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+.writing-tip-popup .tip-popup-actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+}
+.writing-tip-popup .tip-popup-accept,
+.writing-tip-popup .tip-popup-ignore {
+    border-radius: var(--radius-full);
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.4rem 1.6rem;
+    cursor: pointer;
+    user-select: none;
+    transition: filter 0.2s, transform 0.1s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.writing-tip-popup .tip-popup-accept {
+    color: #fff;
+    background: linear-gradient(90deg, var(--tip-correct-color) 0%, color-mix(in srgb, var(--tip-correct-color) 70%, #fff) 100%);
+}
+.writing-tip-popup .tip-popup-ignore {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+.writing-tip-popup .tip-popup-accept:active,
+.writing-tip-popup .tip-popup-ignore:active {
+    transform: scale(0.96);
+}
+.writing-tip-popup .tip-popup-close {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
 }
 
 /* 底部 5 图标导航（圆角胶囊） */
@@ -15255,7 +15692,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     opacity: 0.7;
 }
 
-.writing-bottom-nav .nav-item:active svg {
+.writing-bottom-nav .nav-item:active svg,
+.writing-bottom-nav .nav-item:active i {
     transform: scale(0.9);
 }
 
@@ -15263,13 +15701,319 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: #e91e63;
 }
 
-.writing-bottom-nav .nav-item.liked svg {
-    fill: #e91e63;
-}
-
-.writing-bottom-nav .nav-item svg {
+.writing-bottom-nav .nav-item svg,
+.writing-bottom-nav .nav-item i {
     transition: transform 0.3s ease;
 }
+
+.writing-bottom-nav .nav-item i {
+    font-size: 20px;
+    line-height: 1;
+}
+
+/* ============ 我的收藏弹窗（列表样式照抄小程序 myCollection.vue） ============ */
+/* 固定为屏幕高度的 60%，避免检索/展开时高度动态变化造成体验割裂 */
+#myCollectionModal .modal-content {
+    height: 60vh;
+}
+.mc-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--background);
+    border-radius: 12px;
+    padding: 0 12px;
+    margin-bottom: 16px;
+    height: 40px;
+}
+.mc-search-input {
+    flex: 1;
+    height: 100%;
+    border: none;
+    outline: none;
+    background: transparent !important;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    padding: 0 30px 0 0;
+}
+.mc-search-input::placeholder { color: var(--text-tertiary); }
+.mc-search-icon {
+    position: absolute;
+    right: 12px;
+    color: var(--text-tertiary);
+    font-size: 15px;
+    pointer-events: none;
+}
+.mc-list { display: flex; flex-direction: column; gap: 16px; }
+.mc-card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s ease;
+}
+.mc-card-main { cursor: pointer; }
+.mc-card-main:active { opacity: 0.85; }
+.mc-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.mc-card-date {
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+.mc-card-star {
+    color: #e91e63;
+    font-size: 17px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+.mc-card-star:active { transform: scale(0.9); }
+.mc-card-topic {
+    background: var(--background);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+.mc-card-title {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+.mc-card-content {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+.mc-card-title.expanded,
+.mc-card-content.expanded {
+    -webkit-line-clamp: unset;
+    display: block;
+    overflow: visible;
+}
+/* 检索摘要（开头 10 词 + 命中所在句）：不截断，保证高亮可见 */
+.mc-card-content.mc-excerpt {
+    -webkit-line-clamp: unset;
+    display: block;
+    overflow: visible;
+}
+.mc-card-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding: 6px 8px 0;
+}
+.mc-action-icon {
+    color: var(--text-tertiary);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.mc-action-icon:active { transform: scale(0.9); color: var(--primary-color); }
+.mc-expand-icon {
+    color: var(--text-tertiary);
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+.mc-expand-icon.expanded { transform: rotate(180deg); }
+.mc-hl { color: var(--primary-color); font-weight: 500; }
+.mc-empty {
+    text-align: center;
+    padding: 28px 16px;
+    color: var(--text-tertiary);
+    font-size: 0.92rem;
+}
+
+/* ============ 全文 AI 综合评估弹窗（结构照抄小程序 weval/index.vue） ============ */
+#writingEvalModal .modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.weval-basic {
+    background: var(--background);
+    border-radius: 14px;
+    padding: 14px 16px;
+}
+.weval-basic-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+}
+.weval-basic-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 14px;
+}
+.weval-basic-item {
+    font-size: 0.92rem;
+    color: var(--text-secondary);
+}
+.weval-basic-item b { color: var(--text-primary); }
+
+.weval-chart-row {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+}
+.weval-bars {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 6px;
+    height: 150px;
+    padding: 10px 8px 0;
+    background: var(--background);
+    border-radius: 14px;
+    box-sizing: border-box;
+}
+.weval-bar {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+}
+.weval-bar-fill {
+    width: 70%;
+    min-height: 3px;
+    height: 3px;
+    border-radius: 4px 4px 0 0;
+    background: var(--border-color);
+    transition: height 0.6s ease;
+}
+.weval-bar-pct {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+.weval-bar-label {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+.weval-level-box {
+    width: 150px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: var(--background);
+    border-radius: 14px;
+    padding: 10px;
+    box-sizing: border-box;
+}
+.weval-level-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+.weval-level-score {
+    font-size: 2.4rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--text-primary);
+}
+.weval-level-meta {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-align: center;
+    line-height: 1.5;
+}
+
+.weval-card {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 14px 16px;
+}
+.weval-progress-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.weval-progress-label { font-weight: 700; font-size: 1.05rem; color: var(--text-primary); }
+.weval-progress-score { font-weight: 700; font-size: 1rem; color: var(--text-primary); }
+/* 9 段进度条（支持半格） */
+.weval-progress-bg {
+    display: flex;
+    gap: 5px;
+    height: 10px;
+}
+.weval-seg {
+    flex: 1;
+    height: 100%;
+    border-radius: 4px;
+    background: var(--border-color);
+    overflow: hidden;
+}
+.weval-seg-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+.weval-progress-detail {
+    margin-top: 10px;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.weval-wrong-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--error);
+    margin-top: 6px;
+}
+.weval-wrong-title:first-child { margin-top: 0; }
+.weval-wrong-detail {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-top: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.weval-detail-item { margin-bottom: 14px; }
+.weval-detail-item:last-child { margin-bottom: 0; }
+.weval-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.weval-detail-label { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); }
+.weval-detail-score { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); }
 
 /* 计时器按钮（位于 eval-side 栏内首行，宽度随该栏自适应） */
 .writing-timer-btn {
@@ -15433,7 +16177,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .switch-slider {
     position: absolute;
     inset: 0;
-    background: #ccc;
+    background: var(--switch-off);
     border-radius: 24px;
     transition: background 0.3s ease;
     cursor: pointer;
@@ -15446,7 +16190,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     top: 2px;
     width: 20px;
     height: 20px;
-    background: #fff;
+    background: var(--switch-knob);
     border-radius: 50%;
     transition: transform 0.3s ease;
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
@@ -15749,6 +16493,1447 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     justify-content: center;
     flex-shrink: 0;
 }
+
+/* ============================================
+   英文扑克（AI 工坊 · 趣味娱乐）
+   视觉语言照搬 tools/EnglishMahjong-web-main：毛毡绿牌桌 + 木纹包边 +
+   象牙牌面（元音红 / 辅音黑）+ 金色高亮。
+   牌桌是「实体」不随主题变色（跟英语麻将一致）；设置页仍用应用原生控件，
+   跟着深浅主题走。
+   ============================================ */
+.ep-app-container {
+    animation: fadeIn 0.3s ease-out;
+    --ep-felt: #1d6b4f;
+    --ep-felt-dark: #175a42;
+    --ep-ink: #1a1a1a;
+    --ep-vowel: #c62828;
+    --ep-gold: #d4a24c;
+    --ep-gold-ink: #3a2a08;
+    --ep-mut: #9fc3b0;
+}
+
+/* —— 通用按钮：金色主按钮 + 玻璃质感次按钮（在毛毡绿上才立得住） —— */
+.ep-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    font: inherit;
+    font-size: 0.9rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.ep-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.ep-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.ep-btn-gold {
+    background: var(--ep-gold);
+    border-color: var(--ep-gold);
+    color: var(--ep-gold-ink);
+    font-weight: 700;
+}
+
+.ep-btn-gold:hover:not(:disabled) {
+    background: #e0b25e;
+}
+
+.ep-btn-hint {
+    background: rgba(212, 162, 76, 0.2);
+    border-color: var(--ep-gold);
+    color: #f0d9a8;
+    letter-spacing: 1px;
+}
+
+.ep-btn-ghost {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.22);
+    color: var(--ep-mut);
+}
+
+.ep-btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.ep-btn-big {
+    padding: 12px 40px;
+    font-size: 1rem;
+}
+
+/* —— 设置页（沿用应用原生控件，自动适配深浅主题） —— */
+.ep-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.ep-config-head h3 {
+    margin: 0 0 2px;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ep-config-head span {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.ep-rule-brief {
+    position: relative;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-left: none;
+    border-radius: var(--radius-md);
+    padding: 0.85rem 1rem 0.85rem 1.15rem;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+/* 左侧强调条（与同义替换练习选中词汇数据的 .doc-item.active::before 一致） */
+.ep-rule-brief::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 0.85rem;
+    bottom: 0.85rem;
+    width: 4px;
+    border-radius: var(--radius-full);
+    background: var(--primary-color);
+}
+
+.ep-gold {
+    color: var(--warning);
+}
+
+.ep-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.ep-field-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+/* 词书多选列表：浮层内滚动，滚动条由全局规则跟随主题 */
+.ep-books {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--spacing-sm);
+    max-height: 260px;
+    overflow: auto;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--background);
+}
+
+.ep-book {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.5rem 0.65rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.ep-book:hover {
+    background: var(--hover-bg);
+}
+
+.ep-book input {
+    flex: 0 0 auto;
+    accent-color: var(--primary-color);
+}
+
+.ep-book-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ep-book-count {
+    color: var(--text-tertiary);
+    font-size: 0.78rem;
+    flex: 0 0 auto;
+}
+
+.ep-inline {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.ep-books-foot,
+.ep-hint-text,
+.ep-loading {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.ep-hint-text {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+}
+
+.ep-empty {
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    padding: var(--spacing-md);
+    line-height: 1.7;
+}
+
+/* —— 牌桌：毛毡绿「房间」+ 木纹包边台面 + 三边席位 —— */
+.ep-game {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, #1e6f52, #124a37);
+    color: #e9f3ed;
+}
+
+.ep-top {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ep-brand {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #fff;
+}
+
+.ep-brand span {
+    margin-left: 8px;
+    font-size: 0.68rem;
+    font-weight: 400;
+    letter-spacing: 2px;
+    color: var(--ep-mut);
+}
+
+.ep-top-info {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.ep-chip {
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    color: var(--ep-mut);
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.ep-chip-req {
+    color: var(--ep-gold);
+    border-color: rgba(212, 162, 76, 0.55);
+    background: rgba(212, 162, 76, 0.14);
+    font-weight: 600;
+}
+
+/* 舞台：一圈压暗 =「房间」，中间那张倾斜的毛毡桌是唯一的实体 */
+.ep-stage {
+    position: relative;
+    min-height: 440px;
+    padding: 46px 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 900px;
+    perspective-origin: 50% 26%;
+    border-radius: 18px;
+    background: radial-gradient(ellipse 72% 62% at 50% 46%, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.56));
+}
+
+/* 台面只负责「桌」的实体感：倾斜会让字发虚，所以文字一律留在屏幕空间 */
+.ep-surface {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(720px, 76%);
+    height: 240px;
+    transform: translate(-50%, -50%) rotateX(36deg);
+    border-radius: 26px;
+    border: 12px solid transparent;
+    background:
+        radial-gradient(ellipse at 50% 36%, #35a077 0%, #2a8a66 48%, var(--ep-felt-dark) 100%) padding-box,
+        linear-gradient(160deg, #a8794a, #6b4a2b 55%, #4a3220) border-box;
+    box-shadow:
+        inset 0 0 44px rgba(0, 0, 0, 0.32),
+        0 3px 0 #4a3220,
+        0 26px 44px rgba(0, 0, 0, 0.5);
+}
+
+/* 本墩的出牌区：**不用会撑开的盒子**（区域 absolute，不会把桌面顶大），
+   四家各自固定在桌面自己的方位（对家在上 / 上家在左 / 下家在右 / 你在下）。
+   宽度交给内容（width: max-content）：牌组多长，框就自然撑多宽 —— 只有极端长词才用 84% 兜底。
+   位置贴着台面（.ep-surface）的内沿：上 104 / 下 108 / 左右 14%。 */
+.ep-rz-seat2 {
+    top: 104px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.ep-rz-seat0 {
+    bottom: 108px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.ep-rz-seat3 {
+    left: 14%;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.ep-rz-seat1 {
+    right: 14%;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.ep-rz {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    /* 撑开到内容宽度：牌组多长，框就多宽（牌只叠不挤成两行）；84% 兜底防极端长词溢出桌面 */
+    width: max-content;
+    max-width: 84%;
+    padding: 5px 8px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+}
+
+/* 被别家压住的出牌区（叠牌时 z 更低的一方）：暗淡化，让上面那张一眼可辨 */
+.ep-rz-under {
+    opacity: 0.42;
+    filter: saturate(0.6);
+}
+
+
+/* 正在行动 / 握着牌权的格子，给一点视觉分量 */
+.ep-rz-turn {
+    border-color: rgba(212, 162, 76, 0.5);
+}
+
+.ep-rz-lead {
+    border-color: var(--ep-gold);
+    background: rgba(212, 162, 76, 0.12);
+}
+
+/* 每个格子只摆本墩**最后那一手**：宽度由外框跟着内容撑开，正常不换行；
+   只有极端长词触到外框 84% 上限时才回退成换行 */
+.ep-rz-plays {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* 循环跟过好几手时，只角标一个「×N」—— 新牌叠在旧牌上，不铺开历史牌 */
+.ep-rz-pile {
+    align-self: flex-start;
+    margin-left: -4px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #cfe3d8;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1.5;
+}
+
+/* 有叠牌时给最后一手加两层错位阴影，一眼看出「下面还压着牌」（但看不到具体历史牌） */
+.ep-rz-has-pile .ep-rz-plays .ep-word {
+    box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.34), 6px 6px 0 rgba(0, 0, 0, 0.2);
+}
+
+.ep-rz-empty {
+    font-size: 0.78rem;
+    color: #7fa894;
+}
+
+.ep-river-who {
+    font-size: 0.68rem;
+    color: #7fa894;
+}
+
+/* 牌权：本墩最后成功出牌的人。他若不被压，下一墩由他先出 —— 标出来免得看错归属 */
+.ep-rz-lead .ep-river-who {
+    color: var(--ep-gold);
+    font-weight: 700;
+}
+
+.ep-river-flag {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    background: var(--ep-gold);
+    color: var(--ep-gold-ink);
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 1.5;
+}
+
+/* 炸弹浮层：出炸弹时亮出词 / 音标 / 释义，并停 3 秒（否则本墩一收就什么都看不见了） */
+.ep-reveal {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    animation: fadeIn 0.18s ease-out;
+}
+
+.ep-reveal-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-width: min(420px, 86%);
+    padding: 18px 26px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--ep-gold);
+    background: linear-gradient(180deg, rgba(40, 32, 16, 0.97), rgba(22, 18, 10, 0.97));
+    box-shadow: 0 0 0 3px rgba(212, 162, 76, 0.25), 0 18px 40px rgba(0, 0, 0, 0.55);
+    text-align: center;
+}
+
+.ep-reveal-who {
+    font-size: 0.82rem;
+    color: var(--ep-gold);
+    letter-spacing: 1px;
+}
+
+.ep-reveal-word {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #fff;
+    line-height: 1.15;
+    word-break: break-all;
+}
+
+.ep-reveal-ipa {
+    font-size: 0.9rem;
+    color: var(--ep-mut);
+}
+
+.ep-reveal-mean {
+    font-size: 0.9rem;
+    color: #e9f3ed;
+    line-height: 1.6;
+}
+
+.ep-reveal-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 2px;
+}
+
+.ep-reveal-tags span {
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.72rem;
+    background: rgba(255, 255, 255, 0.12);
+    color: #dbe9e1;
+}
+
+.ep-reveal-in {
+    background: rgba(212, 162, 76, 0.9) !important;
+    color: var(--ep-gold-ink) !important;
+    font-weight: 700;
+}
+
+.ep-reveal-out {
+    background: rgba(176, 58, 46, 0.85) !important;
+    color: #fff !important;
+    font-weight: 700;
+}
+
+/* 王的选牌弹窗：一列候选词，炸弹金框、当前出不了的灰掉。
+   含王时同一个字母组合可能匹配上百个词，所以这里封高 + 内部滚动，列表再长也点得到。 */
+.ep-jw-box {
+    min-width: min(380px, 84vw);
+    max-height: min(62vh, 420px);
+    overflow-y: auto;
+    border-color: rgba(255, 255, 255, 0.28);
+    background: linear-gradient(180deg, rgba(30, 26, 22, 0.98), rgba(16, 14, 12, 0.98));
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* 弹窗底色恒为深色，滚动条不能跟着浅色主题变白 */
+.ep-jw-box::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ep-jw-box::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
+}
+
+.ep-jw-box::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ep-jw-count {
+    margin-left: 6px;
+    font-style: normal;
+    font-size: 0.72rem;
+    color: var(--ep-mut);
+}
+
+.ep-jw {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(0, 0, 0, 0.28);
+    color: #eaf3ee;
+    font-size: 0.95rem;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ep-jw:hover {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.ep-jw b {
+    font-size: 1.05rem;
+    letter-spacing: 1px;
+}
+
+.ep-jw em {
+    margin-left: auto;
+    font-style: normal;
+    font-size: 0.72rem;
+    color: #9fb8aa;
+}
+
+/* 在你词书里（值得记下来） */
+.ep-jw-book {
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: rgba(255, 255, 255, 0.14);
+    color: #cfe3d8;
+    font-size: 0.62rem;
+}
+
+.ep-jw-bomb {
+    border-color: rgba(212, 162, 76, 0.8);
+    background: linear-gradient(135deg, rgba(253, 230, 138, 0.18), rgba(245, 158, 11, 0.16)), rgba(0, 0, 0, 0.3);
+}
+
+.ep-jw-bad {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ep-jw-bad em {
+    color: #e8a5a0;
+}
+
+/* 三边席位：浮在桌沿之上（屏幕空间，文字才清晰）。z 要高于桌面上的出牌区（10~13） */
+.ep-slot {
+    position: absolute;
+    z-index: 20;
+}
+
+.ep-slot-top {
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.ep-slot-left {
+    left: 50px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.ep-slot-right {
+    right: 50px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.ep-seat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.ep-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.28));
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    color: #eaf5ee;
+    font-size: 1.25rem;
+    font-weight: 700;
+    transition: box-shadow 0.18s ease;
+}
+
+.ep-seat-active .ep-avatar {
+    box-shadow: 0 0 0 2px var(--ep-gold), 0 4px 12px rgba(0, 0, 0, 0.4);
+    animation: ep-think 1.6s ease-in-out infinite;
+}
+
+@keyframes ep-think {
+    0%, 100% { transform: translateY(-2px) rotate(-2deg); }
+    50% { transform: translateY(-2px) rotate(2deg); }
+}
+
+.ep-seat-name {
+    font-size: 0.8rem;
+    color: #e2f0e8;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.ep-seat-active .ep-seat-name {
+    color: var(--ep-gold);
+}
+
+.ep-seat-meta {
+    display: flex;
+    gap: 6px;
+    font-size: 0.68rem;
+    color: var(--ep-mut);
+}
+
+.ep-seat-done {
+    opacity: 0.55;
+}
+
+/* —— 我的手牌区 —— */
+.ep-my {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.24);
+}
+
+.ep-my-head {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.9rem;
+}
+
+.ep-my-name {
+    font-weight: 700;
+    color: #fff;
+}
+
+.ep-my-count {
+    font-size: 0.8rem;
+    color: var(--ep-mut);
+}
+
+.ep-done-tag {
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    background: var(--ep-gold);
+    color: var(--ep-gold-ink);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+/* —— 出过的词：小牌排成词，炸弹套一圈金边 —— */
+.ep-word {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 2px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.ep-word-bomb {
+    background: linear-gradient(135deg, rgba(253, 230, 138, 0.2), rgba(245, 158, 11, 0.2));
+    box-shadow: inset 0 0 0 1px rgba(212, 162, 76, 0.7);
+}
+
+.ep-bomb-lv {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--ep-gold);
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.ep-none {
+    color: #7fa894;
+    font-size: 0.8rem;
+}
+
+/* —— 手牌 —— */
+.ep-hand {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+/* 牌面：象牙底 + 底部厚边（牌的侧面）+ 投影，元音红、辅音黑 —— 英语麻将的同一套语言 */
+.ep-card {
+    position: relative;
+    width: 36px;
+    height: 50px;
+    border-radius: 7px;
+    background: linear-gradient(180deg, #fffdf7, #efe9dc);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        inset 0 -2px 0 rgba(0, 0, 0, 0.06),
+        0 3px 0 #c9c1ae,
+        0 4px 2px rgba(0, 0, 0, 0.2),
+        0 5px 8px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, 'Times New Roman', serif;
+    user-select: none;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ep-card-letter {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--ep-ink);
+}
+
+.ep-card-vowel .ep-card-letter {
+    color: var(--ep-vowel);
+}
+
+/* 王：金圈 + 金字母，一眼看出是万能牌 */
+.ep-card-joker-c,
+.ep-card-joker-v {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 0 0 2px var(--ep-gold),
+        0 3px 0 #c9c1ae,
+        0 5px 10px rgba(0, 0, 0, 0.35);
+}
+
+.ep-card-joker-c .ep-card-letter,
+.ep-card-joker-v .ep-card-letter {
+    font-size: 18px;
+    color: #b8863b;
+}
+
+/* 大写字母下方那行不起眼的小写（认牌顺手；王则标它的万能范围） */
+.ep-card-sub {
+    position: absolute;
+    bottom: 3px;
+    font-size: 8px;
+    line-height: 1;
+    color: #9a9384;
+}
+
+.ep-card[data-ep-card] {
+    cursor: pointer;
+}
+
+.ep-card[data-ep-card]:hover {
+    transform: translateY(-4px);
+}
+
+.ep-card-sel,
+.ep-card-sel[data-ep-card]:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 2px 0 var(--ep-gold), 0 0 0 3px var(--ep-gold), 0 6px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* 小牌：词面用（牌河、预览、复盘） */
+.ep-card-sm {
+    width: 27px;
+    height: 37px;
+    border-radius: 5px;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 2px 0 #c9c1ae,
+        0 3px 6px rgba(0, 0, 0, 0.28);
+}
+
+.ep-card-sm .ep-card-letter {
+    font-size: 15px;
+}
+
+.ep-card-sm .ep-card-sub {
+    bottom: 2px;
+    font-size: 7px;
+}
+
+.ep-word-tiles {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* —— 拼牌条 / 校验结论 —— */
+.ep-under {
+    display: flex;
+    align-items: center;
+    min-height: 52px;
+}
+
+/* 一条「拼牌 + 结论」的横条：左边按选择顺序摆牌，右边永远是结论。
+   结论靠 margin-left:auto 顶到最右，绝不盖住牌面（此前错误文案会整条替换掉牌）。 */
+.ep-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    width: 100%;
+    min-height: 52px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ep-pickzone {
+    flex-wrap: wrap;
+    align-items: flex-end;
+    min-height: 38px;
+}
+
+/* 已选牌：金圈高亮 + 抓手光标，可拖动改顺序 */
+.ep-pick-card {
+    cursor: grab;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 0 0 2px var(--ep-gold),
+        0 2px 0 #c9c1ae,
+        0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+.ep-pick-card:active {
+    cursor: grabbing;
+}
+
+.ep-pick-dragging {
+    opacity: 0.45;
+}
+
+/* 拖动时落在两张牌之间的「插入缝」：一条虚线空槽，右侧的牌自动让位。
+   槽的位置就是插入位置 —— 拖拽插组靠它，不再靠「悬停到某张牌上」去猜。 */
+.ep-pick-gap {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 37px;
+    border-radius: 5px;
+    border: 1px dashed var(--ep-gold);
+    background: rgba(212, 162, 76, 0.2);
+    animation: ep-gap-breathe 1s ease-in-out infinite;
+}
+
+@keyframes ep-gap-breathe {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
+/* 「下一张牌」的空槽：底部一条呼吸的划线，像拼写输入的光标 */
+.ep-pick-next {
+    position: relative;
+    flex: 0 0 auto;
+    width: 27px;
+    height: 37px;
+    border-radius: 5px;
+    border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+
+.ep-pick-next::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 6px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--ep-gold);
+    animation: ep-caret 1.15s ease-in-out infinite;
+}
+
+@keyframes ep-caret {
+    0%, 100% { opacity: 0.12; transform: scaleX(0.45); }
+    50% { opacity: 1; transform: scaleX(1); }
+}
+
+.ep-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    font-size: 0.82rem;
+    max-width: 100%;
+}
+
+.ep-check b {
+    font-size: 0.95rem;
+    letter-spacing: 2px;
+}
+
+.ep-check em {
+    font-style: normal;
+    font-size: 0.72rem;
+    opacity: 0.75;
+}
+
+.ep-check-ok {
+    color: #a5d6a7;
+    background: rgba(76, 175, 80, 0.16);
+    border: 1px solid rgba(76, 175, 80, 0.55);
+}
+
+.ep-check-bad {
+    color: #ffd9cf;
+    background: rgba(180, 50, 50, 0.2);
+    border: 1px solid rgba(163, 51, 51, 0.7);
+}
+
+.ep-check-idle {
+    color: var(--ep-mut);
+}
+
+.ep-bomb-tag {
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    background: var(--ep-gold);
+    color: var(--ep-gold-ink);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.ep-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+/* —— 炸弹编组 —— */
+
+/* 「编组」按钮：比主操作轻一点，别抢「出牌」的视线 */
+.ep-btn-pack {
+    border-color: rgba(212, 162, 76, 0.55);
+    background: rgba(212, 162, 76, 0.14);
+}
+
+/* 编组区：margin-left:auto 把它顶到操作区极右侧的空白处 */
+.ep-packs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-left: auto;
+    padding-left: 4px;
+}
+
+.ep-pack {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 9px 4px;
+    border-radius: var(--radius-md);
+    border: 1px dashed rgba(255, 255, 255, 0.28);
+    background: rgba(0, 0, 0, 0.34);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.ep-pack:hover {
+    transform: translateY(-2px);
+}
+
+/* 炸弹组：金色高亮（这才是「能压台面」的那一组） */
+.ep-pack-bomb {
+    border-color: rgba(212, 162, 76, 0.7);
+    background: linear-gradient(135deg, rgba(253, 230, 138, 0.16), rgba(245, 158, 11, 0.14)), rgba(0, 0, 0, 0.34);
+}
+
+/* 普通组（词书外的长词）：素色 + 一枚「普通」角标 —— 只能按普通牌的门槛打出 */
+.ep-pack-plain .ep-pack-word {
+    color: #cfe3d8;
+    opacity: 0.85;
+}
+
+.ep-pack-tag {
+    margin-left: 4px;
+    padding: 0 4px;
+    border-radius: var(--radius-full);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    font-size: 0.58rem;
+    font-weight: 600;
+    color: #9fb8aa;
+}
+
+/* 选中待放出：实线 + 外发光 */
+.ep-pack-on {
+    border-style: solid;
+    border-color: var(--ep-gold);
+    box-shadow: 0 0 0 2px rgba(212, 162, 76, 0.35), 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.ep-pack-plain.ep-pack-on {
+    border-color: #eaf3ee;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+/* 整把牌叠在一起（后一张压住前一张的左边），一眼看出是「一组」 */
+.ep-pack-cards {
+    display: inline-flex;
+    align-items: center;
+}
+
+.ep-pack-cards .ep-card {
+    margin-left: -9px;
+}
+
+.ep-pack-cards .ep-card:first-child {
+    margin-left: 0;
+}
+
+.ep-pack-word {
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+    color: var(--ep-gold);
+    line-height: 1;
+}
+
+.ep-pack-word em {
+    font-style: normal;
+    margin-left: 3px;
+    opacity: 0.75;
+}
+
+.ep-pack-x {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(28, 28, 28, 0.92);
+    color: #fff;
+    font-size: 0.72rem;
+}
+
+.ep-pack-x:hover {
+    background: #b03a2e;
+}
+
+/* 手里那几张已编组的牌：压暗 + 虚线金框，表示「它们在编组里等着」 */
+.ep-card-packed {
+    opacity: 0.5;
+}
+
+.ep-card-packed::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 1px dashed var(--ep-gold);
+}
+
+/* 点了编组炸弹后，拼牌条上亮出的那组牌 */
+.ep-pick-bomb {
+    box-shadow: 0 0 0 2px var(--ep-gold), 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.ep-check-note {
+    font-style: normal;
+    font-size: 0.76rem;
+    opacity: 0.8;
+}
+
+.ep-wait {
+    color: var(--ep-mut);
+    font-size: 0.88rem;
+}
+
+.ep-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ep-hint-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: #e8f2ec;
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.ep-hint-chip:hover {
+    border-color: var(--ep-gold);
+    background: rgba(212, 162, 76, 0.18);
+    color: #fff;
+}
+
+.ep-hint-chip em {
+    font-style: normal;
+    color: var(--ep-mut);
+    font-size: 0.7rem;
+}
+
+.ep-hint-bomb {
+    border-color: rgba(212, 162, 76, 0.7);
+    color: #f3c96b;
+}
+
+.ep-hints-empty {
+    color: var(--ep-mut);
+    font-size: 0.82rem;
+}
+
+/* —— 对局记录 —— */
+.ep-logs {
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.ep-log-h {
+    margin-bottom: 6px;
+    font-size: 0.7rem;
+    letter-spacing: 2px;
+    color: var(--ep-mut);
+}
+
+.ep-log {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 132px;
+    overflow: auto;
+}
+
+.ep-log-line {
+    font-size: 0.78rem;
+    color: #cfe3d8;
+}
+
+/* 对局记录在深色毛毡上，滚动条不能跟着浅色主题变白 */
+.ep-log::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.ep-log::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
+}
+
+.ep-log::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* —— 结算与复盘（沿用牌桌的毛毡绿，像比赛结束后的记分牌） —— */
+.ep-result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, #1e6f52, #124a37);
+    color: #e9f3ed;
+}
+
+.ep-result-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ep-result-title {
+    margin: 0;
+    font-size: 1.25rem;
+    letter-spacing: 2px;
+    color: #fff;
+}
+
+.ep-result-sub {
+    font-size: 0.75rem;
+    color: var(--ep-mut);
+}
+
+.ep-ranks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ep-rank-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 0.88rem;
+}
+
+.ep-rank-me {
+    border-color: var(--ep-gold);
+    background: rgba(212, 162, 76, 0.16);
+}
+
+.ep-rank-medal {
+    width: 26px;
+    text-align: center;
+}
+
+.ep-rank-name {
+    flex: 1;
+    font-weight: 600;
+    color: #fff;
+}
+
+.ep-rank-state,
+.ep-rank-words {
+    font-size: 0.78rem;
+    color: var(--ep-mut);
+}
+
+.ep-review {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.ep-review h4 {
+    margin: 6px 0 2px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--ep-gold);
+}
+
+.ep-review h4 i {
+    margin-right: 6px;
+}
+
+.ep-review-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 3px solid rgba(255, 255, 255, 0.14);
+}
+
+.ep-review-bomb {
+    border-left-color: var(--ep-gold);
+    background: rgba(212, 162, 76, 0.12);
+}
+
+.ep-review-word {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #fff;
+}
+
+.ep-review-bomb .ep-review-word {
+    color: var(--ep-gold);
+}
+
+.ep-review-ph {
+    font-size: 0.8rem;
+    color: var(--ep-mut);
+}
+
+.ep-review-mean {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+    color: #cfe3d8;
+}
+
+.ep-review-tag {
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: var(--ep-gold);
+    color: var(--ep-gold-ink);
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.ep-ai-bombs {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--ep-mut);
+}
+
+.ep-result .ep-empty {
+    color: var(--ep-mut);
+}
+
+@media (max-width: 768px) {
+    .ep-books {
+        grid-template-columns: 1fr;
+    }
+
+    .ep-game,
+    .ep-result {
+        padding: var(--spacing-md);
+    }
+
+    .ep-stage {
+        min-height: 280px;
+        padding: 40px 8px;
+    }
+
+    .ep-surface {
+        width: 90%;
+        height: 190px;
+    }
+
+    /* 窄屏：台面缩了（190 高），四家出牌区贴台面内沿；宽度照旧跟着牌组自然撑开，
+       窄屏横位更挤，左右两家叠上就叠上（下面那方自动淡化，反正不会把桌面顶大） */
+    .ep-rz-seat2 {
+        top: 54px;
+    }
+
+    .ep-rz-seat0 {
+        bottom: 52px;
+    }
+
+    .ep-rz-seat3 {
+        left: 10%;
+    }
+
+    .ep-rz-seat1 {
+        right: 10%;
+    }
+
+    .ep-rz {
+        padding: 4px 6px;
+        max-width: 80%;
+    }
+
+    .ep-reveal-word {
+        font-size: 1.5rem;
+    }
+
+    .ep-slot-left {
+        left: 4px;
+    }
+
+    .ep-slot-right {
+        right: 4px;
+    }
+
+    .ep-avatar {
+        width: 42px;
+        height: 42px;
+        font-size: 1rem;
+    }
+
+    .ep-seat-meta {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .ep-top-info {
+        margin-left: 0;
+    }
+
+    .ep-card {
+        width: 32px;
+        height: 45px;
+    }
+
+    .ep-card-letter {
+        font-size: 19px;
+    }
+}
+
 
 .user-name {
     /* 12字符（中文约1em/字符）以内完整显示，超出交给 JS 截断 + CSS 省略号兜底 */
@@ -16216,6 +18401,22 @@ i.dropdown-item-icon {
 .ld-section-hint {
     font-size: 0.72rem;
     color: var(--text-tertiary);
+}
+/* 记忆拟合标题旁的 info 图标：点击弹出图例说明弹窗（原长提示已移入弹窗） */
+.ld-section-header h3 .ld-section-info {
+    margin-left: 6px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+.ld-section-header h3 .ld-section-info:hover {
+    color: var(--primary-color);
 }
 /* 板块内 SM-2 概览：2×2 紧凑网格适配右栏宽度 */
 .ld-section .sm2-overview {

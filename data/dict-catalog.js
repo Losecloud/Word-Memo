@@ -1,6 +1,6 @@
 // 由 tools/web2ob.py 自动生成：词典数据安装清单（AI 工坊「词典」类目按此渲染）
 var DICT_CATALOG = {
- "updated": "2026-09-25",
+ "updated": "2026-09-26",
  "dicts": [
   {
    "file": "englishwords-dict.json",
@@ -9,7 +9,7 @@ var DICT_CATALOG = {
    "name": "基础词典",
    "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，作为默认兜底词库",
    "icon": "🔤",
-   "size": 9206517,
+   "size": 9248845,
    "url": "https://raw.githubusercontent.com/Losecloud/reciting/main/data/englishwords-dict.json"
   },
   {

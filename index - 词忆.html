@@ -51,7 +51,7 @@
     <meta property="twitter:image" content="https://Losecloud.github.io/VocRec/static/image/icon-512.png">
     
     <title>词忆 - 专攻难词 · 趣味高效</title>
-    <link rel="icon" type="image/svg+xml" href="static/image/book.svg">
+    <link rel="icon" type="image/svg+xml" href="static/image/word-memo-logo-heavy.svg">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="static/image/icon-192.png">
     <link rel="stylesheet" href="css/styles.css">
@@ -928,7 +928,11 @@
                  点击弹出主页设置弹窗，但侧栏下仅保留与查词相关的「AI设置」「页面设置」两个选项卡 -->
             <div class="dict-sidebar-header" id="dictSidebarHeader">
                 <div class="dict-sidebar-brand">
-                    <img class="dict-sidebar-logo" src="static/image/book.svg" alt="">
+                    <!-- 词忆标志（static/image/word-memo-logo-heavy.svg 内联版）：填充式单路径，
+                         fill 取 currentColor 以继承 .dict-sidebar-brand 的 --primary-color（与「词忆」同色） -->
+                    <svg class="dict-sidebar-logo" viewBox="0 0 99.97 99.97" fill="currentColor" aria-hidden="true">
+                        <path d="M50,18.68c-1.69-.01-3.4.26-5,.82-3.41,1.49-5.27,4.2-6.5,7.5l-16,40.5c-.26-5.19-1.4-25.71-1.86-36.33-.51-11.68-3.87-14.46-15.14-14.17-1.48.28-2.9.62-4,2-.5.57-.78,1.54-.5,2.5-.06,1,.35,1.83,1,2.5,3.22,2.58,8.41-.65,9,5l1.5,40c.34,4.13.48,9.33,4,12,3.62,3.04,9.05,1.96,11.5-1.5,1.94-2.53,2.84-5.3,4-8l15.5-39.5c.54-1.06,1.52-1.69,2.5-1.66.98-.03,1.96.61,2.5,1.66l15.5,39.5c1.16,2.7,2.06,5.47,4,8,2.45,3.46,7.88,4.54,11.5,1.5,3.52-2.67,3.66-7.87,4-12l1.5-40c.59-5.65,5.78-2.42,9-5,.65-.67,1.06-1.5,1-2.5.28-.96,0-1.93-.5-2.5-1.1-1.38-2.52-1.72-4-2-11.29-.29-14.45,2.34-15.14,14.17-.62,10.63-1.6,31.12-1.86,36.33l-16-40.5c-1.23-3.3-3.09-6.01-6.5-7.5-1.6-.55-3.31-.83-5-.82Z"/>
+                    </svg>
                     <span>词忆</span>
                 </div>
                 <div class="dict-sidebar-status hidden" id="dictSidebarStatus" aria-live="polite">
@@ -944,10 +948,10 @@
             </div>
             <div class="header-left">
                 <div class="logo" id="appLogo" title="关于词忆" role="button" tabindex="0">
-                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5"/>
-                        <path d="M2 12l10 5 10-5"/>
+                    <!-- 词忆标志（static/image/word-memo-logo-heavy.svg 内联版）：填充式单路径，
+                         fill 取 currentColor 以继承 .logo 的 --primary-color 并适配深浅主题 -->
+                    <svg class="logo-icon" viewBox="0 0 99.97 99.97" fill="currentColor" aria-hidden="true">
+                        <path d="M50,18.68c-1.69-.01-3.4.26-5,.82-3.41,1.49-5.27,4.2-6.5,7.5l-16,40.5c-.26-5.19-1.4-25.71-1.86-36.33-.51-11.68-3.87-14.46-15.14-14.17-1.48.28-2.9.62-4,2-.5.57-.78,1.54-.5,2.5-.06,1,.35,1.83,1,2.5,3.22,2.58,8.41-.65,9,5l1.5,40c.34,4.13.48,9.33,4,12,3.62,3.04,9.05,1.96,11.5-1.5,1.94-2.53,2.84-5.3,4-8l15.5-39.5c.54-1.06,1.52-1.69,2.5-1.66.98-.03,1.96.61,2.5,1.66l15.5,39.5c1.16,2.7,2.06,5.47,4,8,2.45,3.46,7.88,4.54,11.5,1.5,3.52-2.67,3.66-7.87,4-12l1.5-40c.59-5.65,5.78-2.42,9-5,.65-.67,1.06-1.5,1-2.5.28-.96,0-1.93-.5-2.5-1.1-1.38-2.52-1.72-4-2-11.29-.29-14.45,2.34-15.14,14.17-.62,10.63-1.6,31.12-1.86,36.33l-16-40.5c-1.23-3.3-3.09-6.01-6.5-7.5-1.6-.55-3.31-.83-5-.82Z"/>
                     </svg>
                     <span class="logo-text">词忆</span>
                 </div>
@@ -1118,7 +1122,8 @@
                 <!-- 封面一：单词导入（默认） -->
                 <div class="welcome-content cover-import" id="coverImport">
                     <div class="welcome-icon">
-                        <img src="static/image/book.svg" alt="词忆" class="welcome-icon-img">
+                        <!-- 封面图与 README 首图保持一致（README.md 顶部「词忆」封面） -->
+                        <img src="static/cover/阅读联想记忆.png" alt="词忆" class="welcome-icon-img">
                     </div>
                     <h1 class="welcome-title">欢迎来到词忆</h1>
                     <p class="welcome-subtitle">专攻难词 · 趣味高效</p>
@@ -1178,7 +1183,7 @@
                             <label>等级类别</label>
                             <select class="setting-select" id="nebulaSortBy">
                                 <option value="cefr">CEFR等级</option>
-                                <option value="error">错误率</option>
+                                <option value="error">正确率</option>
                                 <option value="time">加入时间</option>
                             </select>
                         </div>
@@ -1433,7 +1438,7 @@
                             <select class="setting-select" id="dandelionForgetMode" title="空中飘散种子的取词口径，用来提示哪些词生疏需要复习。也可直接拖拽：把花头里的词拖到空中松手即收藏并飘走，把空中种子拖回花头松手即取消收藏并归位（拖拽只影响本次浏览）">
                                 <option value="proficiency">熟练度低（含未练习）</option>
                                 <option value="ebbinghaus">艾宾浩斯到期复习</option>
-                                <option value="error">错误率最高 10%</option>
+                                <option value="error">正确率最低 10%</option>
                                 <option value="favorite">收藏单词</option>
                             </select>
                         </div>
@@ -1492,7 +1497,7 @@
                             </div>
                         </div>
                         <div class="dandelion-legend">
-                            <div class="dandelion-legend-row"><span class="dandelion-dot" id="dandelionLegendHot"></span>重点难词（错误率 ≥ 50%）</div>
+                            <div class="dandelion-legend-row"><span class="dandelion-dot" id="dandelionLegendHot"></span>重点难词（正确率 ≤ 50%）</div>
                             <div class="dandelion-legend-row"><span class="dandelion-dot" id="dandelionLegendHigh"></span>高频词（CEFR 基础词）</div>
                             <div class="dandelion-legend-row"><span class="dandelion-dot" id="dandelionLegendLow"></span>低频词（生僻词）</div>
                             <div class="dandelion-legend-row dandelion-legend-hint">种子越大词频越高 · 虚线环为已熟练词 · 拖动种子/空白可旋转缩放</div>
@@ -1840,6 +1845,20 @@
                         <button class="btn-secondary hidden" id="switchModeBtn">换个模式？</button>
                         <button class="btn-primary" id="continueBtn">继续学习</button>
                     </div>
+                    <!-- 作答节奏 × 掌握程度散点图（田字十字轴） -->
+                    <div class="completion-scatter" id="completionScatter">
+                        <div class="cs-head">
+                            <h3 class="cs-title"><i class="fi-rr-chart-scatter"></i> 作答节奏 × 掌握程度</h3>
+                            <label class="cs-switch" title="显示本轮正确率相对历史平均正确率的位移">
+                                <span class="cs-switch-label">正确率位移</span>
+                                <span class="switch-wrap">
+                                    <input type="checkbox" id="scatterShiftToggle">
+                                    <span class="switch-slider"></span>
+                                </span>
+                            </label>
+                        </div>
+                        <canvas id="completionScatterCanvas" width="800" height="400" aria-label="作答节奏与正确率散点图"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -1924,6 +1943,13 @@
                             <h3 class="workshop-app-title">文字游戏</h3>
                             <p class="workshop-app-desc">与AI对话式扮演主角，进行沉浸式文字游戏（恐怖/科幻/恋爱）</p>
                             <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.8.1</span></div>
+                        </div>
+
+                        <div class="workshop-app-card" data-app="poker" data-cat="fun">
+                            <div class="workshop-app-icon"><img src="static/cover/英文扑克.svg" alt="英文扑克" loading="lazy"></div>
+                            <h3 class="workshop-app-title">英文扑克</h3>
+                            <p class="workshop-app-desc">掼蛋式拼词扑克：出单牌弃牌、出单词甩牌，用你词书里的单词当炸弹压制对手</p>
+                            <div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">2026.9.26</span></div>
                         </div>
 
                         <div class="workshop-app-card" data-app="synonym" data-cat="practice">
@@ -2382,9 +2408,33 @@
                                             AI设置
                                         </button>
                                     </div>
-                                </div>
 
-                               
+                                    <!-- AI纠正窗口：从题目卡片顶部向下浮出（样式与内容逻辑照抄小程序 writing 的 tip-popup） -->
+                                    <div class="writing-tip-popup" id="writingTipPopup">
+                                        <div class="tip-popup-content">
+                                            <div class="tip-popup-header">
+                                                <span class="tip-popup-title" id="writingTipTitle">语法错误 Grammar error</span>
+                                                <span class="tip-popup-count" id="writingTipCount">1/1</span>
+                                            </div>
+                                            <div class="tip-popup-body">
+                                                <div class="tip-popup-wrong" id="writingTipWrong"></div>
+                                                <div class="tip-popup-correct" id="writingTipCorrect"></div>
+                                                <div class="tip-popup-context" id="writingTipContext"></div>
+                                            </div>
+                                            <div class="tip-popup-footer">
+                                                <div class="tip-popup-nav">
+                                                    <div class="tip-popup-btn" id="writingTipPrev" title="上一个"><i class="fi-rr-angle-small-left"></i></div>
+                                                    <div class="tip-popup-btn" id="writingTipNext" title="下一个"><i class="fi-rr-angle-small-right"></i></div>
+                                                </div>
+                                                <div class="tip-popup-actions">
+                                                    <div class="tip-popup-ignore" id="writingTipIgnore">忽略</div>
+                                                    <div class="tip-popup-accept" id="writingTipAccept">接受</div>
+                                                    <div class="tip-popup-close" id="writingTipClose" title="关闭"><i class="fi-rr-cross-small"></i></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <!-- 右：等级评估框（上半柱状图 + 下半评分按钮） -->
                                 <div class="writing-eval-box">
@@ -2432,6 +2482,10 @@
                                             <div class="score-btn" id="scoreBtn">
                                                 <span class="score-btn-level" id="writingEstimatedLevel">A1</span>
                                                 <span class="score-btn-sub">综合评估 &gt;</span>
+                                                <!-- AI 综合评估请求进度（点击后显示） -->
+                                                <div class="score-btn-progress" id="scoreBtnProgress">
+                                                    <div class="score-btn-progress-fill" id="scoreBtnProgressFill"></div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -2444,26 +2498,26 @@
                             </div>
                         </div>
 
-                        <!-- 底部导航（4 图标胶囊） -->
+                        <!-- 底部导航（5 图标胶囊） -->
                         <div class="writing-bottom-nav">
-                            <div class="nav-item" id="navLikeBtn" title="点赞">
-                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            <div class="nav-item" id="navLikeBtn" title="收藏">
+                                <i class="fi-rr-heart"></i>
                             </div>
                             <div class="nav-item" id="navDeleteBtn" title="清空">
-                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                                <i class="fi-rr-trash"></i>
                             </div>
                             <div class="nav-item" id="navPhotoBtn" title="拍照识别">
-                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                <i class="fi-rr-camera"></i>
                             </div>
                             <div class="nav-item" id="navCopyBtn" title="复制">
-                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <i class="fi-rr-copy"></i>
+                            </div>
+                            <div class="nav-item" id="navMineBtn" title="我的">
+                                <i class="fi-rr-bookmark"></i>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- 纠错弹窗容器 -->
-                <div id="correctionPopup"></div>
 
                 <!-- 文字游戏功能 -->
                 <div class="textgame-app-container hidden" id="textGameAppContainer">
@@ -2749,7 +2803,7 @@
                     <div class="ai-feature-card">
                     <div class="ai-feature-header">
                         <div class="ai-feature-header-text">
-                            <h3><i class="fi-rr-exchange"></i>同义替换练习</h3>
+                            <h3><i class="fi-rr-refresh"></i>同义替换练习</h3>
                             <p class="ai-feature-desc">从混合选项中选出正确的同义词/替换词（每题3个干扰项），提升词汇替换能力</p>
                         </div>
                         <button class="ai-close-btn" id="closeAiWorkshopBtnSynonym" title="返回AI工坊菜单页">
@@ -3516,6 +3570,24 @@
                     </div>
                     </div><!-- /ai-feature-card -->
                 </div>
+
+                <!-- 英文扑克：掼蛋式拼词扑克（容器内全部由 js/english-poker.js 渲染） -->
+                <div class="ep-app-container hidden" id="epAppContainer">
+                    <div class="ai-feature-card">
+                        <div class="ai-feature-header">
+                            <div class="ai-feature-header-text">
+                                <h3><i class="fi-rr-playing-cards"></i>英文扑克</h3>
+                                <p class="ai-feature-desc">掼蛋式拼词扑克：出单牌弃牌、出单词甩牌，用你词书里的单词打出金色炸弹压制对手</p>
+                            </div>
+                            <button class="ai-close-btn" id="epCloseBtn" title="返回AI工坊菜单页">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="epBody"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- 单词表浏览页面 -->
@@ -3606,6 +3678,8 @@
                                     例句
                                     <button class="word-list-col-delete-btn" data-col="example" title="清空所有例句"><i class="fi-rr-trash"></i></button>
                                 </th>
+                                <th class="word-list-col-accuracy">正确率</th>
+                                <th class="word-list-col-avgtime">联想时间</th>
                                 <th class="word-list-col-category">
                                     <span class="word-list-cat-header">场景类别</span>
                                     <button class="word-list-cat-filter-btn" id="categoryFilterBtn" title="筛选场景类别">▾</button>
@@ -3720,7 +3794,7 @@
                         <div class="chart-sheet-tabs" id="chartSheetTabs">
                             <button class="chart-sheet-tab active" data-sheet="time"><svg class="svg-ic" aria-hidden="true"><use href="#ic-time"></use></svg>时长</button>
                             <button class="chart-sheet-tab" data-sheet="words"><svg class="svg-ic" aria-hidden="true"><use href="#ic-word"></use></svg>单词</button>
-                            <button class="chart-sheet-tab" data-sheet="error"><svg class="svg-ic" aria-hidden="true"><use href="#ic-cross"></use></svg>错误率</button>
+                            <button class="chart-sheet-tab" data-sheet="accuracy"><svg class="svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>正确率</button>
                         </div>
                         <div class="chart-wrapper">
                             <canvas id="statsSheetChart" class="chart-canvas"></canvas>
@@ -3748,7 +3822,7 @@
                                 <span class="sm2-stat-label">已记忆</span>
                             </div>
                             <div class="sm2-stat">
-                                <span class="sm2-stat-num" id="sm2AvgEF">2.5</span>
+                                <span class="sm2-stat-num" id="sm2AvgEF">2.50</span>
                                 <span class="sm2-stat-label">平均EF</span>
                             </div>
                         </div>
@@ -3772,8 +3846,7 @@
                 <!-- 板块三：记忆星图（全宽） -->
                 <div class="ld-section" id="memoryChart">
                     <div class="ld-section-header">
-                        <h3><svg class="svg-ic" aria-hidden="true"><use href="#ic-scatter"></use></svg>记忆星图</h3>
-                        <span class="ld-section-hint">每个词一个标签 · X=错误率 Y=练习次数 字号=复习间隔 颜色=掌握度</span>
+                        <h3><svg class="svg-ic" aria-hidden="true"><use href="#ic-scatter"></use></svg>记忆拟合<button class="ld-section-info" id="memoryHelpBtn" type="button" title="记忆拟合说明" aria-label="记忆拟合说明"><i class="fi-rr-info"></i></button></h3>
                     </div>
                     <canvas class="memory-chart-canvas" id="memoryChartCanvas" width="1000" height="380" style="width:100%;"></canvas>
 
@@ -3883,7 +3956,7 @@
                             <span class="sm2-stat-label">已记忆</span>
                         </div>
                         <div class="sm2-stat">
-                            <span class="sm2-stat-num" id="sidebarSm2AvgEF">2.5</span>
+                            <span class="sm2-stat-num" id="sidebarSm2AvgEF">2.50</span>
                             <span class="sm2-stat-label">平均EF</span>
                         </div>
                     </div>
@@ -4857,29 +4930,29 @@
                             <option value="个人经历" data-icon="fi-rr-notebook" data-desc="个人成长、生活感悟与真实经历">个人经历</option>
                         </select>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label" for="writingLevel">目标等级</label>
-                            <select class="form-select setting-select" id="writingLevel" title="目标等级">
-                                <option value="A1" data-tag="A1" data-desc="基础词汇 1000 · 简单日常短句">初级</option>
-                                <option value="A2" data-tag="A2" data-desc="中考 / 剑桥KET · 词汇量 2000">初中级</option>
-                                <option value="B1" data-tag="B1" data-desc="高考 / 四级初阶 · 词汇量 3500~4500">中级</option>
-                                <option value="B2" selected data-tag="B2" data-desc="六级 / 考研 / 雅思6.5 · 词汇量 5500~6500">中高级</option>
-                                <option value="C1" data-tag="C1" data-desc="专八 / 托福105+ / GRE · 词汇量 8000~10000">高级</option>
-                                <option value="C2" data-tag="C2" data-desc="学术期刊原刊 · 词汇量 12000+">精通</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="writingStyle">文体</label>
-                            <select class="form-select setting-select" id="writingStyle" title="文体">
-                                <option value="议论文" selected data-icon="fi-rr-scale" data-desc="立论、论据与论证的严谨表达">议论文</option>
-                                <option value="记叙文" data-icon="fi-rr-book-open-reader" data-desc="以叙事与描写还原人物和事件">记叙文</option>
-                                <option value="说明文" data-icon="fi-rr-info" data-desc="客观阐释事理与原理的说明性文体">说明文</option>
-                                <option value="书信" data-icon="fi-rr-envelope" data-desc="有称呼与落款的往来书信格式">书信</option>
-                                <option value="演讲稿" data-icon="fi-rr-microphone" data-desc="面向听众、富有感染力的演讲文稿">演讲稿</option>
-                            </select>
-                        </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="writingLevel">目标等级</label>
+                        <select class="form-select setting-select" id="writingLevel" title="目标等级">
+                            <option value="A1" data-tag="A1" data-desc="基础词汇 1000 · 简单日常短句">初级</option>
+                            <option value="A2" data-tag="A2" data-desc="中考 / 剑桥KET · 词汇量 2000">初中级</option>
+                            <option value="B1" data-tag="B1" data-desc="高考 / 四级初阶 · 词汇量 3500~4500">中级</option>
+                            <option value="B2" selected data-tag="B2" data-desc="六级 / 考研 / 雅思6.5 · 词汇量 5500~6500">中高级</option>
+                            <option value="C1" data-tag="C1" data-desc="专八 / 托福105+ / GRE · 词汇量 8000~10000">高级</option>
+                            <option value="C2" data-tag="C2" data-desc="学术期刊原刊 · 词汇量 12000+">精通</option>
+                        </select>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label" for="writingStyle">文体</label>
+                        <select class="form-select setting-select" id="writingStyle" title="文体">
+                            <option value="议论文" selected data-icon="fi-rr-scale" data-desc="立论、论据与论证的严谨表达">议论文</option>
+                            <option value="记叙文" data-icon="fi-rr-book-open-reader" data-desc="以叙事与描写还原人物和事件">记叙文</option>
+                            <option value="说明文" data-icon="fi-rr-info" data-desc="客观阐释事理与原理的说明性文体">说明文</option>
+                            <option value="书信" data-icon="fi-rr-envelope" data-desc="有称呼与落款的往来书信格式">书信</option>
+                            <option value="演讲稿" data-icon="fi-rr-microphone" data-desc="面向听众、富有感染力的演讲文稿">演讲稿</option>
+                        </select>
+                    </div>
+                    
                     <div class="form-group">
                         <label class="form-label" for="writingAiModel">
                             AI 模型
@@ -4929,6 +5002,95 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-primary" data-close-modal="writingSettingsModal">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 我的收藏弹窗（列表样式与检索逻辑照抄小程序 myCollection.vue） -->
+    <div class="modal hidden" id="myCollectionModal">
+        <div class="modal-overlay" data-close-modal="myCollectionModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>我的收藏</h3>
+                <button class="btn-icon" data-close-modal="myCollectionModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="mc-search">
+                    <input type="text" id="mcSearchInput" class="mc-search-input" placeholder="搜索收藏文章">
+                    <i class="fi-rr-search mc-search-icon"></i>
+                </div>
+                <div class="mc-list" id="mcList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全文 AI 综合评估弹窗（功能与结构照抄小程序 weval/index.vue） -->
+    <div class="modal hidden" id="writingEvalModal">
+        <div class="modal-overlay" data-close-modal="writingEvalModal"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>AI 综合评估</h3>
+                <button class="btn-icon" data-close-modal="writingEvalModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Basic Evaluation：四项基础统计 -->
+                <div class="weval-basic">
+                    <div class="weval-basic-title">Basic Evaluation</div>
+                    <div class="weval-basic-grid">
+                        <div class="weval-basic-item">Long sentences：<b id="wevalMlSentence">0</b></div>
+                        <div class="weval-basic-item">wrong vocabularies：<b id="wevalVocabQty">0</b></div>
+                        <div class="weval-basic-item">type variety：<b id="wevalTypeVariety">0%</b></div>
+                        <div class="weval-basic-item">wrong grammar：<b id="wevalGrammarQty">0</b></div>
+                    </div>
+                </div>
+
+                <!-- CEFR 六级柱状图（点击时拷贝的等级词数） + LEVEL / tokens / types -->
+                <div class="weval-chart-row">
+                    <div class="weval-bars" id="wevalBars">
+                        <div class="weval-bar" data-level="A1"><span class="weval-bar-pct" id="wevalBarPctA1">0%</span><div class="weval-bar-fill" id="wevalBarA1"></div><span class="weval-bar-label">A1</span></div>
+                        <div class="weval-bar" data-level="A2"><span class="weval-bar-pct" id="wevalBarPctA2">0%</span><div class="weval-bar-fill" id="wevalBarA2"></div><span class="weval-bar-label">A2</span></div>
+                        <div class="weval-bar" data-level="B1"><span class="weval-bar-pct" id="wevalBarPctB1">0%</span><div class="weval-bar-fill" id="wevalBarB1"></div><span class="weval-bar-label">B1</span></div>
+                        <div class="weval-bar" data-level="B2"><span class="weval-bar-pct" id="wevalBarPctB2">0%</span><div class="weval-bar-fill" id="wevalBarB2"></div><span class="weval-bar-label">B2</span></div>
+                        <div class="weval-bar" data-level="C1"><span class="weval-bar-pct" id="wevalBarPctC1">0%</span><div class="weval-bar-fill" id="wevalBarC1"></div><span class="weval-bar-label">C1</span></div>
+                        <div class="weval-bar" data-level="C2"><span class="weval-bar-pct" id="wevalBarPctC2">0%</span><div class="weval-bar-fill" id="wevalBarC2"></div><span class="weval-bar-label">C2</span></div>
+                    </div>
+                    <div class="weval-level-box">
+                        <div class="weval-level-label">LEVEL：</div>
+                        <div class="weval-level-score" id="wevalLevelScore">A1</div>
+                        <div class="weval-level-meta"><span id="wevalTokenCount">0</span> tokens<br><span id="wevalTypeCount">0</span> types</div>
+                    </div>
+                </div>
+
+                <!-- Summary -->
+                <div class="weval-card">
+                    <div class="weval-progress-head">
+                        <span class="weval-progress-label">Summary</span>
+                        <span class="weval-progress-score" id="wevalSummaryScore">0.0</span>
+                    </div>
+                    <div class="weval-progress-bg" id="wevalSummaryBar"></div>
+                    <div class="weval-progress-detail" id="wevalSummaryDetail"></div>
+                </div>
+
+                <!-- 错误详情 -->
+                <div class="weval-card">
+                    <div class="weval-wrong-title">Wrong Vocabularies:</div>
+                    <div class="weval-wrong-detail" id="wevalWrongVocab"></div>
+                    <div class="weval-wrong-title">Wrong Grammar:</div>
+                    <div class="weval-wrong-detail" id="wevalWrongGrammar"></div>
+                </div>
+
+                <!-- 四项细分进度条 -->
+                <div class="weval-card" id="wevalDetails"></div>
             </div>
         </div>
     </div>
@@ -5063,9 +5225,9 @@
                     </div>
                     <div class="ws-field">
                         <label for="wreWereadProxy">划线转发地址</label>
-                        <input type="text" class="form-input" id="wreWereadProxy" placeholder="留空用本地网关 http://127.0.0.1:8377">
+                        <input type="text" class="form-input" id="wreWereadProxy" placeholder="留空即用同源转发，通常无需填写">
                         <div class="setting-hint">
-                            官方网关 CORS 仅放行 weread.qq.com，浏览器无法直连。默认经本地 <code>node tools/serve.js</code> 转发，与「英文原著榜」共用同一地址。
+                            官方网关 CORS 仅放行 weread.qq.com，浏览器无法直连，故默认走同源转发：Obsidian 端由插件内置服务直连，Web 端由 <code>node tools/serve.js</code> 直连，两者都无需手动配置。仅当你要改用其它转发服务时才需填写。
                         </div>
                     </div>
                 </div>
@@ -5138,6 +5300,25 @@
         </div>
     </div>
 
+    <!-- 记忆拟合说明：标题旁 info 图标弹出的 md 详情 -->
+    <div class="modal hidden" id="memoryHelpModal">
+        <div class="modal-overlay" data-close-modal="memoryHelpModal"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>记忆拟合 · 图例说明</h3>
+                <button class="btn-icon" data-close-modal="memoryHelpModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="md-reader" id="memoryHelpContent"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript -->
     <script src="lib/three.min.js"></script>
     <!-- 导入解析库本地化：xlsx / mammoth 原先从 cdnjs 远程加载并执行，
@@ -5163,6 +5344,7 @@
     <script src="js/nebula.js"></script>
     <script src="js/chaos-nebula.js"></script>
     <script src="js/dandelion-cover.js"></script>
+    <script src="js/english-poker.js"></script>
     <script src="js/app.js"></script>
     
     <script>

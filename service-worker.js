@@ -15,7 +15,7 @@ const CORE_ASSETS = [
   './js/dictionary-worker.js',
   './data/internal/cefr-data.js',
   './data/englishwords-dict.json',
-  './static/image/book.svg',
+  './static/cover/阅读联想记忆.png',
   './static/image/menu.png',
   './manifest.json'
 ];

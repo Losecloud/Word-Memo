@@ -989,6 +989,18 @@ const Storage = {
     // 每个单词独立的记忆状态，存储于 learningData.wordMemory 字典
     // key: `${bookId}:${word}`, value: { ef, interval, reviewCount, lastReview, nextReview, totalReviews, totalCorrect, totalWrong, history[] }
 
+    // 各练习模式的 EF 加分权重，仅作用于 EF 上升（Δ>0）；答错/用提示的扣分恒为原始值不缩放
+    // （答错是强证据，不该因模式简单而轻罚）。权重按「记忆提取难度」定：
+    // 选义有 4 个选项可蒙对（弱证据）→ 0.5；记得么开放式回忆但自评 → 0.8；
+    // 选义 Pro 干扰项形近、蒙对率≈0（基准）→ 1.0；拼写无提示产出（强证据）→ 1.2。
+    // 注：q=4 时 Δ=0，权重乘上去仍为 0，故「犹豫着答对」不受模式影响。
+    SM2_MODE_GAIN: { select: 0.5, remember: 0.8, selectPro: 1.0, spell: 1.2 },
+
+    // 各练习模式的平均练习时间换算权重：把不同模式的原始耗时折算为「联想时间」，
+    // 使跨模式的平均耗时可比（拼写含打字机械耗时，乘 0.7 归一；选义 Pro 干扰项形近、
+    // 辨识更久，乘 0.8；选义/记得么为基准 1）。
+    TIME_MODE_GAIN: { select: 1, spell: 0.7, remember: 1, selectPro: 0.8 },
+
     /** 创建默认记忆状态 */
     _defaultMemory() {
         return {
@@ -1060,13 +1072,17 @@ const Storage = {
      * SM-2 算法核心
      * @param {number} quality - 记忆质量 0-5
      * @param {object} prevMemory - 先前的记忆状态（或 null）
+     * @param {number} [gainScale=1] - 该练习模式的 EF 加分权重（见 SM2_MODE_GAIN），仅缩放上升
      * @returns {object} 更新后的记忆状态
      */
-    sm2(quality, prevMemory) {
+    sm2(quality, prevMemory, gainScale) {
         const mem = prevMemory ? { ...prevMemory, history: prevMemory.history ? [...prevMemory.history] : [] } : this._defaultMemory();
 
-        // 更新 EF (易变因子)
-        mem.ef = mem.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+        // 更新 EF (易变因子)：基础增量 Δ = 0.1 - (5-q)(0.08 + 0.02(5-q))
+        // q=5 → +0.10，q=4 → 0，q=3 → -0.14，q=1 → -0.54
+        const delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
+        const scale = (delta > 0 && gainScale > 0) ? gainScale : 1;
+        mem.ef = mem.ef + delta * scale;
         mem.ef = Math.max(1.3, Math.min(3.0, mem.ef));
 
         // 记录历史
@@ -1182,7 +1198,7 @@ const Storage = {
             totalWords,
             dueToday,
             overdue,
-            avgEF: totalWords > 0 ? +(avgEF / totalWords).toFixed(2) : 2.5,
+            avgEF: totalWords > 0 ? (avgEF / totalWords).toFixed(2) : '2.50',
             avgInterval: totalWords > 0 ? Math.round(avgInterval / totalWords) : 0
         };
     },

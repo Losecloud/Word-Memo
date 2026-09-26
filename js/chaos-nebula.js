@@ -301,12 +301,25 @@
     var SEMANTIC_SPREAD = 2.2;  // 星团内语义向量扩散倍率（同原应用）
     var CLOUD_RADIUS = 480;     // 粒子云半径（同原应用）
 
-    // 星团配色（深浅主题通用，按星团名稳定取色）
-    var CLUSTER_COLORS = [
-        '#38bdf8', '#c084fc', '#fbbf24', '#34d399', '#fb7185', '#818cf8',
-        '#f472b6', '#22d3ee', '#a3e635', '#fb923c', '#e879f9', '#4ade80',
-        '#60a5fa', '#facc15'
-    ];
+    // 星团配色（A 方案「清透霓虹」，深浅主题通用，按星团名稳定取色）
+    // 理性物质派（冷色调）：01政法与军事 / 02经济与产业 / 03空间与交通 / 04科学与技术 / 09时间与数量
+    // 感性意识派（暖色调）：05语言与沟通 / 06生活与休闲 / 07医疗与身心 / 08感知与运动 / 10思维与意志
+    var CLUSTER_COLOR_BY_NAME = {
+        // 理性物质派（冷）
+        '政法与军事': '#3b82f6',
+        '经济与产业': '#14b8a6',
+        '空间与交通': '#22d3ee',
+        '科学与技术': '#6366f1',
+        '时间与数量': '#0ea5e9',
+        // 感性意识派（暖）
+        '语言与沟通': '#f59e0b',
+        '生活与休闲': '#f97316',
+        '医疗与身心': '#ec4899',
+        '感知与运动': '#fbbf24',
+        '思维与意志': '#d946ef'
+    };
+    // 兜底色（未分类 / 其他 / 未知分类）：中性色，避免抢占两派语义
+    var CLUSTER_FALLBACK_COLORS = ['#7a9e9e', '#8a9aa6', '#6f9a8e'];
 
     var state = {
         renderer: null, scene: null, camera: null,
@@ -442,16 +455,16 @@
             if (!key || seen[key]) return;
             seen[key] = true;
             var def0 = (w.definitions && w.definitions[0]) || {};
-            var errRate = -1;
+            var accuracyRate = -1;
             if ((w.totalAttempts || 0) > 0) {
-                errRate = Math.round(((w.wrongTimes || 0) / w.totalAttempts) * 100);
+                accuracyRate = Math.round(((w.totalAttempts - (w.wrongTimes || 0)) / w.totalAttempts) * 100);
             }
             words.push({
                 word: w.word || w.name || '',
                 phonetic: w.phonetic || '',
                 pos: def0.pos || '',
                 meaning: def0.meaning || '',
-                errorRate: errRate,
+                accuracyRate: accuracyRate,
                 source: source || '',
                 bookId: bookId || ''
             });
@@ -499,7 +512,8 @@
 
     // 名称 → 稳定色（同名星团颜色恒定）
     function colorOf(name, idx) {
-        return CLUSTER_COLORS[idx % CLUSTER_COLORS.length];
+        if (CLUSTER_COLOR_BY_NAME[name]) return CLUSTER_COLOR_BY_NAME[name];
+        return CLUSTER_FALLBACK_COLORS[idx % CLUSTER_FALLBACK_COLORS.length];
     }
 
     // 构建语义星团：一级分类为星团，中心按斐波那契球均匀分布
@@ -761,7 +775,7 @@
 
             var el = document.createElement('div');
             el.className = 'chaos-word-node';
-            el.style.setProperty('--chaos-node-color', w.clusterColor || '#38bdf8');
+            el.style.setProperty('--chaos-node-color', w.clusterColor || CLUSTER_FALLBACK_COLORS[0]);
             var wordSpan = document.createElement('span');
             wordSpan.className = 'chaos-word';
             wordSpan.textContent = w.word;
@@ -830,7 +844,7 @@
         var phases = new Float32Array(count);
 
         // 粒子按星团配色着色，星团缺失时回退到内置调色板
-        var palette = (state.clusters.length ? state.clusters.map(function (c) { return c.color; }) : CLUSTER_COLORS);
+        var palette = (state.clusters.length ? state.clusters.map(function (c) { return c.color; }) : CLUSTER_FALLBACK_COLORS);
 
         for (var i = 0; i < count; i++) {
             var i3 = i * 3;
@@ -1876,7 +1890,7 @@
         var extra = [];
         if (w.pos) extra.push(w.pos);
         if (w.source) extra.push(w.source);
-        if (w.errorRate >= 0) extra.push('错误率 ' + w.errorRate + '%');
+        if (w.accuracyRate >= 0) extra.push('正确率 ' + w.accuracyRate + '%');
         setText('chaosCardSource', extra.join(' · '));
         var favBtn = document.getElementById('chaosCardFav');
         if (favBtn) favBtn.classList.toggle('favorited', isFavorite(w.word));
