@@ -40,6 +40,13 @@
     var VOWELS = 'aeiou';
     var JOKER_C = '1';  // 大王：可当任意辅音
     var JOKER_V = '2';  // 小王：可当任意元音
+    // 大王 + 小王 一起出 = 王炸：优先级最高的炸弹，能压任何牌，且只有王炸能压王炸。
+    // 它不成词、没有字数，所以用一个大于 MAX_WORD_LEN 的哨兵值塞进 g.bombLevel 表示「台面是王炸」。
+    var JOKER_BOMB = 99;
+    var JOKER_BOMB_SCORE = 12;   // 王炸的赋分（不计字母数）
+    var JOKER_BOMB_FINISH = 10;  // 收官奖励：最后出的一手是王炸，固定加 10 分（它没有字母数）
+    var PANIC_HAND = 8;          // 有玩家手牌少于这个数，其他人就「恐慌」抢牌权
+    var PANIC_BUBBLE_HAND = 5;   // 手牌 ≤ 这个数就在座位旁冒气泡「我就剩 N 张牌了」
     var HAND_SIZE = 27; // 108 / 4，掼蛋原版发牌数
     var SEAT_NAMES = ['你', '下家', '对家', '上家'];
     var AI_NAMES = ['你', '阿禾', '老 K', '小满'];
@@ -51,17 +58,17 @@
     var LEVELS = {
         easy: {
             label: '简单', cefr: ['A1', 'A2'],
-            leadPick: 'short', maxLead: 3,
+            maxLead: 3,
             passChance: 0.28, blunder: 0.25, bombChance: 0.35
         },
         normal: {
             label: '普通', cefr: ['A1', 'A2', 'B1', 'B2'],
-            leadPick: 'mid', maxLead: 6,
+            maxLead: 6,
             passChance: 0.08, blunder: 0.08, bombChance: 0.65
         },
         hard: {
             label: '困难', cefr: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
-            leadPick: 'long', maxLead: 10,
+            maxLead: 10,
             passChance: 0, blunder: 0, bombChance: 1
         }
     };
@@ -343,7 +350,8 @@
         var s = len;                                      // 每出一张牌 1 分
         if (len >= 5) s += (len - 4) * 2;                 // 5 字母起，每多一个字母再加 2 分
         s += CEFR_BONUS[(DATA.cefrLevel || {})[word]] || 0;
-        if (isBomb) s += 6 + len;                         // 炸弹：重奖
+        if (isBomb) s += 4 + Math.min(len - 3, 4);        // 炸弹：加 5~8 分（不按字母数线性放大，
+                                                          //        免得人机为了压一手小牌就把长炸弹打出去）
         return s;
     }
 
@@ -422,6 +430,7 @@
         packPick: null,   // 当前「待放出」的编组下标（点了编组牌、还差一下「跟牌」）
         reveal: null,     // 正在展示的炸弹（出炸弹后停顿 3 秒用的浮层）
         jokerPick: null,  // 含王选牌的「多词候选」弹窗：{ cards, cands, mode: 'play' | 'pack' }
+        charm: null,      // 炸弹锦囊弹层：{ word, ids, jokerFor, example, sentence, phase:'quiz'|'win', input, err }
         hintWords: null,
         dataReady: false,
         timers: [],
@@ -431,10 +440,41 @@
 
     /* —— 选牌（有序）：点选加入、再点移出，拖动 / 键盘可改顺序 —— */
 
-    // 浮层进行中（炸弹展示 / 王的多词选择）：牌桌输入一律封住，先处理浮层
-    function frozen() { return !!(S.reveal || S.jokerPick); }
+    // 浮层进行中（炸弹展示 / 王的多词选择 / 炸弹锦囊）：牌桌输入一律封住，先处理浮层
+    function frozen() { return !!(S.reveal || S.jokerPick || S.charm); }
 
     function isJokerCard(c) { return !!c && (c.code === JOKER_C || c.code === JOKER_V); }
+
+    // 一手牌是不是「王炸」：大王 + 小王 恰好各一张、且**只有这两张**。
+    // 关键限制：大小王一旦被当作字母牌去凑单词（与真实字母混成 ≥4 张的单词炸弹），
+    // 就失去王炸身份、退化为普通炸弹 —— 只有「光出两张王」才是王炸。
+    // 因此这里用 length===2 卡死：炸弹门槛最低 4 字母，两张王永远凑不出词炸弹，
+    // 不存在「既是词炸弹又是王炸」的歧义。
+    function isJokerBombCards(cards) {
+        if (!cards || cards.length !== 2) return false;
+        return isJokerCard(cards[0]) && isJokerCard(cards[1]) && cards[0].code !== cards[1].code;
+    }
+
+    // 手里有没有现成的王炸：返回 { cards, ids }，没有则 null
+    function jokerBombOf(hand) {
+        var big = null, small = null;
+        for (var i = 0; i < hand.length; i++) {
+            if (!big && hand[i].code === JOKER_C) big = hand[i];
+            else if (!small && hand[i].code === JOKER_V) small = hand[i];
+        }
+        return (big && small) ? { cards: [big, small], ids: [big.id, small.id] } : null;
+    }
+
+    // 恐慌判定：除自己外有人手牌已少于 PANIC_HAND 张 —— 不能再让他拿到牌权
+    function hasPanicField(g, seat) {
+        for (var i = 0; i < 4; i++) {
+            if (i === seat) continue;
+            var p = g.players[i];
+            if (p.finished) continue;
+            if (p.hand.length < PANIC_HAND) return true;
+        }
+        return false;
+    }
 
     function pickIndexOf(id) { return S.selected.indexOf(id); }
 
@@ -541,6 +581,8 @@
         if (!g || g.over || frozen()) return;   // 编组只是「备牌」，不必等轮到自己
         var cards = selectedCards();
         var min = S.cfg.bombMin || 4;
+        // 王炸也能编组：两张大小王即可，不成词、也不看炸弹门槛
+        if (isJokerBombCards(cards)) { doPackJokerBomb(cards); return; }
         if (cards.length < min) {
             toast('这几张牌凑不成炸弹（要 ≥' + min + ' 字母，且本局没人用过）', 'info');
             return;
@@ -579,6 +621,20 @@
         render();
     }
 
+    function doPackJokerBomb(cards) {
+        var ids = cards.map(function (c) { return c.id; });
+        var byId = {};
+        cards.forEach(function (c) { byId[c.id] = c; });
+        S.packs.push({
+            word: null, ids: ids, codes: ids.map(function (id) { return byId[id].code; }),
+            isBomb: true, isJokerBomb: true
+        });
+        S.selected = [];
+        S.packPick = S.packs.length - 1;
+        toast('已编组「王炸」——轮到你时点它，再点「跟牌」放出', 'info');
+        render();
+    }
+
     function unpackBomb(i) {
         if (i < 0 || i >= S.packs.length) return;
         S.packs.splice(i, 1);
@@ -595,10 +651,27 @@
         var i = S.packPick;
         if (i === null || !S.packs[i]) { S.packPick = null; render(); return; }
         var pack = S.packs[i];
-        var err = levelCheck(pack.word, !!pack.isBomb, { isLead: g.phase === 'lead' });
-        if (err) { toast(err, 'info'); return; }
         var byId = {};
         g.players[0].hand.forEach(function (c) { byId[c.id] = c; });
+        // 王炸组：不走 levelCheck，它本就能压任何牌（只有另一副王炸能压它）
+        if (pack.isJokerBomb) {
+            var jcards = pack.ids.map(function (id) { return byId[id]; });
+            if (jcards.some(function (c) { return !c; })) { unpackBomb(i); return; }
+            S.packs.splice(i, 1);
+            S.packPick = null;
+            S.selected = [];
+            S.hintWords = null;
+            applyPlay(0, {
+                len: 2, word: null, isBomb: true, isJokerBomb: true,
+                cards: jcards, ids: pack.ids,
+                jokerFor: jcards.map(function (c) { return c.code === JOKER_C ? '大王' : '小王'; })
+            });
+            render();
+            afterPlay(0);
+            return;
+        }
+        var err = levelCheck(pack.word, !!pack.isBomb, { isLead: g.phase === 'lead' });
+        if (err) { toast(err, 'info'); return; }
         var cards = pack.ids.map(function (id) { return byId[id]; });
         if (cards.some(function (c) { return !c; })) { unpackBomb(i); return; }
         S.packs.splice(i, 1);
@@ -732,6 +805,9 @@
         S.packPick = null;
         S.reveal = null;
         S.jokerPick = null;
+        S.charm = null;
+        charmCache.key = '';
+        charmCache.list = null;
         S.hintWords = null;
         S.view = 'game';
         // 困难模式：由随机一位人机先手领出（不再总是玩家坐庄先出）。
@@ -756,8 +832,8 @@
         g.lastPlayer = null;
         g.phase = 'lead';
         g.turn = leader;
-        S.selected = [];
-        S.packPick = null;
+        // 保留玩家已选好的牌与编组：对手出牌期间可以先备好牌，
+        // 不能因为本墩收束、轮回到自己领出就把拼牌条清空（选牌只在真正出牌后清）。
         S.hintWords = null;
         logLine('—— 第 ' + g.roundNo + ' 墩：' + seatName(leader) + '先出 ——');
     }
@@ -784,9 +860,48 @@
     }
 
     /**
-     * 按「选牌顺序」解析单词：真实字母必须落在它被选中的那个位置上（顺序即词形）。
-     * 含王时，列出**所有**匹配的词（王位类型也要匹配）—— 同一个字母组合常能拼出好几个词，
-     * 该由玩家自己挑（见 jokerChoices 的弹窗）；无王时最多一个。
+     * 含王的一手牌能否拼成 cand —— 王的「位置」不固定。
+     * 规则：真实字母必须按「选牌顺序」在 cand 里依次出现（相对顺序不变），
+     * 被跳过的位置由王补：大王补辅音、小王补元音。
+     * 旧实现要求王必须正好坐在它替换的那个格子上（例如要把王排在第 5 位才能替掉 N），
+     * 玩家习惯把王排在末尾，于是「用替代牌经常拼不出单词」——这是根因。
+     */
+    function jokerCanMatch(cand, codes) {
+        var n = cand.length;
+        var reals = [], jv = 0, jc = 0;
+        for (var i = 0; i < n; i++) {
+            var c = codes[i];
+            if (c === JOKER_C) jc++;
+            else if (c === JOKER_V) jv++;
+            else reals.push(c);
+        }
+        // 为真实字母按序挑选落点；相邻落点之间的空隙交给王按类型补齐
+        function walk(from, ri, vLeft, cLeft) {
+            if (ri >= reals.length) {
+                var needV = 0, needC = 0;
+                for (var p = from; p < n; p++) {
+                    if (isVowel(cand.charAt(p))) needV++; else needC++;
+                }
+                return needV <= vLeft && needC <= cLeft;
+            }
+            for (var p = from; p < n; p++) {
+                if (cand.charAt(p) !== reals[ri]) continue;
+                var skipV = 0, skipC = 0;
+                for (var q = from; q < p; q++) {
+                    if (isVowel(cand.charAt(q))) skipV++; else skipC++;
+                }
+                if (skipV > vLeft || skipC > cLeft) continue;
+                if (walk(p + 1, ri + 1, vLeft - skipV, cLeft - skipC)) return true;
+            }
+            return false;
+        }
+        return walk(0, 0, jv, jc);
+    }
+
+    /**
+     * 按「选牌顺序」解析单词：真实字母必须按选牌顺序出现（顺序即词形）。
+     * 含王时，王的落点自由（由 jokerCanMatch 判定），列出**所有**匹配的词 ——
+     * 同一个字母组合常能拼出好几个词，该由玩家自己挑（见 jokerChoices 的弹窗）；无王时最多一个。
      */
     function resolveOrderedAll(cards) {
         var codes = cards.map(function (c) { return c.code; });
@@ -806,14 +921,7 @@
         for (var b = 0; b < bucket.length; b++) {
             var cand = bucket[b];
             if (!canForm(cand, hc)) continue;
-            var ok = true;
-            for (var p = 0; p < n; p++) {
-                var c = codes[p];
-                if (c === JOKER_C) { if (isVowel(cand.charAt(p))) { ok = false; break; } }
-                else if (c === JOKER_V) { if (!isVowel(cand.charAt(p))) { ok = false; break; } }
-                else if (cand.charAt(p) !== c) { ok = false; break; }
-            }
-            if (ok) out.push(cand);
+            if (jokerCanMatch(cand, codes)) out.push(cand);
         }
         return out;
     }
@@ -842,6 +950,7 @@
     // 「本墩要跟什么」的提示语
     function needText() {
         var g = S.game;
+        if (g.bombLevel === JOKER_BOMB) return '台面上是王炸，只有王炸能压';
         if (g.level <= 1) {
             return g.singleTop
                 ? '单牌要比 ' + singleTopText(g.singleTop) + ' 更大'
@@ -850,7 +959,8 @@
         return '本墩要跟 ' + g.level + ' 个字母的单词';
     }
 
-    // 出牌门槛：普通词必须同字数；炸弹能压任何普通牌，且炸弹之间「同长或更长」即可压
+    // 出牌门槛：普通词必须同字数；炸弹能压任何普通牌，且炸弹之间「同长或更长」即可压；
+    // 王炸（大王+小王）是唯一的例外：它能压任何牌，且只有另一副王炸能压它。
     function levelCheck(word, useBomb, opts) {
         var g = S.game;
         // 本局出过的词不能再用（不管当时是当普通词还是炸弹出的）
@@ -858,10 +968,12 @@
         if (useBomb) {
             // 全场每日一次：同一个词当炸弹今天已经出过就不再可用（次日重置）
             if (isBombUsedToday(word)) return '「' + word.toUpperCase() + '」今天的炸弹已经用过了（次日重置）';
+            if (g.bombLevel === JOKER_BOMB) return '台面上是王炸，词炸弹压不动，只能出王炸';
             if (g.bombLevel > 0 && word.length < g.bombLevel) {
                 return '炸弹要同样长或更长才能压过（当前 ' + g.bombLevel + ' 字母炸弹）';
             }
         } else {
+            if (g.bombLevel === JOKER_BOMB) return '台面上是王炸，只有王炸能压';
             if (g.bombLevel > 0) return '台面上有炸弹，只能用炸弹压';
             if (!opts.isLead && word.length !== g.level) return needText();
         }
@@ -882,9 +994,19 @@
         if (!n) return { ok: false, err: '至少选一张牌' };
         var bombMin = S.cfg.bombMin || 4;
 
+        // 王炸：大王 + 小王 一起出。最高优先级 —— 领出、跟牌都能打，能压任何牌，
+        // 台面已是王炸时也允许再出王炸（否则「只有王炸能压王炸」就无从实现）。
+        if (isJokerBombCards(cards)) {
+            return {
+                ok: true, len: 2, word: null, isBomb: true, isJokerBomb: true,
+                cards: cards, ids: cards.map(function (c) { return c.id; }),
+                jokerFor: ['大王', '小王']
+            };
+        }
+
         // 单张：只能跟「台面就是单牌」的局面，或自己是领出者；跟单牌还必须比台面的大
         if (n === 1) {
-            if (g.bombLevel > 0) return { ok: false, err: '台面上有炸弹，只能用炸弹压' };
+            if (g.bombLevel > 0) return { ok: false, err: needText() };
             if (!opts.isLead && g.level !== 1) return { ok: false, err: needText() };
             if (!opts.isLead && g.singleTop && singleRank(cards[0].code) <= singleRank(g.singleTop)) {
                 return { ok: false, err: '单牌要比 ' + singleTopText(g.singleTop) + ' 更大（或用炸弹夺回）' };
@@ -959,13 +1081,14 @@
             seat: seat,
             word: res.word,
             isBomb: !!res.isBomb,
+            isJokerBomb: !!res.isJokerBomb,   // 王炸不成词（word 为 null），渲染必须靠这个标记分岔
             len: res.len,
             count: removed.length,
             codes: codes,   // 牌河要照着这几张牌、按词的顺序画出来
             jokerFor: res.jokerFor || []
         };
         // 赋分：长牌 / 高级词 / 炸弹各有权重（见 playScore），累计到玩家总分，结算评选 MVP
-        play.score = playScore(res.word, !!res.isBomb, res.len);
+        play.score = res.isJokerBomb ? JOKER_BOMB_SCORE : playScore(res.word, !!res.isBomb, res.len);
         p.score = (p.score || 0) + play.score;
         g.roundPlays.push(play);
         g.lastPlayer = seat;
@@ -973,7 +1096,13 @@
         p.lastPlay = play;
         p.plays.push(play);
 
-        if (res.isBomb) {
+        if (res.isJokerBomb) {
+            // 王炸：不算词，所以不进 usedWords、也不受「每日一次」限制；
+            // 但它把台面封到最高级，此后只有另一副王炸能压。
+            g.bombLevel = JOKER_BOMB;
+            if (seat !== 0) g.aiBombs.push('王炸');
+            logLine(seatName(seat) + ' 打出王炸（大王+小王 · 最高优先级 · +' + play.score + ' 分）');
+        } else if (res.isBomb) {
             g.usedWords[res.word] = 1;
             g.bombLevel = res.len;
             markBombUsedToday(res.word);   // 全场每日一次：记下这个词今天已经当过炸弹
@@ -1118,6 +1247,17 @@
         if (!g || g.over || g.turn !== 0 || frozen()) return;
         var cards = selectedCards();
         if (!cards.length) return;
+        // 大王 + 小王 一起出 = 王炸：最高优先级的炸弹，不走下面「含王找词」的弹窗
+        if (isJokerBombCards(cards)) {
+            var jres = validate(cards, { isLead: g.phase === 'lead' });
+            if (!jres.ok) { toast(jres.err, 'info'); return; }
+            applyPlay(0, jres);
+            S.selected = [];
+            S.hintWords = null;
+            render();
+            afterPlay(0);
+            return;
+        }
         // 选牌里有王：同一个字母组合往往能拼出好几个词，弹窗让玩家自己挑（并标出哪个是炸弹）。
         // 单张不走这里 —— 单牌本来就不成词，直接按单牌规则出。
         if (cards.length > 1 && cards.some(isJokerCard)) {
@@ -1276,6 +1416,16 @@
         var cap = Math.min(MAX_WORD_LEN, Math.max(lv.maxLead, bombMin));
         var target = pickLeadLength(cap);
 
+        // 恐慌：有人快出完了，直接甩一颗**最长**的炸弹封台 —— 逼别人拿更长的炸弹来跟，
+        // 手牌少的那位基本跟不动，牌权就留在自己手里。
+        if (hasPanicField(g, p.seat) && Math.random() < 0.45) {
+            var seal = findBombs(hand, bombMin, g.usedWords, 0, known);
+            if (seal.length) {
+                seal.sort(function (a, b) { return b.length - a.length; });
+                return { action: 'play', cards: makeCards(hand, seal[0]), asBomb: true, word: seal[0] };
+            }
+        }
+
         // 目标 1 字：甩一张废牌（单牌只能越出越大）
         if (target === 1) {
             var junk = worstSingle(hand);
@@ -1352,6 +1502,17 @@
         var known = DATA.known[S.cfg.level];
         var bombMin = S.cfg.bombMin || 4;
         var bombOnTable = g.bombLevel > 0;
+        var jokerBomb = jokerBombOf(hand);
+        // 恐慌：有人快出完了，不能再让他轻松拿到牌权 —— 提高出炸弹的意愿
+        var panic = hasPanicField(g, p.seat);
+        var bombChance = Math.min(1, (lv.bombChance || 0) + (panic ? 0.65 : 0));
+
+        // 台面上是王炸：只有王炸能压，别的什么都不行
+        if (g.bombLevel === JOKER_BOMB) {
+            return jokerBomb
+                ? { action: 'play', cards: jokerBomb.cards, asBomb: true, isJokerBomb: true }
+                : { action: 'pass' };
+        }
 
         // 台面是单牌时能跟，但只能跟**更大**的单牌（王与 z 同级，出到 z 就封顶了）
         var canSingle = !bombOnTable && g.level <= 1;
@@ -1371,10 +1532,15 @@
         var chosen = words.length ? chooseKeepBest(hand, words, g, lv, reserve) : null;
         var breakCost = (chosen && words.length) ? wordBreakCost(hand, chosen, reserve) : 0;
 
-        // 跟普通牌会拆炸弹、而手里正有炸弹可打：按 bombChance 直接用炸弹夺回牌权
-        if (chosen && breakCost > 0 && bombs.length && Math.random() < lv.bombChance) {
-            var bb = (lv.leadPick === 'short') ? bombs[0] : bombs[bombs.length - 1];
-            return { action: 'play', cards: makeCards(hand, bb), asBomb: true, word: bb };
+        // 恐慌：不惜动用炸弹抢回牌权，把出牌权从快出完的人手里夺过来
+        if (panic && !bombOnTable && bombs.length && Math.random() < bombChance) {
+            return { action: 'play', cards: makeCards(hand, bombs[0]), asBomb: true, word: bombs[0] };
+        }
+
+        // 跟这手普通牌会拆掉手里的炸弹，而台面只是一手小牌（≤3 字母）：保守起见宁可不跟，
+        // 把炸弹留着，也别拿一颗更长的炸弹去压小牌（牛刀杀鸡）。恐慌时不缩手。
+        if (!panic && chosen && breakCost > 0 && !bombOnTable && g.level <= 3 && Math.random() < 0.6) {
+            return { action: 'pass' };
         }
 
         var canPlay = !!(words.length || single);
@@ -1385,10 +1551,14 @@
         if (single) return { action: 'play', cards: [single], asBomb: false };
         if (chosen) return { action: 'play', cards: makeCards(hand, chosen), asBomb: false, word: chosen };
 
-        // 只能靠炸弹
-        if (bombs.length && Math.random() < lv.bombChance) {
-            var b = (lv.leadPick === 'short') ? bombs[0] : bombs[bombs.length - 1];
+        // 只能靠炸弹：挑**刚好够用**的那颗（最省），把更长的炸弹留给以后
+        if (bombs.length && Math.random() < bombChance) {
+            var b = bombs[0];
             return { action: 'play', cards: makeCards(hand, b), asBomb: true, word: b };
+        }
+        // 词炸弹也压不动（或没辙了）：恐慌 / 全无出路时动用王炸夺权
+        if (jokerBomb && (panic || !canPlay)) {
+            return { action: 'play', cards: jokerBomb.cards, asBomb: true, isJokerBomb: true };
         }
         return { action: 'pass' };
     }
@@ -1492,6 +1662,17 @@
         if (g.over) return;
         g.over = true;
         clearTimers();
+        S.charm = null;   // 牌局可能是在锦囊拼写途中结束的，收尾时一并关掉浮层
+        // 收尾奖励：不管是不是赢家，只要「最后出的一手」是炸弹，就额外加「炸弹字母数」的分；
+        // 最后出的是王炸则固定 +10（它不成词、没有字母数可算）。
+        g.players.forEach(function (p) {
+            var lp = p.lastPlay;
+            if (!lp || !lp.isBomb) return;
+            var bonus = lp.isJokerBomb ? JOKER_BOMB_FINISH : lp.len;
+            p.score = (p.score || 0) + bonus;
+            logLine('💥 ' + seatName(p.seat) + ' 以' + (lp.isJokerBomb ? '王炸' : '炸弹') +
+                '收官，额外 +' + bonus + ' 分');
+        });
         g.finalRanks = rankAll();
         g.mvp = mvpOf(g.players);
         g.missed = computeMissed();
@@ -1577,6 +1758,10 @@
         var tiles = '<span class="ep-word-tiles">' + codes.map(function (c) {
             return cardHTML({ code: c }, { small: true });
         }).join('') + '</span>';
+        if (play.isJokerBomb) {
+            return '<span class="ep-word ep-word-bomb ep-word-jokerbomb">' + tiles +
+                '<span class="ep-bomb-lv"><i class="fi-sr-bolt"></i>王炸</span></span>';
+        }
         if (play.isBomb) {
             return '<span class="ep-word ep-word-bomb">' + tiles +
                 '<span class="ep-bomb-lv"><i class="fi-sr-bolt"></i>' + play.len + '</span></span>';
@@ -1592,7 +1777,11 @@
         var state = p.finished ? ('第 ' + p.rank + ' 名')
             : (g.turn === p.seat ? (g.phase === 'lead' ? '领出' : '跟牌') : '等待');
         var initial = String(p.name).replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').charAt(0) || '?';
-        return '<div class="' + cls + '">' +
+        // 手牌不多时冒个气泡「喊一嗓子」——既是心理战，也让快出完的人一眼可见
+        var bubble = (!p.finished && !g.over && p.hand.length <= PANIC_BUBBLE_HAND)
+            ? '<div class="ep-seat-bubble">我就剩 ' + p.hand.length + ' 张牌了</div>'
+            : '';
+        return '<div class="' + cls + '">' + bubble +
             '<div class="ep-avatar"><span>' + esc(initial) + '</span></div>' +
             '<div class="ep-seat-name">' + esc(p.name) + '</div>' +
             '<div class="ep-seat-meta"><span class="ep-seat-count">' + p.hand.length + ' 张</span>' +
@@ -1636,6 +1825,8 @@
         if (S.view === 'result') { root.innerHTML = renderResult(); return; }
         root.innerHTML = renderGame();
         markOverlaps();
+        // 锦囊拼写题打开时，重画后把焦点还回输入框（避免误丢输入）
+        if (S.charm && S.charm.phase === 'quiz') focusCharmInput();
     }
 
     function renderConfig() {
@@ -1766,17 +1957,61 @@
         var revealHTML = '';
         if (S.reveal) {
             var rv = S.reveal;
-            var de = dictEntry(rv.word);
-            revealHTML = '<div class="ep-reveal"><div class="ep-reveal-box">' +
-                '<div class="ep-reveal-who"><i class="fi-sr-bolt"></i>' + esc(seatName(rv.seat)) + ' 打出炸弹</div>' +
-                '<div class="ep-reveal-word">' + esc(rv.word.toUpperCase()) + '</div>' +
-                (de && de.phonetic ? '<div class="ep-reveal-ipa">/' + esc(de.phonetic) + '/</div>' : '') +
-                '<div class="ep-reveal-mean">' + esc((de && de.meaning) || '（词典里没有收录释义）') + '</div>' +
-                '<div class="ep-reveal-tags"><span>' + rv.len + ' 字母</span>' +
-                (isBookWord(rv.word)
-                    ? '<span class="ep-reveal-in">在你的词书里</span>'
-                    : '<span class="ep-reveal-out">不在你的词书里</span>') +
-                '</div></div></div>';
+            if (rv.isJokerBomb) {
+                // 王炸不成词，没有音标/释义/字数可亮，只强调它是最高优先级
+                revealHTML = '<div class="ep-reveal"><div class="ep-reveal-box">' +
+                    '<div class="ep-reveal-who"><i class="fi-sr-bolt"></i>' + esc(seatName(rv.seat)) + ' 打出王炸</div>' +
+                    '<div class="ep-reveal-word">大王 + 小王</div>' +
+                    '<div class="ep-reveal-mean">最高优先级的炸弹，能压任何牌；只有另一副王炸才能压过它</div>' +
+                    '<div class="ep-reveal-tags"><span>王炸</span></div>' +
+                    '</div></div>';
+            } else {
+                var de = dictEntry(rv.word);
+                revealHTML = '<div class="ep-reveal"><div class="ep-reveal-box">' +
+                    '<div class="ep-reveal-who"><i class="fi-sr-bolt"></i>' + esc(seatName(rv.seat)) + ' 打出炸弹</div>' +
+                    '<div class="ep-reveal-word">' + esc(rv.word.toUpperCase()) + '</div>' +
+                    (de && de.phonetic ? '<div class="ep-reveal-ipa">/' + esc(de.phonetic) + '/</div>' : '') +
+                    '<div class="ep-reveal-mean">' + esc((de && de.meaning) || '（词典里没有收录释义）') + '</div>' +
+                    '<div class="ep-reveal-tags"><span>' + rv.len + ' 字母</span>' +
+                    (isBookWord(rv.word)
+                        ? '<span class="ep-reveal-in">在你的词书里</span>'
+                        : '<span class="ep-reveal-out">不在你的词书里</span>') +
+                    '</div></div></div>';
+            }
+        }
+
+        // 炸弹锦囊浮层：先「拼对例句里的单词」，再切到祝贺画面并播放自动选牌动画
+        var charmHTML = '';
+        if (S.charm) {
+            var ch = S.charm;
+            if (ch.phase === 'quiz') {
+                charmHTML = '<div class="ep-reveal ep-charm"><div class="ep-reveal-box ep-charm-box">' +
+                    '<div class="ep-reveal-who"><i class="fi-rr-gift"></i>炸弹锦囊 · 拼出例句里的单词</div>' +
+                    '<div class="ep-charm-sent">' + ch.sentence + '</div>' +
+                    '<div class="ep-charm-row">' +
+                    '<input id="epCharmInput" class="ep-charm-input" type="text" autocomplete="off" ' +
+                    'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="' + ch.word.length + '" ' +
+                    'placeholder="' + esc(ch.placeholder || '输入单词') + '" value="' + esc(ch.input) + '">' +
+                    '</div>' +
+                    '<div class="ep-charm-note' + (ch.err ? ' ep-charm-err' : '') + '">' +
+                    (ch.err ? esc(ch.err) : '拼对即得锦囊 · 手牌会自动组好这组炸弹') + '</div>' +
+                    '<div class="ep-charm-btns">' +
+                    '<button class="ep-btn ep-btn-ghost" data-ep-charm="reroll">' +
+                    '<i class="fi-rr-dice" id="epCharmDice"></i>换一个</button>' +
+                    '<button class="ep-btn ep-btn-ghost" data-ep-charm="cancel">放弃</button>' +
+                    '</div>' +
+                    '</div></div>';
+            } else {
+                var cde = dictEntry(ch.word);
+                charmHTML = '<div class="ep-reveal ep-charm"><div class="ep-reveal-box ep-charm-box">' +
+                    '<div class="ep-reveal-who"><i class="fi-rr-sparkles"></i>锦囊到手 · 正在组牌</div>' +
+                    '<div class="ep-reveal-word">' + esc(ch.word.toUpperCase()) + '</div>' +
+                    (cde && cde.phonetic ? '<div class="ep-reveal-ipa">/' + esc(cde.phonetic) + '/</div>' : '') +
+                    '<div class="ep-reveal-mean">' + esc((cde && cde.meaning) || '（词典里没有收录释义）') + '</div>' +
+                    '<div class="ep-reveal-tags"><span>' + ch.word.length + ' 字母</span>' +
+                    '<span class="ep-reveal-in">炸弹</span></div>' +
+                    '</div></div>';
+            }
         }
 
         // 王的选牌弹窗：同一个字母组合能拼出好几个词，列出全部供玩家自选，并标出哪个是炸弹
@@ -1801,25 +2036,52 @@
                 '</div></div>';
         }
 
-        var req = g.bombLevel > 0
-            ? '台面炸弹 ' + g.bombLevel + ' 字母，需同样长或更长的炸弹'
-            : (g.level === 0 ? '等你领出'
-                : (g.level <= 1
-                    ? (g.singleTop ? '单牌需大于 ' + singleTopText(g.singleTop) : '单牌局')
-                    : '需 ' + g.level + ' 字母'));
+        var req = g.bombLevel === JOKER_BOMB
+            ? '台面是王炸，只有王炸能压'
+            : (g.bombLevel > 0
+                ? '台面炸弹 ' + g.bombLevel + ' 字母，需同样长或更长的炸弹'
+                : (g.level === 0 ? '等你领出'
+                    : (g.level <= 1
+                        ? (g.singleTop ? '单牌需大于 ' + singleTopText(g.singleTop) : '单牌局')
+                        : '需 ' + g.level + ' 字母')));
+
+        var myTurn = (g.turn === 0 && !g.over);
+
+        // 跟单牌时：只有「比台面更大」的单牌（含王）和手上还能凑出的炸弹牌可以点，
+        // 其余单牌点了也出不掉，灰置不可选 —— 免得白白选一串又被打回。
+        var deadIds = {};
+        if (myTurn && g.phase === 'follow' && g.bombLevel === 0 && g.level === 1) {
+            var topR = g.singleTop ? singleRank(g.singleTop) : -1;
+            var keep = {};
+            var jb = jokerBombOf(me.hand);
+            if (jb) jb.ids.forEach(function (id) { keep[id] = 1; });
+            findBombs(me.hand, S.cfg.bombMin || 4, g.usedWords, 0, null).forEach(function (w) {
+                var pk = pickCards(me.hand, w);
+                if (pk) pk.ids.forEach(function (id) { keep[id] = 1; });
+            });
+            me.hand.forEach(function (c) {
+                if (singleRank(c.code) > topR) keep[c.id] = 1;
+                // 已选中的牌不灰（不然没法点回来取消，只能走拼牌条）
+                if (!keep[c.id] && pickIndexOf(c.id) < 0) deadIds[c.id] = 1;
+            });
+        }
 
         var handHTML = '';
         me.hand.forEach(function (c) {
             var packed = isPacked(c.id);
+            var dead = !packed && !!deadIds[c.id];
             handHTML += cardHTML(c, {
                 sel: !packed && pickIndexOf(c.id) >= 0,
-                cls: packed ? 'ep-card-packed' : '',
-                attrs: 'data-ep-card="' + c.id + '"'
+                cls: packed ? 'ep-card-packed' : (dead ? 'ep-card-dis' : ''),
+                // 拿掉 data-ep-card，点它就不会进选牌 —— 灰牌是「真的点不动」
+                attrs: dead ? '' : 'data-ep-card="' + c.id + '"'
             });
         });
 
-        var myTurn = (g.turn === 0 && !g.over);
         var ordered = isOrdered();
+
+        // 炸弹锦囊按钮：手上有「可压台面 + 有例句」的炸弹组合才可点，否则灰置（提示还能再想想）
+        var charmReady = !frozen() && !me.finished && !g.over && charmCandidates().length > 0;
 
         // 拼牌条：左边是「按选择顺序」摆开的牌（可拖动改序），
         // 右边才是校验结论 —— 结论永远不遮牌面（此前错误文案会整条替换掉牌，导致看不见）。
@@ -1856,11 +2118,16 @@
         } else if (picked.length) {
             var res = validate(picked, { isLead: g.phase === 'lead', ordered: ordered });
             if (res.ok) {
-                check = '<span class="ep-check ep-check-ok">' +
-                    '<b>' + (res.word ? esc(res.word.toUpperCase()) : '单牌 ' + esc(displayCode(picked[0]))) + '</b>' +
-                    '<em>' + res.len + ' 字母</em>' +
-                    (res.isBomb ? '<span class="ep-bomb-tag">炸弹</span>' : '') +
-                    '</span>';
+                if (res.isJokerBomb) {
+                    check = '<span class="ep-check ep-check-ok"><b>王炸</b>' +
+                        '<em class="ep-check-note">能压任何牌，只有王炸能压</em></span>';
+                } else {
+                    check = '<span class="ep-check ep-check-ok">' +
+                        '<b>' + (res.word ? esc(res.word.toUpperCase()) : '单牌 ' + esc(displayCode(picked[0]))) + '</b>' +
+                        '<em>' + res.len + ' 字母</em>' +
+                        (res.isBomb ? '<span class="ep-bomb-tag">炸弹</span>' : '') +
+                        '</span>';
+                }
             } else {
                 check = '<span class="ep-check ep-check-bad"><i class="fi-rr-cross-small"></i>' + esc(res.err) + '</span>';
             }
@@ -1879,18 +2146,26 @@
             var tiles = pk.codes.map(function (code) {
                 return cardHTML({ code: code }, { small: true });
             }).join('');
+            // 王炸组不成词：名字固定「王炸」，不给字数字，也不带「普通」标签
+            var pkName = pk.isJokerBomb ? '王炸' : esc(pk.word.toUpperCase());
+            var pkTip = pk.isJokerBomb
+                ? '王炸（大王+小王）· 能压任何牌，只有王炸能压'
+                : esc(wordTip(pk.word));
             return '<span class="ep-pack' + (pk.isBomb ? ' ep-pack-bomb' : ' ep-pack-plain') +
+                (pk.isJokerBomb ? ' ep-pack-jokerbomb' : '') +
                 (S.packPick === i ? ' ep-pack-on' : '') + '" data-ep-pack="' + i + '"' +
-                ' title="' + esc(wordTip(pk.word)) + '">' +
+                ' title="' + pkTip + '">' +
                 '<span class="ep-pack-cards">' + tiles + '</span>' +
-                '<span class="ep-pack-word">' + esc(pk.word.toUpperCase()) + '<em>' + pk.codes.length + '</em>' +
+                '<span class="ep-pack-word">' + pkName +
+                (pk.isJokerBomb ? '' : '<em>' + pk.codes.length + '</em>') +
                 (pk.isBomb ? '' : '<b class="ep-pack-tag">普通</b>') + '</span>' +
                 '<span class="ep-pack-x" data-ep-unpack="' + i + '" title="解散这一组"><i class="fi-rr-cross-small"></i></span>' +
                 '</span>';
         }).join('');
 
         var actions = '';
-        var canPack = !dealt && !!packableWord(picked);
+        // 编组：普通炸弹要过 packableWord；两张大小王则直接认作王炸
+        var canPack = !dealt && (!!packableWord(picked) || isJokerBombCards(picked));
         if (myTurn) {
             actions += '<button class="ep-btn ep-btn-gold" id="epPlayBtn" ' +
                 ((picked.length || dealt) ? '' : 'disabled') + '>' +
@@ -1918,7 +2193,7 @@
             hints = '<div class="ep-hints">' + S.hintWords.map(function (h) {
                 return '<button class="ep-hint-chip' + (h.bomb ? ' ep-hint-bomb' : '') +
                     '" data-ep-hint="' + esc(h.token) + '">' + esc(h.label) +
-                    '<em>' + h.len + '</em></button>';
+                    (h.len ? '<em>' + h.len + '</em>' : '') + '</button>';
             }).join('') + '</div>';
         } else if (S.hintWords && !S.hintWords.length) {
             hints = '<div class="ep-hints ep-hints-empty">没有能跟上的词，只能不出或用炸弹。</div>';
@@ -1943,6 +2218,7 @@
             '<div class="ep-surface"></div>' +
             revealHTML +
             jokerHTML +
+            charmHTML +
             rz[2] + rz[3] + rz[1] + rz[0] +
             '<div class="ep-slot ep-slot-top">' + seatPanelHTML(g.players[2], g) + '</div>' +
             '<div class="ep-slot ep-slot-left">' + seatPanelHTML(g.players[3], g) + '</div>' +
@@ -1953,6 +2229,11 @@
             '<div class="ep-my-head"><span class="ep-my-name">你的手牌</span>' +
             '<span class="ep-my-count">' + me.hand.length + ' 张</span>' +
             (me.finished ? '<span class="ep-done-tag">已出完 · 第 ' + me.rank + ' 名</span>' : '') +
+            '<button class="ep-btn ep-btn-charm" id="epCharmBtn"' + (charmReady ? '' : ' disabled') +
+            ' title="' + (charmReady
+                ? '拼对一句例句，手牌自动组好一组炸弹（优先给不熟的词）'
+                : '手上暂时凑不出可用的炸弹') + '">' +
+            '<i class="fi-rr-gift"></i>炸弹锦囊</button>' +
             '</div>' +
             '<div class="ep-hand" id="epHand">' + handHTML + '</div>' +
             '<div class="ep-under">' + preview + '</div>' +
@@ -2065,6 +2346,18 @@
         root.addEventListener('click', function (e) {
             // 选牌 / 编组 / 拼牌条拖动都只是「备牌」：对手出牌时也允许，只有真正出牌才等轮到自己。
             var canPick = S.game && !S.game.over && !frozen();
+            // 炸弹锦囊弹层：只处理它自己的按钮，其余点击一律吃掉，别穿透到牌桌
+            if (S.charm) {
+                var cbtn = e.target.closest('[data-ep-charm]');
+                if (cbtn) {
+                    e.stopPropagation();
+                    if (cbtn.dataset.epCharm === 'reroll') charmReroll();
+                    else if (cbtn.dataset.epCharm === 'cancel') closeCharm();
+                    return;
+                }
+                if (e.target && e.target.id === 'epCharmInput') return;   // 允许点输入框
+                return;
+            }
             // 王的选牌弹窗：先处理它，别让点击穿透到牌桌
             if (S.jokerPick) {
                 var jw = e.target.closest('[data-ep-jw]');
@@ -2125,9 +2418,24 @@
             if (t.id === 'epPackBtn') { packBomb(); return; }
             if (t.id === 'epPassBtn') { humanPass(); return; }
             if (t.id === 'epHintBtn') { showHints(); return; }
+            if (t.id === 'epCharmBtn') { openCharm(); return; }
             if (t.id === 'epQuitBtn') { settle(); return; }
             if (t.id === 'epAgainBtn') { startMatch(); return; }
             if (t.id === 'epConfigBtn') { S.view = 'config'; render(); return; }
+        });
+
+        // 锦囊拼写题：输入内容存进状态（重画不丢）；一旦拼对就自动提交，无需「确认」按钮
+        root.addEventListener('input', function (e) {
+            if (!(e.target && e.target.id === 'epCharmInput' && S.charm && S.charm.phase === 'quiz')) return;
+            S.charm.input = e.target.value;
+            var val = String(e.target.value || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+            if (val === S.charm.word) submitCharm();
+        });
+        root.addEventListener('keydown', function (e) {
+            if (e.target && e.target.id === 'epCharmInput' && e.key === 'Enter') {
+                e.preventDefault();
+                submitCharm();
+            }
         });
 
         // 拖动拼牌条里的牌改顺序（组词顺序即词形，换个顺序就是另一个词）。
@@ -2311,9 +2619,21 @@
                 });
         }
 
+        // 王炸（大王+小王）：能压任何牌，所以只要手里有就始终列出来（len 0 → 不显示字数字）
+        function addJokerBomb() {
+            if (jokerBombOf(hand)) out.push({ token: '__jokerbomb__', label: '王炸', len: 2, bomb: true });
+        }
+
         if (g.bombLevel > 0) {
-            // 台面是炸弹：只能拿同样长或更长的炸弹压
-            addBombs(g.bombLevel);
+            // 台面是炸弹：只能拿同样长或更长的炸弹压；台面是王炸时，只有王炸能压
+            if (g.bombLevel === JOKER_BOMB) {
+                if (jokerBombOf(hand)) {
+                    out.push({ token: '__jokerbomb__', label: '王炸', len: 0, bomb: true });
+                }
+            } else {
+                addBombs(g.bombLevel);
+                addJokerBomb();
+            }
         } else if (g.level >= 2) {
             // 台面是 N 字母普通词：只能跟同字数，或拿炸弹压
             freshWords(findAll(hand, g.level, g.level, known)).sort(function (a, b) { return a.length - b.length; })
@@ -2321,6 +2641,7 @@
                     out.push({ token: w, label: w.toUpperCase(), len: w.length });
                 });
             addBombs(0);
+            addJokerBomb();
         } else {
             // 领出（level 0）或台面是单牌（level 1）：能甩更大的单牌
             var top = g.singleTop ? singleRank(g.singleTop) : -1;
@@ -2337,6 +2658,7 @@
                     });
             }
             addBombs(0);
+            addJokerBomb();
         }
         S.hintWords = out;
         render();
@@ -2354,12 +2676,245 @@
             render();
             return;
         }
+        if (token === '__jokerbomb__') {
+            var jb = jokerBombOf(hand);
+            if (!jb) { toast('手里没有王炸了', 'info'); return; }
+            S.selected = jb.ids.slice();   // 大王 + 小王，validate 会自动认作王炸
+            render();
+            return;
+        }
         var isBomb = token.indexOf('__bomb__') === 0;
         var word = isBomb ? token.slice(8) : token;
         var picked = pickCards(hand, word);
         if (!picked) { toast('手牌凑不出这个词了', 'info'); return; }
         S.selected = picked.ids.slice();
         render();
+    }
+
+    /* ============================ 炸弹锦囊 ============================ */
+
+    // 从所选词书 / 收藏里汇总「单词 -> 正确率与例句」。
+    // 锦囊按正确率优先挑词（越不熟越优先），并用词书里的例句出拼写题，所以两样都得有来源。
+    function bookStatMap() {
+        var out = Object.create(null);
+        var S_ = window.Storage;
+        var ids = (S.cfg && S.cfg.bookIds) || [];
+
+        function add(word, attempts, wrong, example) {
+            var k = String(word || '').trim().toLowerCase();
+            if (!k || !/^[a-z]+$/.test(k)) return;
+            var p = out[k];
+            if (!p) { out[k] = { attempts: attempts || 0, wrong: wrong || 0, example: example || '' }; return; }
+            p.attempts += attempts || 0;
+            p.wrong += wrong || 0;
+            if (!p.example && example) p.example = example;
+        }
+
+        function addItem(w) {
+            if (!w) return;
+            var defs = w.definitions || [];
+            add(w.word || w.name, w.totalAttempts, w.wrongTimes, (defs[0] && defs[0].example) || w.example);
+        }
+
+        var books = (S_ && S_.loadBooks) ? (S_.loadBooks() || []) : [];
+        books.forEach(function (b) {
+            if (ids.indexOf(String(b.id)) < 0) return;
+            (b.words || []).forEach(addItem);
+        });
+        if (ids.indexOf('favorites') >= 0 && S_ && S_.loadFavoriteItems) {
+            (S_.loadFavoriteItems() || []).forEach(addItem);
+        }
+        return out;
+    }
+
+    // 手牌里当前可用的「炸弹锦囊」候选：能凑成、能压台面、本局与今日没用过，且有例句能出题。
+    // 结果按手牌 / 编组 / 台面炸弹长度 / 已出词表缓存，避免每次重画都全量找一遍词。
+    var charmCache = { key: '', list: null };
+    function charmCandidates() {
+        var g = S.game;
+        if (!g || g.over || !DATA.ready || !DATA.wordSet) return [];
+        var me = g.players[0];
+        if (me.finished) return [];
+        var usable = me.hand.filter(function (c) { return !isPacked(c.id); });
+        // usedWords 必须进 key：对手出牌不会动我的手牌，若不算进去，
+        // 对手刚打掉的那个词仍留在旧缓存里，锦囊会推荐一个本局已经用不了的炸弹。
+        var key = usable.map(function (c) { return c.id; }).join(',') + '|' + (g.bombLevel || 0) + '|' +
+            Object.keys(g.usedWords).sort().join(',') + '|' +
+            S.packs.map(function (p) { return p.ids.join('.'); }).join(';');
+        if (charmCache.key === key && charmCache.list) return charmCache.list;
+
+        // 锦囊只认玩家自己词书里的炸弹（findBombs 已按 isBookWord 过滤），
+        // 不再叠加 AI 的词汇视野 —— 那会把玩家明明拥有的炸弹挡在门外。
+        var words = findBombs(usable, S.cfg.bombMin || 4, g.usedWords, g.bombLevel || 0, null);
+        var stats = bookStatMap();
+        // 手里捏着王炸（大王+小王）时，别推荐会烧掉其中一张王的炸弹 —— 那等于拆掉一颗
+        // 能压任何牌的王炸。只有手里只剩单张王（凑不成王炸）时，才允许拿它当字母牌用。
+        var keepJokers = !!jokerBombOf(usable);
+        var list = [];
+        words.forEach(function (w) {
+            var st = stats[w];
+            var ex = st && String(st.example || '').trim();
+            if (!ex) return;                       // 没有例句就出不了拼写题
+            var picked = pickCards(usable, w);
+            if (!picked) return;
+            if (keepJokers && picked.jokerFor.indexOf('大王') >= 0) return;
+            if (keepJokers && picked.jokerFor.indexOf('小王') >= 0) return;
+            var attempts = st.attempts || 0, wrong = st.wrong || 0;
+            list.push({
+                word: w, ids: picked.ids, jokerFor: picked.jokerFor, example: ex,
+                // 正确率：没练过的按 0 算（最不熟，优先给锦囊）
+                acc: attempts > 0 ? Math.max(0, (attempts - wrong) / attempts) : 0
+            });
+        });
+        charmCache.key = key;
+        charmCache.list = list;
+        return list;
+    }
+
+    // 按「正确率越低越优先」加权随机挑一个候选（低正确率权重大，但保留随机性）
+    function chooseCharmBomb(list) {
+        var total = 0;
+        list.forEach(function (c) { c.acc = c.acc || 0; total += (1 - c.acc) + 0.15; });
+        var r = Math.random() * total;
+        for (var i = 0; i < list.length; i++) {
+            r -= (1 - list[i].acc) + 0.15;
+            if (r <= 0) return list[i];
+        }
+        return list[list.length - 1];
+    }
+
+    // 把例句里的目标词（含词形变化）挖成空格，得到一道拼写题
+    function charmSentence(example, word) {
+        var re = new RegExp('\\b' + word + '[a-z]*\\b', 'i');
+        var m = example.match(re);
+        var blank = '<b class="ep-charm-blank">' + word.length + ' 字母</b>';
+        if (!m) return esc(example) + ' ' + blank;
+        return esc(example.slice(0, m.index)) + blank + esc(example.slice(m.index + m[0].length));
+    }
+
+    // 锦囊拼写题的占位提示（只是 placeholder，不写进输入框，玩家仍要自己拼全）：
+    // 困难档不给提示；普通档随机揭示 20% 的字母（至少 1 个）；简单档随机揭示一半。
+    function charmPlaceholder(word) {
+        var n = word.length;
+        if (S.cfg.level === 'hard') return '输入单词';
+        var reveal = S.cfg.level === 'easy'
+            ? Math.round(n / 2)
+            : Math.max(1, Math.round(n * 0.2));
+        if (reveal >= n) reveal = n - 1;   // 至少留一个空格要自己填
+        var idx = [];
+        for (var i = 0; i < n; i++) idx.push(i);
+        for (var j = n - 1; j > 0; j--) {  // 洗牌后取前 reveal 个位置揭示
+            var k = Math.floor(Math.random() * (j + 1));
+            var t = idx[j]; idx[j] = idx[k]; idx[k] = t;
+        }
+        var show = {};
+        for (var m = 0; m < reveal; m++) show[idx[m]] = 1;
+        var out = [];
+        for (var p = 0; p < n; p++) out.push(show[p] ? word.charAt(p) : '_');
+        return '输入 ' + out.join(' ') + ' 单词';
+    }
+
+    function openCharm() {
+        var g = S.game;
+        if (!g || g.over || frozen()) return;
+        var list = charmCandidates();
+        if (!list.length) { toast('手里暂时凑不出可用的炸弹', 'info'); return; }
+        var pick = chooseCharmBomb(list);
+        S.charm = {
+            word: pick.word,
+            ids: pick.ids,
+            jokerFor: pick.jokerFor,
+            example: pick.example,
+            sentence: charmSentence(pick.example, pick.word),
+            placeholder: charmPlaceholder(pick.word),
+            phase: 'quiz',
+            input: '',
+            err: ''
+        };
+        render();
+    }
+
+    function submitCharm() {
+        var c = S.charm;
+        if (!c || c.phase !== 'quiz') return;
+        var val = String(c.input || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+        if (val !== c.word) {
+            c.err = '还不对，再想想——共 ' + c.word.length + ' 个字母';
+            render();
+            return;
+        }
+        // 拼对：切到祝贺画面，随后播放手牌自动选牌动画，组好这组炸弹
+        c.phase = 'win';
+        c.err = '';
+        render();
+        runCharmAnimation();
+    }
+
+    // 掷骰换一个锦囊：从候选里换掉当前这个词（仍然按正确率加权随机），
+    // 题目与输入一并重置，并播放一次骰子旋转动画（与主程序「立即挑选」同一套动效）。
+    function charmReroll() {
+        var c = S.charm;
+        if (!c || c.phase !== 'quiz') return;
+        var others = charmCandidates().filter(function (x) { return x.word !== c.word; });
+        if (!others.length) { toast('手里暂时没有别的炸弹可选了', 'info'); return; }
+        var pick = chooseCharmBomb(others);
+        c.word = pick.word;
+        c.ids = pick.ids;
+        c.jokerFor = pick.jokerFor;
+        c.example = pick.example;
+        c.sentence = charmSentence(pick.example, pick.word);
+        c.placeholder = charmPlaceholder(pick.word);
+        c.input = '';
+        c.err = '';
+        render();
+        // render() 会重建 DOM，动画必须作用在重画后的新骰子上
+        var dice = document.getElementById('epCharmDice');
+        if (dice && typeof dice.animate === 'function') {
+            dice.animate(
+                [{ transform: 'rotate(0deg)' }, { transform: 'rotate(720deg)' }],
+                { duration: 600, easing: 'ease-in-out' }
+            );
+        }
+        focusCharmInput();
+    }
+
+    function closeCharm() {
+        S.charm = null;
+        render();
+    }
+
+    function focusCharmInput() {
+        var ci = document.getElementById('epCharmInput');
+        if (!ci) return;
+        try {
+            ci.focus();
+            ci.setSelectionRange(ci.value.length, ci.value.length);
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 每 200ms 自动点亮一张牌，按单词顺序拼出这组炸弹；组好后淡出弹窗，
+    // 选牌保留在拼牌条上，玩家可直接点「编组」或「打出」。
+    function runCharmAnimation() {
+        var c = S.charm;
+        if (!c) return;
+        S.selected = [];
+        S.packPick = null;
+        var ids = c.ids.slice();
+        var i = 0;
+        (function step() {
+            if (S.charm !== c) return;
+            if (i >= ids.length) {
+                var el = document.querySelector('.ep-charm');
+                if (el) el.classList.add('ep-charm-out');
+                later(function () {
+                    if (S.charm === c) { S.charm = null; render(); }
+                }, 320);
+                return;
+            }
+            S.selected.push(ids[i++]);
+            render();
+            later(step, 200);
+        })();
     }
 
     /* ============================ 音效 ============================ */

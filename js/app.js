@@ -258,6 +258,7 @@ class WordMemoryApp {
         this.wordFirstResults = []; // 记录每个单词的初次答题结果（用于上一题标记）
         this.wordWrongOptions = []; // 记录每个单词本题答错过的所有选项（用于上一题 tooltip 展示）
         this.hintUsedForWords = []; // 记录每个单词是否使用过提示
+        this.spellHint = []; // 记录拼写模式每个单词的提示情况 { count, idxs, wrongPos }（长词容错判定）
         this.lastWordInfo = null; // 记录上一题的单词信息
         this.modeOverride = null; // 返回上一题时锁定使用的答题模式
         this.sessionModeOverride = null; // 结算页"换个模式"选定的模式（数组，作用于后续学习；退出学习时清除）
@@ -8059,7 +8060,7 @@ ${example ? `- 例句：${example}` : ''}
         // 清空所有槽
         slots.forEach(slot => {
             slot.textContent = '';
-            slot.classList.remove('filled', 'wrong', 'warn', 'correct', 'active');
+            slot.classList.remove('filled', 'wrong', 'correct', 'active');
         });
 
         let wrongCount = 0; // 当前错误字母数
@@ -8108,27 +8109,8 @@ ${example ? `- 例句：${example}` : ''}
                 severity = 'unknown';
             }
 
-            // 字母格配色：黄=容错(不知道)，红=错误。已判错的题不因错误减少而回退成黄色
-            if (severity === 'unknown') {
-                slots.forEach(slot => {
-                    if (slot.classList.contains('wrong')) {
-                        slot.classList.remove('wrong');
-                        slot.classList.add('warn');
-                    }
-                });
-            }
-
-            // 被提示过的字母：按本题判定等级着色（可覆盖「correct」，保持黄/红）
-            const hinted = rec.idxs;
-            if (hinted && hinted.length) {
-                const wrongState = severity === 'wrong' || firstResult === 'wrong';
-                hinted.forEach(i => {
-                    const s = slots[i];
-                    if (!s) return;
-                    s.classList.remove('correct');
-                    s.classList.add(wrongState ? 'wrong' : 'warn');
-                });
-            }
+            // 字母格只区分「正确(绿) / 错误(红)」：黄/红的容错等级仅体现在进度条与答题动画上，
+            // 提示揭示的字母是正确的，保持绿色；拼错的字母保持红色。
 
             // 如果有错误字母，标记为答错（但不播放动画、不更新进度条）
             if (wrongCount > 0) {
@@ -8269,7 +8251,7 @@ ${example ? `- 例句：${example}` : ''}
             }
         }
 
-        // 刷新字母槽（内部按判定等级给被提示的字母着色）
+        // 刷新字母槽（提示揭示的字母为正确项，显示绿色；黄/红只体现在进度条与动画）
         this.handleSpellInput(input.value);
 
         // 重新聚焦输入框，并将光标移到末尾
@@ -9451,6 +9433,7 @@ ${example ? `- 例句：${example}` : ''}
         this.wordFirstResults = [];
         this.wordWrongOptions = []; // 重置每题选错选项记录
         this.hintUsedForWords = []; // 重置提示使用记录
+        this.spellHint = []; // 重置拼写提示记录
         this.lastWordInfo = null;
         this.isReviewMode = true; // 标记为复习模式
         this._isSm2Review = false;

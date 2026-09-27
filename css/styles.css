@@ -4729,12 +4729,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     animation: shake var(--transition-fast);
 }
 
-/* 长单词（>8 字母）仅拼错 1 个字母：黄色警告（warning 主题色，参考模式1的「不知道」色），
-   给一次改错机会，不算答错 */
-.letter-slot.warn {
-    color: var(--warning);
-}
-
 .letter-slot.correct {
     color: var(--success);
 }
@@ -16998,6 +16992,93 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-weight: 700;
 }
 
+/* —— 炸弹锦囊：拼对例句里的单词 → 自动组好一组炸弹 —— */
+.ep-btn-charm {
+    margin-left: auto;
+}
+
+.ep-charm {
+    animation: none;
+    transition: opacity 0.3s ease;
+}
+
+.ep-charm-out {
+    opacity: 0 !important;
+    pointer-events: none;
+}
+
+.ep-charm-box {
+    max-width: min(460px, 90%);
+}
+
+.ep-charm-sent {
+    font-size: 0.98rem;
+    color: #e9f3ed;
+    line-height: 1.75;
+    margin: 2px 0 4px;
+}
+
+.ep-charm-blank {
+    display: inline-block;
+    min-width: 56px;
+    padding: 0 8px;
+    margin: 0 2px;
+    border-bottom: 2px solid var(--ep-gold);
+    color: var(--ep-gold);
+    font-size: 0.76rem;
+    letter-spacing: 1px;
+    vertical-align: baseline;
+}
+
+.ep-charm-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.ep-charm-input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--ep-gold);
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: 1.05rem;
+    letter-spacing: 2px;
+    text-align: center;
+    outline: none;
+}
+
+.ep-charm-input:focus {
+    box-shadow: 0 0 0 2px rgba(212, 162, 76, 0.4);
+}
+
+.ep-charm-note {
+    font-size: 0.76rem;
+    color: var(--ep-mut);
+}
+
+/* 底部两枚按钮（换一个 / 放弃）：等宽平分整行 */
+.ep-charm-btns {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    margin-top: 2px;
+}
+
+.ep-charm-btns .ep-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+}
+
+.ep-charm-note.ep-charm-err {
+    color: #f0a58c;
+}
+
 /* 王的选牌弹窗：一列候选词，炸弹金框、当前出不了的灰掉。
    含王时同一个字母组合可能匹配上百个词，所以这里封高 + 内部滚动，列表再长也点得到。 */
 .ep-jw-box {
@@ -17114,6 +17195,73 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     flex-direction: column;
     align-items: center;
     gap: 2px;
+    position: relative;
+}
+
+/* 手牌不多时的「喊话」气泡：贴在座位一侧，尾指针指向头像 */
+.ep-seat-bubble {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 4px;
+    white-space: nowrap;
+    padding: 4px 9px;
+    border-radius: 10px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+    animation: epBubbleIn 0.22s ease-out;
+}
+
+.ep-seat-bubble::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 9px;
+    width: 8px;
+    height: 8px;
+    transform: rotate(45deg);
+    background: var(--surface);
+    border-left: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* 左右两侧的座位气泡改到内侧，别顶出牌桌 */
+.ep-slot-left .ep-seat-bubble {
+    left: auto;
+    right: calc(100% + 8px);
+}
+
+.ep-slot-left .ep-seat-bubble::before {
+    left: auto;
+    right: -5px;
+    border-left: none;
+    border-bottom: none;
+    border-right: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-color);
+}
+
+/* 顶部的座位气泡改到下方，避免被牌桌边缘裁掉 */
+.ep-slot-top .ep-seat-bubble {
+    left: 50%;
+    top: calc(100% + 6px);
+    transform: translateX(-50%);
+}
+
+.ep-slot-top .ep-seat-bubble::before {
+    left: 50%;
+    top: -5px;
+    margin-left: -4px;
+    border-left: 1px solid var(--border-color);
+    border-bottom: none;
+    border-top: 1px solid var(--border-color);
+}
+
+@keyframes epBubbleIn {
+    from { opacity: 0; transform: translateY(4px) scale(0.9); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .ep-avatar {
@@ -17213,6 +17361,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     box-shadow: inset 0 0 0 1px rgba(212, 162, 76, 0.7);
 }
 
+/* 王炸：最高优先级，比普通炸弹更亮的金红辉光，一眼区别于词炸弹 */
+.ep-word-jokerbomb {
+    background: linear-gradient(135deg, rgba(253, 230, 138, 0.34), rgba(220, 38, 38, 0.28));
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.95), 0 0 10px rgba(245, 158, 11, 0.45);
+}
+
 .ep-bomb-lv {
     display: inline-flex;
     align-items: center;
@@ -17293,6 +17447,13 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .ep-card[data-ep-card] {
     cursor: pointer;
+}
+
+/* 跟单牌时「点了也出不掉」的牌：灰置且不可点（拿掉了 data-ep-card，所以没有 hover 抬起） */
+.ep-card-dis {
+    opacity: 0.35;
+    filter: grayscale(0.55);
+    cursor: not-allowed;
 }
 
 .ep-card[data-ep-card]:hover {
@@ -17515,6 +17676,13 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .ep-pack-bomb {
     border-color: rgba(212, 162, 76, 0.7);
     background: linear-gradient(135deg, rgba(253, 230, 138, 0.16), rgba(245, 158, 11, 0.14)), rgba(0, 0, 0, 0.34);
+}
+
+/* 编组好的王炸：比普通炸弹更亮的金红辉光，一眼区分 */
+.ep-pack-jokerbomb {
+    border-color: rgba(245, 158, 11, 0.95);
+    background: linear-gradient(135deg, rgba(253, 230, 138, 0.3), rgba(220, 38, 38, 0.24)), rgba(0, 0, 0, 0.34);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
 }
 
 /* 普通组（词书外的长词）：素色 + 一枚「普通」角标 —— 只能按普通牌的门槛打出 */
