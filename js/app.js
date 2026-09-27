@@ -10770,18 +10770,20 @@ ${example ? `- 例句：${example}` : ''}
             btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
             btn.style.removeProperty('--dl-progress');
             btn.disabled = false;
-            // 本地已有音频文件：无需下载，直接置为已就绪
+            // 本地已有音频文件：无需下载。按钮仍保留可点（避免看起来像个静态标签），
+            // 点击只提示已就绪，不再重复下载。
             const local = await api.probeLocal();
             if (local) {
-                btn.disabled = true;
-                btn.textContent = '音效已内置（读取本地文件）';
+                btn.dataset.mode = 'local';
+                btn.textContent = '音效包已加载（本地内置，无需下载）';
                 if (hint) {
-                    hint.textContent = '音效文件在 static/audio/poker/，直接读取本地文件，无需下载；受上方「音效提示」开关控制。';
+                    hint.textContent = '音效文件在 static/audio/poker/，已直接读取本地文件，对局中出牌 / 炸弹 / 牌权切换 / 胜负会出声；受上方「音效提示」开关控制。';
                 }
                 return;
             }
             const ready = api.isReady();
-            btn.textContent = ready ? '音效已下载 · 点击重新下载' : '下载音效包（约 150 KB）';
+            btn.dataset.mode = 'remote';
+            btn.textContent = ready ? '音效包已下载 · 点击重新下载' : '下载音效包（约 175 KB）';
             if (hint) {
                 hint.textContent = ready
                     ? '已缓存到本机，对局中出牌 / 炸弹 / 牌权切换 / 胜负会出声；受上方「音效提示」开关控制。'
@@ -10791,6 +10793,10 @@ ${example ? `- 例句：${example}` : ''}
 
         btn.onclick = async () => {
             if (!api) return;
+            if (btn.dataset.mode === 'local') {
+                this.showToast('音效包已内置在本地，无需下载', 'info');
+                return;
+            }
             btn.classList.add('dict-dl-btn');
             btn.disabled = true;
             btn.innerHTML =
