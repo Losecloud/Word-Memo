@@ -43,6 +43,11 @@ ENGINE_FILE = "tools/browse-dict.html"
 CONTAINER_MAGIC = b"WMB1"
 
 RECITING_RAW = "https://raw.githubusercontent.com/Losecloud/reciting/main/data/"
+# examples/ 整个目录不内嵌：内含示例图（两张共约 1.5MB）与大量测试样本（xlsx/pdf/mp4），
+# base64 后会把 main.js 顶过 Obsidian Sync 的单文件 5MB 上限。故打包时把样式表里对示例图的
+# 本地引用改写为仓库 raw 地址（图片已在主仓库跟踪，raw 可直连），两端因此共用同一份 CSS。
+EXAMPLES_LOCAL_REF = "../examples/"
+EXAMPLES_REMOTE_REF = "https://raw.githubusercontent.com/Losecloud/reciting/main/examples/"
 WORD_MEMO_RELEASE = "https://github.com/Losecloud/Obsidian-Word-Memo/releases/download/"
 # 承载超大词典（oaldpe，320MB，超出 GitHub 仓库单文件 100MB 限制）的 Release 标签
 DICT_RELEASE_TAG = "dict-v1"
@@ -291,7 +296,12 @@ def collect():
         items.append((str(rel).replace("\\", "/"), data))
 
     def add_file(p):
-        add(p.relative_to(ROOT), p.read_bytes())
+        data = p.read_bytes()
+        # 样式表里的示例图引用改写为仓库 raw：examples/ 未内嵌，OB 端本地路径必然 404
+        if p == ROOT / "css" / "styles.css":
+            data = data.replace(EXAMPLES_LOCAL_REF.encode("utf-8"),
+                                EXAMPLES_REMOTE_REF.encode("utf-8"))
+        add(p.relative_to(ROOT), data)
 
     add_file(ROOT / ENTRY_FILE)
     add_file(ROOT / ENGINE_FILE)

@@ -78,3 +78,4 @@ tools/word-memo/
 # 牛津10双解词典（约320MB）：体积超 GitHub 限制，改由 word-memo 的 Release(dict-v1) 分发，
 # 仓库内不留副本（data/dict-catalog.js 的 url 指向该 Release）
 data/oaldpe-dict.json
+user/user_Stray_Cloud.js
