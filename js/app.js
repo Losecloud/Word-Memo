@@ -268,6 +268,7 @@ class WordMemoryApp {
         this.hintCount = 3;
         this.startTime = null;
         this.autoNextTimer = null;
+        this._inputLockUntil = 0; // 快速切题（自动切换未到，用户再点正确答案）后的防误触缓冲截止时间戳
         this._rememberCountdown = null; // 记得么模式“反悔窗口”倒计时
         this._rememberPending = false; // 已按“记得”，等待窗口结束或反悔
         this.capsLockOn = false; // Caps Lock状态
@@ -860,6 +861,69 @@ class WordMemoryApp {
             }
         });
 
+        // 下拉菜单：立即保存用户配置（取消防抖窗口，强制写入缓存与 user/ 文件夹）
+        document.getElementById('dropdownSaveConfig').addEventListener('click', async () => {
+            dropdown.classList.add('hidden');
+            let r = await Storage.flushUserConfig();
+            if (!r.ok) { this.showToast('保存失败：请先登录账号', 'error'); return; }
+            if (r.file) { this.showToast('用户配置已保存到 user/ 文件夹', 'success'); return; }
+            // 未能落盘：说明目录授权不可用（多为页面加载时无法申请授权，或被浏览器收回）。
+            // 这里直接用非阻塞提示 + 文件夹选择器：showDirectoryPicker 必须在用户手势中调用，
+            // 若先用 confirm/await 消耗了手势，浏览器会以「非手势」拒绝弹窗，导致授权了却写不出文件。
+            this.showToast(Storage.hasUserDirectory()
+                ? '本地文件夹授权已失效，请重新选择 user/ 文件夹'
+                : '请选择 reciting/user/ 文件夹，以便配置落盘（否则只存在于浏览器缓存）', 'info');
+            const okDir = await Storage.chooseUserDirectory();
+            if (!okDir) { this.showToast('未能获得文件夹权限，配置仅保存在本地缓存', 'error'); return; }
+            r = await Storage.flushUserConfig();
+            if (r.file) this.showToast('用户配置已保存到 user/ 文件夹', 'success');
+            else this.showToast('写入 user/ 文件失败（' + (r.reason || 'unknown') + '），请检查文件夹读写权限', 'error');
+        });
+
+        // 下拉菜单：导出用户配置（下载 user_*.json，供另一词忆端导入）
+        document.getElementById('dropdownExportConfig').addEventListener('click', () => {
+            dropdown.classList.add('hidden');
+            const data = Storage.exportUserConfig();
+            if (!data) { this.showToast('请先登录账号', 'error'); return; }
+            const url = URL.createObjectURL(new Blob([data.text], { type: 'application/json' }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = data.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            this.showToast('用户配置已导出：' + data.name, 'success');
+        });
+
+        // 下拉菜单：导入用户配置（覆盖当前账号数据后重新载入）
+        document.getElementById('dropdownImportConfig').addEventListener('click', () => {
+            dropdown.classList.add('hidden');
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.addEventListener('change', () => {
+                const file = input.files && input.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const user = Storage.getCurrentUser();
+                    if (!confirm(`导入将用文件中的配置覆盖当前账号「${user}」的全部数据（词书、学习记录、收藏、AI 与词典配置等），且不可撤销。\n\n确定继续吗？`)) return;
+                    const r = Storage.importUserConfig(String(reader.result || ''));
+                    if (!r.ok) { this.showToast('导入失败：' + r.error, 'error'); return; }
+                    this.showToast('导入成功，正在重新载入…', 'success');
+                    try { await Storage.flushUserConfig(); } catch (e) { /* 忽略 */ }
+                    setTimeout(() => location.reload(), 300);
+                };
+                reader.readAsText(file);
+            });
+            input.click();
+        });
+
+        // 落盘状态变化时（自动保存成功/失败）刷新昵称旁的感叹号提示
+        window.__wmConfigDirtyChanged = () => this.refreshConfigDirtyHint();
+        this.refreshConfigDirtyHint();
+
         // 下拉菜单：退出登录 / 游客切换登录
         document.getElementById('dropdownLogout').addEventListener('click', () => {
             dropdown.classList.add('hidden');
@@ -931,6 +995,15 @@ class WordMemoryApp {
             loginBtn.classList.remove('hidden');
             document.getElementById('userDropdown').classList.add('hidden');
         }
+        this.refreshConfigDirtyHint();
+    }
+
+    // 刷新「配置未落盘」提示：最新配置没能写入 user/ 文件时，在昵称末尾显示感叹号
+    refreshConfigDirtyHint() {
+        const hint = document.getElementById('configDirtyHint');
+        if (!hint) return;
+        const dirty = typeof Storage.isConfigDirty === 'function' && Storage.isConfigDirty();
+        hint.classList.toggle('hidden', !dirty);
     }
 
     // 打开个人信息弹窗
@@ -1298,16 +1371,14 @@ class WordMemoryApp {
                     this.switchAiProvider(idx);
                 }
             });
-            providerTabList.addEventListener('dblclick', (e) => {
+            providerTabList.addEventListener('dblclick', async (e) => {
                 const tab = e.target.closest('.ai-provider-tab');
                 if (!tab) return;
                 const idx = parseInt(tab.dataset.index, 10);
                 const providers = this.getAiProviders();
                 const p = providers[idx];
                 if (!p) return;
-                const newName = prompt('请输入厂商名称：', p.name || '未命名');
-                if (newName === null) return;
-                const trimmed = newName.trim();
+                const trimmed = await this.askText({ title: '重命名厂商', label: '厂商名称', value: p.name || '未命名' });
                 if (trimmed) {
                     p.name = trimmed;
                     this.renderAiProviderTabs();
@@ -2820,7 +2891,7 @@ class WordMemoryApp {
     async directImportWords(words, bookName) {
         // 如果未提供词书名称，弹窗让用户输入（兼容 CONFORMS_TO_TEMPLATE 路径）
         if (!bookName) {
-            bookName = prompt('请输入词书名称：', '未命名词单');
+            bookName = await this.askText({ title: '导入词书', label: '词书名称', value: '未命名词单' });
             if (!bookName) return;
         }
 
@@ -5735,7 +5806,7 @@ class WordMemoryApp {
     async confirmSmartImport() {
         if (!this.tempSmartImportBook) return;
 
-        const bookName = prompt('请输入词书名称：', this.tempSmartImportBook.name);
+        const bookName = await this.askText({ title: '智能导入', label: '词书名称', value: this.tempSmartImportBook.name });
         if (!bookName) return;
 
         // 添加为新词书
@@ -7264,6 +7335,14 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     selectOption(selected, correct) {
+        if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点
+        // 快速切题：自动切换尚未到时，已答对后再点一次「正确答案」可立即进入下一题。
+        // 切题后立刻上锁 1s，避免连点的下一击误选到下一题的选项、或下一题尚未渲染完全。
+        if (selected === correct && this.wordResults[this.currentWordIndex] === 'correct') {
+            this._lockInputBriefly();
+            this.nextWord();
+            return;
+        }
         console.log('📝 selectOption 被调用:', { selected, correct });
         
         // 检测是否点击了"如何记忆？"按钮
@@ -7286,13 +7365,16 @@ ${example ? `- 例句：${example}` : ''}
 
         // 记录当前单词的答题结果
         if (isCorrect) {
-            // 答对了，禁用所有按钮
+            // 答对了：其余选项禁用，仅「正确答案」保留可点——再点一次即可立即切下一题
+            // （见方法开头的快速切题分支）。未开启自动切换时无需等待窗口，仍全部禁用。
             buttons.forEach(btn => {
-                btn.disabled = true;
                 // 使用dataset.option准确匹配，避免textContent的换行符问题
                 const btnOption = btn.dataset.option;
                 if (btnOption === correct) {
                     btn.classList.add('correct');
+                    btn.disabled = !this.settings.autoNext;
+                } else {
+                    btn.disabled = true;
                 }
             });
 
@@ -7675,6 +7757,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 处理记得么模式的点击
     handleRememberClick(isRemember) {
+        if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点
         const word = this.sessionWords[this.currentWordIndex];
         if (!word) return;
 
@@ -7686,6 +7769,7 @@ ${example ? `- 例句：${example}` : ''}
                 this.clearRememberCountdown();
                 this._rememberPending = false;
                 this.commitRememberCorrect();
+                this._lockInputBriefly(); // 手动提前切题：锁住下一题作答区 1s
                 this.nextWord();
             }
             return;
@@ -7695,6 +7779,7 @@ ${example ? `- 例句：${example}` : ''}
             // 已判定为“不记得”后再点“记得”：视为确认继续，直接进入下一题
             if (this.wordFirstResults[this.currentWordIndex]) {
                 this.hideRememberHint();
+                this._lockInputBriefly(); // 手动提前切题：锁住下一题作答区 1s
                 this.nextWord();
                 return;
             }
@@ -8073,6 +8158,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 提交拼写
     submitSpell() {
+        if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点/回车
         const word = this.sessionWords[this.currentWordIndex];
         // 用户已作出判断（拼写完成）：停在此刻计入答题耗时
         this._stampAnswerTime();
@@ -8416,6 +8502,17 @@ ${example ? `- 例句：${example}` : ''}
         if (this._wordStartT && this._wordAnswerT === null) {
             this._wordAnswerT = Date.now();
         }
+    }
+
+    // 快速切题（自动切换时间未到、用户主动再点正确答案）时调用：
+    // 从此刻起对作答区上锁 1s，避免连点的第二下误选下一题、或下一题尚未渲染完全
+    _lockInputBriefly(ms = 1000) {
+        this._inputLockUntil = Date.now() + ms;
+    }
+
+    // 作答区是否仍在防误触缓冲期内
+    _isInputLocked() {
+        return Date.now() < this._inputLockUntil;
     }
 
     // 暂停当前单词答题计时（如查询词典时）
@@ -9237,8 +9334,13 @@ ${example ? `- 例句：${example}` : ''}
             // 艾宾浩斯复习：完成后继续复习剩余到期单词
             completionIcon.textContent = '🧠';
             completionTitle.textContent = '本轮复习完成！';
-            // 按钮显示本轮复习进度「本轮复习数/到期总数」，如 50/83、33/33
-            continueBtn.textContent = `继续复习 (${this._sm2RoundCount || 0}/${this._sm2DueTotal || 0})`;
+            // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
+            // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
+            // 故当前只剩 189。这里同时给出「本轮 N · 剩余 M」，两者都明确。
+            const remaining = Storage.getDueWords().length;
+            continueBtn.textContent = remaining > 0
+                ? `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${remaining})`
+                : '今日到期已复习完';
             continueBtn.onclick = () => this.startSm2Review();
         } else if (bookCompleted) {
             completionIcon.textContent = '🎊';
@@ -10561,8 +10663,8 @@ ${example ? `- 例句：${example}` : ''}
         // 加载自动保存统计数据设置
         document.getElementById('autoSaveStats').checked = this.settings.autoSaveStats !== false; // 默认开启
 
-        // 跟随系统/Obsidian 主题
-        document.getElementById('followSystemTheme').checked = !!this.settings.followSystemTheme;
+        // 跟随系统/Obsidian 主题（默认开启：未设置过时勾选）
+        document.getElementById('followSystemTheme').checked = this.settings.followSystemTheme !== false;
 
         // 右侧窗口查词（Obsidian）：未设置过时默认开启，保持既有行为
         document.getElementById('dictLookupInSidebar').checked = this.settings.dictLookupInSidebar !== false;
@@ -10642,8 +10744,78 @@ ${example ? `- 例句：${example}` : ''}
         // 检测 Edge 在线网关是否在线（更新设置页提示）
         this.checkEdgeGateway();
 
+        // 英文扑克音效包：从 GitHub 下载（不随插件打包），进度读条见 setupPokerSfxDownload
+        this.setupPokerSfxDownload();
+
         // 同步设置下拉的自绘UI（在全部 select 值赋值完后刷新触发器与面板）
         this.initSettingSelects();
+    }
+
+    // 英文扑克音效包的下载入口（主设置 · 基本设置页）。
+    // 音频文件不进插件包，改由 GitHub raw 流式下载并缓存到本机 localStorage；
+    // 进度读条直接复用词典下载的按钮外壳（.dict-dl-btn），两处观感与配色一致。
+    setupPokerSfxDownload() {
+        const btn = document.getElementById('pokerSfxBtn');
+        const hint = document.getElementById('pokerSfxHint');
+        if (!btn) return;
+        const api = window.EnglishPoker && window.EnglishPoker.audio;
+
+        const paintIdle = () => {
+            if (!api) {
+                btn.disabled = true;
+                btn.textContent = '音效模块不可用';
+                return;
+            }
+            const ready = api.isReady();
+            btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
+            btn.style.removeProperty('--dl-progress');
+            btn.disabled = false;
+            btn.textContent = ready ? '音效已下载 · 点击重新下载' : '下载音效包（约 150 KB）';
+            if (hint) {
+                hint.textContent = ready
+                    ? '已缓存到本机，对局中出牌 / 炸弹 / 牌权切换 / 胜负会出声；受上方「音效提示」开关控制。'
+                    : '出牌 / 炸弹 / 牌权切换 / 胜负音效。音频文件不随插件打包，点上方按钮从 GitHub 下载并缓存到本机。';
+            }
+        };
+
+        btn.onclick = async () => {
+            if (!api) return;
+            btn.classList.add('dict-dl-btn');
+            btn.disabled = true;
+            btn.innerHTML =
+                '<span class="dict-dl-fill"></span>' +
+                '<span class="dict-dl-label dict-dl-label-base"></span>' +
+                '<span class="dict-dl-label dict-dl-label-on"></span>';
+            const base = btn.querySelector('.dict-dl-label-base');
+            const on = btn.querySelector('.dict-dl-label-on');
+            const set = (ratio, label) => {
+                btn.classList.toggle('dict-dl-unknown', ratio == null);
+                btn.style.setProperty('--dl-progress', ratio == null ? '100%' : (ratio * 100).toFixed(1) + '%');
+                base.textContent = label;
+                on.textContent = label;
+            };
+            set(0, '准备下载…');
+            let lastPaint = 0;
+            try {
+                await api.download((ratio, loaded, total, label) => {
+                    const now = performance.now();
+                    if (now - lastPaint < 120) return; // 节流，避免文字抖动
+                    lastPaint = now;
+                    set(ratio, ratio == null
+                        ? '下载中 · ' + this.formatDictSize(loaded)
+                        : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + '/' +
+                          this.formatDictSize(total) + ' · ' + (label || ''));
+                });
+                set(1, '音效已就绪');
+                this.showToast('英文扑克音效包已下载并缓存', 'success');
+                setTimeout(paintIdle, 700);
+            } catch (err) {
+                paintIdle();
+                this.showToast('音效下载失败：' + ((err && err.message) || err), 'error');
+            }
+        };
+
+        paintIdle();
     }
 
     // 填充声优列表
@@ -11084,7 +11256,7 @@ ${example ? `- 例句：${example}` : ''}
                     option6: '6'
                 },
                 defaultCover: 'import',
-                followSystemTheme: false, // 是否跟随系统/Obsidian 主题
+                followSystemTheme: true, // 是否跟随系统/Obsidian 主题（默认开启）
                 dictLookupInSidebar: true, // Obsidian：查词跳转是否交由右侧栏承接（默认开启）
                 hoverLookup: true, // Obsidian：悬浮取词（默认开启）
                 selectionTranslate: true, // Obsidian：划词右键「翻译」（默认开启）
@@ -12321,9 +12493,8 @@ ${example ? `- 例句：${example}` : ''}
         this.lastWordInfo = null;
         this.isReviewMode = true; // 复用复习模式标记，答对不移除错题
         this._isSm2Review = true; // 标记为艾宾浩斯复习会话
-        // 本轮复习进度：分子=本轮复习词数，分母=本轮开始时到期总数（结算页按钮「33/83」）
+        // 本轮复习词数（结算页按钮「本轮 N · 剩余 M」的 N；M 结算时实时取当前到期数）
         this._sm2RoundCount = reviewWords.length;
-        this._sm2DueTotal = allDueWords.length;
         this.sessionStartIndex = 0;
         this._answerDurations = []; // 重置答题耗时统计
         this._answerRecords = []; // 重置本轮每词耗时记录（结算页散点图）
@@ -14530,18 +14701,92 @@ ${example ? `- 例句：${example}` : ''}
         this.renderBookList(); // 同步侧栏「模式」标签（词书独有模式可能已变更）
     }
 
+    /**
+     * 自定义文本输入弹窗（modal-medium），替代原生 prompt()
+     *
+     * Obsidian 插件用 iframe 承载应用，沙箱禁用了原生 prompt()，在 OB 端调用会失败/返回 null
+     * （词书设置里的「重命名」正是这样失效的），故统一改用应用内弹窗。
+     * @returns {Promise<string|null>} 确定返回已 trim 的文本；取消或留空返回 null
+     */
+    askText({ title = '', label = '', value = '', placeholder = '', confirmText = '确定', maxLength = 0 } = {}) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal';
+            overlay.style.display = 'flex';
+            overlay.innerHTML = `
+                <div class="modal-overlay"></div>
+                <div class="modal-content modal-medium">
+                    <div class="modal-header">
+                        <h3></h3>
+                        <button type="button" class="btn-icon modal-close-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="fav-list-set-label"></label>
+                            <input type="text" class="setting-input" spellcheck="false">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary modal-cancel-btn">取消</button>
+                        <button type="button" class="btn-primary modal-confirm-btn"></button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay); // 必须挂载到文档，否则弹窗不可见（此前遗漏）
+            // 文案一律用 textContent 写入，避免词书名称里的 < > & 被当作 HTML 解析
+            overlay.querySelector('.modal-header h3').textContent = title;
+            overlay.querySelector('.fav-list-set-label').textContent = label;
+            const confirmBtn = overlay.querySelector('.modal-confirm-btn');
+            confirmBtn.textContent = confirmText;
+
+            const input = overlay.querySelector('input');
+            input.value = value;
+            input.placeholder = placeholder;
+            if (maxLength > 0) input.maxLength = maxLength;
+
+            let closing = false;
+            const finish = (result) => {
+                if (closing) return;
+                closing = true;
+                overlay.remove();
+                resolve(result);
+            };
+            const submit = () => {
+                const val = input.value.trim();
+                finish(val || null);
+            };
+
+            overlay.querySelector('.modal-close-btn').addEventListener('click', () => finish(null));
+            overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => finish(null));
+            overlay.querySelector('.modal-overlay').addEventListener('click', () => finish(null));
+            confirmBtn.addEventListener('click', submit);
+            input.addEventListener('keydown', (e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') { e.preventDefault(); submit(); }
+                else if (e.key === 'Escape') finish(null);
+            });
+            input.focus();
+            input.select();
+        });
+    }
+
     // 重命名词书
-    renameBook() {
+    async renameBook() {
         const book = Storage.getBook(this.currentSettingsBookId);
         if (!book) return;
 
-        const newName = prompt('请输入新的词书名称：', book.name);
-        
-        if (newName && newName.trim() && newName !== book.name) {
-            book.name = newName.trim();
+        const newName = await this.askText({ title: '重命名词书', label: '词书名称', value: book.name });
+
+        if (newName && newName !== book.name) {
+            book.name = newName;
             Storage.updateBook(this.currentSettingsBookId, book);
             this.loadBooks();
-            
+
             // 更新弹窗标题
             document.getElementById('bookSettingsTitle').textContent = `${book.name} - 设置`;
         }
@@ -16180,9 +16425,9 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 显示添加N行对话框
-    showAddNWordsDialog() {
-        const count = prompt('新增单词行数：', '5');
-        
+    async showAddNWordsDialog() {
+        const count = await this.askText({ title: '添加空白单词行', label: '新增行数', value: '5', maxLength: 4 });
+
         if (count === null) {
             // 用户取消
             return;
@@ -25797,19 +26042,17 @@ ${head}
     }
 
     // 编辑自定义模型（标签 + ID）
-    editCustomAiModel(oldValue) {
+    async editCustomAiModel(oldValue) {
         const all = this.getAllAiModels();
         const model = all.find(m => m.value === oldValue);
         if (!model || !model.custom) {
             this.showToast('未找到该自定义模型', 'error');
             return;
         }
-        const newLabel = prompt('请输入新的标签（备注名称）：', model.label || model.shortLabel);
-        if (newLabel === null) return;
-        const trimmedLabel = newLabel.trim();
-        const newValue = prompt('请输入新的模型ID（将用于API请求的 model 参数）：', oldValue);
-        if (newValue === null) return;
-        const trimmedValue = newValue.trim();
+        const trimmedLabel = await this.askText({ title: '编辑自定义模型', label: '标签（备注名称）', value: model.label || model.shortLabel });
+        if (trimmedLabel === null) return;
+        const trimmedValue = await this.askText({ title: '编辑自定义模型', label: '模型ID（API 请求的 model 参数）', value: oldValue });
+        if (trimmedValue === null) return;
         if (!trimmedLabel || !trimmedValue) {
             this.showToast('标签与ID不能为空', 'error');
             return;
@@ -30780,6 +31023,9 @@ But little did she know, this was just the beginning of an extraordinary journey
         this.renderMemoryTrendChart('memoryTrendCanvas');
         this.renderStubbornWords();
 
+        // 概要四卡与时间范围无关，打开时独立刷新一次
+        this.updateStatsSummary();
+
         // 默认显示最近7天数据（在艾宾浩斯面板渲染后绘制，确保折线图按最终容器高度最大化显示）
         this.currentChartRange = 7;
         this.updateCharts(7);
@@ -30823,12 +31069,6 @@ But little did she know, this was just the beginning of an extraordinary journey
                 ctx.textAlign = 'center';
                 ctx.fillText('暂无数据', canvas.width / 2, canvas.height / 2);
             }
-
-            // 清空摘要
-            document.getElementById('summaryTotalDays').textContent = '0';
-            document.getElementById('summaryTotalTime').textContent = '0';
-            document.getElementById('summaryTotalWords').textContent = '0';
-            document.getElementById('summaryAvgMastery').textContent = '0%';
             return;
         }
 
@@ -30854,13 +31094,36 @@ But little did she know, this was just the beginning of an extraordinary journey
         this.currentChartSheet = Storage.loadSettings().chartSheet || 'time';
         if (!sheetData[this.currentChartSheet]) this.currentChartSheet = 'time';
         this.drawSheet(dates, sheetData);
+    }
 
-        // 更新统计摘要
-        const summary = Storage.getStatsSummary(days);
+    // 刷新顶部概要四卡：与时间范围按钮无关（天数/时长/单词为全部历史，正确率为近7天并对比历史）
+    updateStatsSummary() {
+        const summary = Storage.getStatsSummary();
         document.getElementById('summaryTotalDays').textContent = summary.totalDays;
         document.getElementById('summaryTotalTime').textContent = Math.floor(summary.totalTime);
         document.getElementById('summaryTotalWords').textContent = summary.totalWords;
-        document.getElementById('summaryAvgMastery').textContent = `${summary.avgMastery}%`;
+        document.getElementById('summaryAvgMastery').textContent =
+            summary.recentAccuracy === null ? '—' : `${summary.recentAccuracy}%`;
+
+        // 正确率差：+n% 上升（绿）/ -n% 下降（红）/ ±0% 持平（灰）；无历史可比则不显示
+        const deltaEl = document.getElementById('summaryAccuracyDelta');
+        if (deltaEl) {
+            const d = summary.accuracyDelta;
+            deltaEl.classList.remove('hidden', 'up', 'down', 'flat');
+            if (d === null || d === undefined) {
+                deltaEl.classList.add('hidden');
+                deltaEl.textContent = '';
+            } else if (d > 0) {
+                deltaEl.classList.add('up');
+                deltaEl.textContent = `+${d}%`;
+            } else if (d < 0) {
+                deltaEl.classList.add('down');
+                deltaEl.textContent = `${d}%`;
+            } else {
+                deltaEl.classList.add('flat');
+                deltaEl.textContent = '±0%';
+            }
+        }
     }
 
     // 绘制当前 sheet 的折线图，并同步标签态与单位

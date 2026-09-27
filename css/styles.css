@@ -17771,6 +17771,55 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--ep-mut);
 }
 
+/* 结算：出牌赋分与 MVP 荣誉标 */
+.ep-rank-score {
+    min-width: 52px;
+    text-align: right;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ep-gold);
+}
+
+.ep-rank-mvp {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: var(--ep-gold);
+    color: var(--ep-gold-ink);
+}
+
+.ep-mvp-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--ep-gold);
+    background: rgba(212, 162, 76, 0.14);
+    font-size: 0.85rem;
+    color: #fff;
+}
+
+.ep-mvp-line i {
+    color: var(--ep-gold);
+}
+
+.ep-mvp-line em {
+    font-style: normal;
+    font-weight: 700;
+    color: var(--ep-gold);
+}
+
+.ep-mvp-line span {
+    flex: 1 1 100%;
+    font-size: 0.72rem;
+    color: var(--ep-mut);
+}
+
 .ep-review {
     display: flex;
     flex-direction: column;
@@ -17949,6 +17998,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .user-caret {
     font-size: 10px;
     color: var(--text-secondary);
+}
+
+/* 用户配置未落盘提示：昵称末尾的感叹号图标（深浅主题通用，--warning 两套主题均已定义） */
+.config-dirty-hint {
+    color: var(--warning, #F59E0B);
+    font-size: 0.95rem;
+    cursor: help;
+    animation: config-dirty-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes config-dirty-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
 }
 
 /* 下拉菜单 */
@@ -18610,6 +18672,24 @@ i.dropdown-item-icon {
     color: var(--primary);
     line-height: 1;
 }
+
+/* 正确率卡片：数值 + 与历史平均正确率的差值（±n%） */
+.summary-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.summary-delta {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.summary-delta.up { color: var(--success); }
+.summary-delta.down { color: var(--error); }
+.summary-delta.flat { color: var(--text-tertiary); }
 
 .summary-label {
     font-size: 0.875rem;

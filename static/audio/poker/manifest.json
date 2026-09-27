@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "name": "play",
+      "file": "play.wav",
+      "bytes": 8864,
+      "label": "出牌 / 跟牌"
+    },
+    {
+      "name": "pass",
+      "file": "pass.wav",
+      "bytes": 7100,
+      "label": "不出"
+    },
+    {
+      "name": "bomb",
+      "file": "bomb.wav",
+      "bytes": 31796,
+      "label": "炸弹"
+    },
+    {
+      "name": "lead",
+      "file": "lead.wav",
+      "bytes": 18566,
+      "label": "牌权切换"
+    },
+    {
+      "name": "win",
+      "file": "win.wav",
+      "bytes": 46348,
+      "label": "胜利"
+    },
+    {
+      "name": "lose",
+      "file": "lose.wav",
+      "bytes": 41938,
+      "label": "失败"
+    }
+  ],
+  "bytes": 154612
+}

@@ -9,11 +9,17 @@
  * 设计取舍（与英语麻将同源，但换成扑克节奏）：
  * - 不比字母大小：拼得出来就能跟，拼不出来就得过 —— 输赢归因于「词汇量」而不是运气；
  * - 炸弹 = 词书里 ≥N 字母的真词（词书外的长词只能当普通牌），每个词全场只能用一次
- *   （当普通词还是炸弹都算），出炸弹时亮音标释义；
+ *   （当普通词还是炸弹都算），出炸弹时亮音标释义；同一个词的炸弹全场每天只能出一次，
+ *   次日重置 —— 免得当天被同一种大词反复压制；
+ * - 出牌赋分：长牌 / B2 以上高级词 / 炸弹各有加权，与胜负分开计，结算评选 MVP；
  * - 一个墩要「其余人全过」才收，有人跟得上就继续绕圈跟 —— 所以牌权归最后出牌者，不是一轮就定；
  * - 普通单词查全量基础词典（10 万词），所以小词书也不会把对局卡死；
- * - AI 强弱 = 词汇视野（CEFR 档）× 选牌策略（贪短 / 适中 / 抢长）× 失误率，
- *   它只看得见自己的手牌与桌面公开信息，绝不偷看。
+ *   CEFR 表里词典未收录的缩写 / 专名不作为合法词（出了也查不到释义）；
+ * - AI 强弱 = 词汇视野（CEFR 档）× 选牌策略（按权重随机出 1~N 字）× 失误率；
+ *   它还会避开手里的炸弹材料，不会为了跟小牌把攒好的炸弹拆了；只看得见自己的手牌与桌面公开信息。
+ *   困难模式首墩由随机一位人机先出。
+ * - 音效（出牌 / 炸弹 / 牌权切换 / 胜负）不打包进插件，放在仓库 static/audio/poker/，
+ *   由设置页按需从 GitHub 下载并缓存到本机 localStorage（见文件末尾「音效」段）。
  */
 (function () {
     'use strict';
@@ -45,19 +51,29 @@
     var LEVELS = {
         easy: {
             label: '简单', cefr: ['A1', 'A2'],
-            leadPick: 'short', maxLead: 3, singleLead: 0.30,
+            leadPick: 'short', maxLead: 3,
             passChance: 0.28, blunder: 0.25, bombChance: 0.35
         },
         normal: {
             label: '普通', cefr: ['A1', 'A2', 'B1', 'B2'],
-            leadPick: 'mid', maxLead: 6, singleLead: 0.10,
+            leadPick: 'mid', maxLead: 6,
             passChance: 0.08, blunder: 0.08, bombChance: 0.65
         },
         hard: {
             label: '困难', cefr: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
-            leadPick: 'long', maxLead: 10, singleLead: 0,
+            leadPick: 'long', maxLead: 10,
             passChance: 0, blunder: 0, bombChance: 1
         }
+    };
+
+    // 领出时的「字数权重」（键 = 字母数，值 = 相对权重）：
+    // 过去领出固定挑某个长度（normal/hard 的 maxLead 又都被「炸弹门槛-1」截到 3），
+    // 于是人机几乎永远出 3 字母词，单调且好猜。改成按权重随机挑长度，
+    // 单张 / 双字母 / 三字母…都有出场机会；难度越高越偏向长一点的词。
+    var LEAD_LEN_WEIGHTS = {
+        easy:   { 1: 0.9, 2: 1.2, 3: 0.5 },
+        normal: { 1: 0.4, 2: 1.1, 3: 0.9, 4: 0.5, 5: 0.3 },
+        hard:   { 1: 0.2, 2: 0.8, 3: 1.0, 4: 0.9, 5: 0.6, 6: 0.4 }
     };
 
     var DEFAULT_CFG = { bookIds: [], level: 'normal', bombMin: 4, hints: false };
@@ -69,6 +85,7 @@
         wordSet: null,      // 全部合法单词（基础词典 ∪ CEFR ∪ 词书）
         byLen: null,        // 长度 -> 单词数组
         cefr: null,         // { A1: [words], ... }
+        cefrLevel: null,    // 单词 -> CEFR 档位（结算赋分用）
         known: null,        // 难度 -> Set（AI 认得哪些词）
         dict: null          // 基础词典（取音标/释义）
     };
@@ -157,9 +174,20 @@
             buckets[w.length].push(w);
         }
 
+        var hasDict = !!dict;
         if (dict) { for (var k in dict) add(k); }
+        // CEFR 表里混着词典未收录的缩写 / 专名（如 lin），过去一律当合法词，
+        // 玩家出牌后查不到任何释义 —— 对局记录里就是一个光秃秃的词。
+        // 词典可用时只收词典也收录的词；词典不可用才整表兜底。
+        // 同时记下每个词的 CEFR 档位，供结算赋分识别 B2/C1/C2 等高级词。
+        DATA.cefrLevel = Object.create(null);
         if (cefr) {
-            for (var lv in cefr) cefr[lv].forEach(add);
+            for (var lv in cefr) {
+                cefr[lv].forEach(function (w) {
+                    if (!DATA.cefrLevel[w]) DATA.cefrLevel[w] = lv;
+                    if (!hasDict || dict[w]) add(w);
+                });
+            }
         }
         (bookWords || []).forEach(add);
 
@@ -269,6 +297,56 @@
 
     function isBookWord(w) { return !!BOOK_SET[w]; }
 
+    /* —— 炸弹的「每日一次」限制 ——
+       同一个词当炸弹全场每天只能出一次，次日重置：免得当天被同一种大词反复压制，
+       逼着玩家（和 AI）换别的炸弹打。按「词」记录、不分玩家，规则适用全场。
+       存 localStorage 的 epDailyBombs（已列入 storage.js 的 MIRROR_KEYS，
+       会随用户配置一起落盘 / 换端加载）。 */
+    function todayStamp() {
+        var d = new Date();
+        return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    }
+
+    var DAILY = null;   // 内存缓存，避免在 findBombs 的循环里反复解析 localStorage
+
+    function dailyBombs() {
+        if (DAILY && DAILY.date === todayStamp()) return DAILY;
+        var data = null;
+        try { data = JSON.parse(localStorage.getItem('epDailyBombs') || 'null'); } catch (e) { data = null; }
+        // 跨天（或首次）：视为空表，等价于「第二天重置」
+        if (!data || data.date !== todayStamp() || !data.words || typeof data.words !== 'object') {
+            data = { date: todayStamp(), words: {} };
+        }
+        DAILY = data;
+        return data;
+    }
+
+    function isBombUsedToday(w) {
+        return !!dailyBombs().words[w];
+    }
+
+    function markBombUsedToday(w) {
+        var data = dailyBombs();
+        if (data.words[w]) return;
+        data.words[w] = 1;
+        try { localStorage.setItem('epDailyBombs', JSON.stringify(data)); } catch (e) { /* 忽略 */ }
+    }
+
+    /* —— 出牌赋分 ——
+       分值只衡量「这手牌有多难出、多有分量」，与胜负（谁先出完）分开计：
+       长牌更难凑、高级词（B2 以上）更难想、炸弹最能扭转牌权，各给不同权重。
+       结算时按总分评选 MVP。 */
+    var CEFR_BONUS = { B1: 1, B2: 2, C1: 4, C2: 6 };
+
+    function playScore(word, isBomb, len) {
+        if (!word) return 1;                              // 单牌：1 分
+        var s = len;                                      // 每出一张牌 1 分
+        if (len >= 5) s += (len - 4) * 2;                 // 5 字母起，每多一个字母再加 2 分
+        s += CEFR_BONUS[(DATA.cefrLevel || {})[word]] || 0;
+        if (isBomb) s += 6 + len;                         // 炸弹：重奖
+        return s;
+    }
+
     function dictEntry(w) {
         var d = DATA.dict;
         if (!d) return null;
@@ -323,10 +401,12 @@
         return list.filter(function (w) { return !used[w]; });
     }
 
-    // 手牌里所有能凑出的炸弹：长度 ≥ max(炸弹门槛, 台面炸弹长度)、在词书里、且本局没用过
+    // 手牌里所有能凑出的炸弹：长度 ≥ max(炸弹门槛, 台面炸弹长度)、在词书里、且本局没用过；
+    // 「今天已经出过的炸弹」也不再列出（全场每日一次，见 isBombUsedToday）。
     function findBombs(hand, bombMin, used, minLen, known) {
         var min = Math.max(bombMin || 4, minLen || 0);
         var out = findAll(hand, min, MAX_WORD_LEN, known).filter(isBookWord);
+        out = out.filter(function (w) { return !isBombUsedToday(w); });
         if (!used) return out;
         return out.filter(function (w) { return !used[w]; });
     }
@@ -345,7 +425,8 @@
         hintWords: null,
         dataReady: false,
         timers: [],
-        busy: false
+        busy: false,
+        audio: {}         // 音效名 -> Audio 实例（用完复用，避免重复解码）
     };
 
     /* —— 选牌（有序）：点选加入、再点移出，拖动 / 键盘可改顺序 —— */
@@ -620,6 +701,7 @@
                 hand: hand,
                 finished: false,
                 rank: 0,
+                score: 0,     // 出牌赋分累计（长牌 / 高级词 / 炸弹），结算据此评选 MVP
                 lastPlay: null,
                 plays: []
             });
@@ -652,9 +734,15 @@
         S.jokerPick = null;
         S.hintWords = null;
         S.view = 'game';
-        logLine('发牌完毕，每人 ' + HAND_SIZE + ' 张。你先出牌。');
-        beginRound(0);
+        // 困难模式：由随机一位人机先手领出（不再总是玩家坐庄先出）。
+        // 只在本局第一墩生效；后续牌权按规则自然流转。
+        var firstLeader = 0;
+        if (S.cfg.level === 'hard') firstLeader = 1 + Math.floor(Math.random() * 3);
+        logLine('发牌完毕，每人 ' + HAND_SIZE + ' 张。');
+        beginRound(firstLeader);
         render();
+        // 领出者是人机时要主动推动对局（beginRound 只摆状态，不排 AI 行动）
+        if (S.game.turn !== 0) scheduleAi();
     }
 
     function beginRound(leader) {
@@ -768,6 +856,8 @@
         // 本局出过的词不能再用（不管当时是当普通词还是炸弹出的）
         if (g.usedWords[word]) return '「' + word.toUpperCase() + '」本局已经用过了';
         if (useBomb) {
+            // 全场每日一次：同一个词当炸弹今天已经出过就不再可用（次日重置）
+            if (isBombUsedToday(word)) return '「' + word.toUpperCase() + '」今天的炸弹已经用过了（次日重置）';
             if (g.bombLevel > 0 && word.length < g.bombLevel) {
                 return '炸弹要同样长或更长才能压过（当前 ' + g.bombLevel + ' 字母炸弹）';
             }
@@ -874,6 +964,9 @@
             codes: codes,   // 牌河要照着这几张牌、按词的顺序画出来
             jokerFor: res.jokerFor || []
         };
+        // 赋分：长牌 / 高级词 / 炸弹各有权重（见 playScore），累计到玩家总分，结算评选 MVP
+        play.score = playScore(res.word, !!res.isBomb, res.len);
+        p.score = (p.score || 0) + play.score;
         g.roundPlays.push(play);
         g.lastPlayer = seat;
         g.passCount = 0;   // 有人成功出牌，「连续不出」从头数
@@ -883,23 +976,27 @@
         if (res.isBomb) {
             g.usedWords[res.word] = 1;
             g.bombLevel = res.len;
+            markBombUsedToday(res.word);   // 全场每日一次：记下这个词今天已经当过炸弹
             if (seat === 0) g.humanWords.push(res.word); else g.aiBombs.push(res.word);
-            logLine(seatName(seat) + ' 打出炸弹 ' + res.word.toUpperCase() + '（' + res.len + ' 字母）' +
-                meaningSuffix(res.word));
+            logLine(seatName(seat) + ' 打出炸弹 ' + res.word.toUpperCase() + '（' + res.len + ' 字母 · +' +
+                play.score + ' 分）' + meaningSuffix(res.word));
         } else {
             // 单牌也要记门槛（=1）：这样「单牌只能跟单牌」才立得住
             g.level = Math.max(g.level, res.len);
             if (res.len > 1) {
                 g.usedWords[res.word] = 1;
                 if (seat === 0) g.humanWords.push(res.word);
-                logLine(seatName(seat) + ' 出 ' + res.word.toUpperCase() + '（' + res.len + ' 字母）' +
-                    meaningSuffix(res.word));
+                logLine(seatName(seat) + ' 出 ' + res.word.toUpperCase() + '（' + res.len + ' 字母 · +' +
+                    play.score + ' 分）' + meaningSuffix(res.word));
             } else {
                 // 单牌只能越出越大：记下本墩最高的一张，别人要么出更大的、要么用炸弹
                 if (!g.singleTop || singleRank(codes[0]) > singleRank(g.singleTop)) g.singleTop = codes[0];
                 logLine(seatName(seat) + ' 出单牌 ' + displayCode(removed[0]));
             }
         }
+
+        // 音效：炸弹有独立的爆响，普通出牌（含单牌）是纸牌落桌的一声
+        sfx(res.isBomb ? 'bomb' : 'play');
 
         if (p.hand.length === 0) {
             p.finished = true;
@@ -988,6 +1085,8 @@
         // 最后成功出牌的人拿到下一墩的出牌权；全过则领出者留权
         var next = (g.lastPlayer !== null) ? g.lastPlayer : g.leader;
         if (g.players[next].finished) next = firstActiveSeat(next);
+        // 音效：牌权易主（本墩收给了另一个人）单独给一声提示
+        if (next !== g.leader) sfx('lead');
         beginRound(next);
         render();
         if (g.turn !== 0) scheduleAi();
@@ -1062,6 +1161,7 @@
         if (!g || g.over || g.turn !== 0 || g.phase === 'lead' || frozen()) return;
         g.passCount++;
         logLine('你 不出');
+        sfx('pass');
         render();
         advance();
     }
@@ -1114,15 +1214,19 @@
         if (decision.action === 'pass') {
             g.passCount++;
             logLine(seatName(seat) + ' 不出');
+            sfx('pass');
             render();
             advance();
             return;
         }
-        var res = validate(decision.cards, { isLead: g.phase === 'lead' });
+        // forceWord：按 AI 选定的词出牌。validate 的默认通道是「在这几张牌能拼的词里取第一个」，
+        // 那可能解析成另一个词（甚至不是炸弹）—— AI 明明选好了炸弹/某长度的词，却可能被换掉或直接作废。
+        var res = validate(decision.cards, { isLead: g.phase === 'lead', forceWord: decision.word || null });
         if (!res.ok) {
             // 兜底：AI 算错就退回「过」，绝不把对局卡住
             g.passCount++;
             logLine(seatName(seat) + ' 不出');
+            sfx('pass');
             render();
             advance();
             return;
@@ -1142,44 +1246,105 @@
         return decideFollow(p, lv, g);
     }
 
+    // 领出的目标字数：按难度权重在 1..maxNormal 里随机挑（见 LEAD_LEN_WEIGHTS）
+    function pickLeadLength(maxNormal) {
+        var weights = LEAD_LEN_WEIGHTS[S.cfg.level] || LEAD_LEN_WEIGHTS.normal;
+        var upto = [];
+        var total = 0;
+        for (var L = 1; L <= maxNormal; L++) {
+            // 权重表里没列出的长度（炸弹门槛放宽时会出现）给一个递减的默认值
+            var v = weights[L];
+            if (v == null) v = L <= 2 ? 1 : 0.7 / (L - 1);
+            total += v;
+            upto.push({ len: L, acc: total });
+        }
+        if (!total) return 2;
+        var r = Math.random() * total;
+        for (var i = 0; i < upto.length; i++) {
+            if (r < upto[i].acc) return upto[i].len;
+        }
+        return upto[upto.length - 1].len;
+    }
+
     function decideLead(p, lv, g) {
         var hand = p.hand;
         var known = DATA.known[S.cfg.level];
         var bombMin = S.cfg.bombMin || 4;
-        var maxNormal = Math.max(2, Math.min(lv.maxLead, bombMin - 1));
+        // 普通领出的字数上限：难度越高越能领长词。关键是「只出不是炸弹的词」——
+        // 词书外的长词只是普通牌，出了不亏，也让人机不至于永远只会出 2~3 字
+        //（旧版固定取最长、上限又被门槛截到 3，于是几乎总是 3 字）。
+        var cap = Math.min(MAX_WORD_LEN, Math.max(lv.maxLead, bombMin));
+        var target = pickLeadLength(cap);
 
-        // 笨的一档偶尔领出单张甩废牌（像人犯懒）
-        if (Math.random() < lv.singleLead) {
+        // 目标 1 字：甩一张废牌（单牌只能越出越大）
+        if (target === 1) {
             var junk = worstSingle(hand);
             if (junk) return { action: 'play', cards: [junk], asBomb: false };
         }
 
-        // 普通领出只走「门槛以下」的短词；够门槛的长词是炸弹，留着压人
-        var words = freshWords(findAll(hand, 2, maxNormal, known));
-        if (!words.length) words = freshWords(findAll(hand, 2, Math.max(2, bombMin - 1), known));
+        var words = normalLeads(hand, target, target, known, g, bombMin);
+        if (!words.length) words = normalLeads(hand, 2, cap, known, g, bombMin);
 
         if (!words.length) {
             var bombs = findBombs(hand, bombMin, g.usedWords, 0, known);
             if (bombs.length) {
                 bombs.sort(function (a, b) { return a.length - b.length; });
-                return { action: 'play', cards: makeCards(hand, bombs[0]), asBomb: true };
+                return { action: 'play', cards: makeCards(hand, bombs[0]), asBomb: true, word: bombs[0] };
             }
             var s = worstSingle(hand);
             return { action: 'play', cards: s ? [s] : [], asBomb: false };
         }
 
-        words.sort(function (a, b) { return a.length - b.length; });
-        var pick;
-        if (lv.blunder > 0 && Math.random() < lv.blunder) {
-            pick = words[Math.floor(Math.random() * words.length)];
-        } else if (lv.leadPick === 'long') {
-            pick = words[words.length - 1];
-        } else if (lv.leadPick === 'mid') {
-            pick = pickLongestAtMost(words, 3) || words[0];
-        } else {
-            pick = words[0];
+        // 挑词时一并护住手里的炸弹材料（见 chooseKeepBest）：领出也不该随手拆掉炸弹
+        var pick = chooseKeepBest(hand, words, g, lv) || words[0];
+        return { action: 'play', cards: makeCards(hand, pick), asBomb: false, word: pick };
+    }
+
+    // 可领出的普通词：字数在 [minLen, maxLen]、非炸弹（词书外的长词只是普通牌）、本局没用过
+    function normalLeads(hand, minLen, maxLen, known, g, bombMin) {
+        return findAll(hand, minLen, maxLen, known).filter(function (w) {
+            return !isBombWord(w, bombMin) && !g.usedWords[w];
+        });
+    }
+
+    // 手上的炸弹材料：返回「牌 id → 该炸弹的分值」。
+    // 挑普通词时用它避开这些牌，免得人机为了跟一手小牌，把攒好的炸弹拆了。
+    function bombReserve(hand, g) {
+        var reserve = {};
+        var known = DATA.known[S.cfg.level];
+        var bombs = findBombs(hand, S.cfg.bombMin || 4, g.usedWords, 0, known);
+        bombs.forEach(function (w) {
+            var picked = pickCards(hand, w);
+            if (!picked) return;
+            var val = playScore(w, true, w.length);
+            picked.ids.forEach(function (id) {
+                if (!reserve[id] || reserve[id] < val) reserve[id] = val;
+            });
+        });
+        return reserve;
+    }
+
+    // 出这个单词会拆掉多少「炸弹材料」（按被占用的牌的炸弹分值累加）
+    function wordBreakCost(hand, word, reserve) {
+        var picked = pickCards(hand, word);
+        if (!picked) return 0;
+        var cost = 0;
+        picked.ids.forEach(function (id) { if (reserve[id]) cost += reserve[id]; });
+        return cost;
+    }
+
+    // 从候选词里挑一手：优先「出牌有价值」（长牌 / 高级词，见 playScore），
+    // 同时重罚拆炸弹的选法 —— 等价于让人机学会保住手里的炸弹。
+    function chooseKeepBest(hand, words, g, lv, reserve) {
+        if (!reserve) reserve = bombReserve(hand, g);
+        var best = null, bestVal = -Infinity;
+        for (var i = 0; i < words.length; i++) {
+            var w = words[i];
+            var val = playScore(w, false, w.length) - wordBreakCost(hand, w, reserve);
+            if (lv && lv.blunder > 0 && Math.random() < lv.blunder) val += Math.random() * 3; // 菜档看走眼
+            if (val > bestVal) { bestVal = val; best = w; }
         }
-        return { action: 'play', cards: makeCards(hand, pick), asBomb: false };
+        return best;
     }
 
     function decideFollow(p, lv, g) {
@@ -1201,23 +1366,29 @@
         var bombs = findBombs(hand, bombMin, g.usedWords, g.bombLevel, known);
         bombs.sort(function (a, b) { return a.length - b.length; });
 
+        // 挑普通牌时先算好手里的炸弹材料：跟一手小牌若会拆掉炸弹，就得掂量值不值
+        var reserve = bombReserve(hand, g);
+        var chosen = words.length ? chooseKeepBest(hand, words, g, lv, reserve) : null;
+        var breakCost = (chosen && words.length) ? wordBreakCost(hand, chosen, reserve) : 0;
+
+        // 跟普通牌会拆炸弹、而手里正有炸弹可打：按 bombChance 直接用炸弹夺回牌权
+        if (chosen && breakCost > 0 && bombs.length && Math.random() < lv.bombChance) {
+            var bb = (lv.leadPick === 'short') ? bombs[0] : bombs[bombs.length - 1];
+            return { action: 'play', cards: makeCards(hand, bb), asBomb: true, word: bb };
+        }
+
         var canPlay = !!(words.length || single);
 
         // 能跟却选择过（失误 / 保守）
         if (canPlay && Math.random() < lv.passChance) return { action: 'pass' };
 
-        if (canPlay) {
-            if (single) return { action: 'play', cards: [single], asBomb: false };
-            words.sort(function (a, b) { return a.length - b.length; });
-            var pick = words[0];
-            if (lv.blunder > 0 && Math.random() < lv.blunder) pick = words[Math.floor(Math.random() * words.length)];
-            return { action: 'play', cards: makeCards(hand, pick), asBomb: false };
-        }
+        if (single) return { action: 'play', cards: [single], asBomb: false };
+        if (chosen) return { action: 'play', cards: makeCards(hand, chosen), asBomb: false, word: chosen };
 
         // 只能靠炸弹
         if (bombs.length && Math.random() < lv.bombChance) {
             var b = (lv.leadPick === 'short') ? bombs[0] : bombs[bombs.length - 1];
-            return { action: 'play', cards: makeCards(hand, b), asBomb: true };
+            return { action: 'play', cards: makeCards(hand, b), asBomb: true, word: b };
         }
         return { action: 'pass' };
     }
@@ -1228,14 +1399,6 @@
         var byId = {};
         hand.forEach(function (c) { byId[c.id] = c; });
         return picked.ids.map(function (id) { return byId[id]; }).filter(Boolean);
-    }
-
-    function pickLongestAtMost(words, cap) {
-        var best = null;
-        for (var i = 0; i < words.length; i++) {
-            if (words[i].length <= cap) best = words[i];
-        }
-        return best;
     }
 
     // 甩废牌用：优先甩掉没有王、且元音/常见字母之外的散牌
@@ -1284,6 +1447,7 @@
                 if (!canForm(w, hc)) continue;
                 var bomb = isBombWord(w, S.cfg.bombMin);
                 if (!bomb && !(known && known[w])) continue; // 只报「档位内」的漏词，避免全是生僻词
+                if (bomb && isBombUsedToday(w)) continue;     // 今日已当炸弹出过的词，再推荐也无法出
                 out.push({ word: w, bomb: bomb });
             }
         }
@@ -1312,14 +1476,28 @@
         return ordered;
     }
 
+    // 本局 MVP：出牌赋分最高者（同分时名次靠前者优先）。赋分与胜负分开，鼓励出长难词与炸弹。
+    function mvpOf(players) {
+        var best = null;
+        players.forEach(function (p) {
+            if (!best) { best = p; return; }
+            var ps = p.score || 0, bs = best.score || 0;
+            if (ps > bs || (ps === bs && p.rank < best.rank)) best = p;
+        });
+        return best;
+    }
+
     function settle() {
         var g = S.game;
         if (g.over) return;
         g.over = true;
         clearTimers();
         g.finalRanks = rankAll();
+        g.mvp = mvpOf(g.players);
         g.missed = computeMissed();
         logLine('—— 本局结束 ——');
+        // 音效：你先出完算胜，否则按失败收尾（血战到底，只论头名）
+        sfx(g.players[0].rank === 1 ? 'win' : 'lose');
         S.view = 'result';
         render();
     }
@@ -1505,9 +1683,10 @@
             '<b>玩法</b>：领出者拼一个单词（或甩单牌），其余人必须跟「字数相同」的单词，跟不动就过。' +
             '一圈下来（其余人都过）本墩才收，有人跟得上就继续循环跟下去。' +
             '够 ' + S.cfg.bombMin + ' 字母<b>且在你词书里</b>的词是<b class="ep-gold">金色炸弹</b>，' +
-            '能压掉任何普通牌，且要拿同样长或更长的炸弹来压。每个词全场只能用一次（当普通词还是炸弹都算）。' +
+            '能压掉任何普通牌，且要拿同样长或更长的炸弹来压。每个词全场只能用一次（当普通词还是炸弹都算），' +
+            '同一个词的炸弹<b>每天全场只能出一次</b>（次日重置）。' +
             '甩单牌只能<b>越出越大</b>（A→Z），出到 Z 之后只能用炸弹夺回牌权 —— 尾牌也好借此出手。' +
-            '先出完手牌者胜，血战到底排完 4 名。' +
+            '先出完手牌者胜，血战到底排完 4 名；长牌、B2 以上高级词、炸弹各有赋分，结算按总分评选 MVP。' +
             '</div>' +
             '<div class="ep-field">' +
             '<div class="ep-field-label">词书（决定 AI 与提示的词库，也决定哪些长词算炸弹）</div>' +
@@ -1518,7 +1697,7 @@
             '<div class="form-row">' +
             '<div class="form-group"><label class="form-label">AI 难度</label>' +
             '<select class="form-select setting-select" id="epLevel">' + lvOpts + '</select>' +
-            '<div class="ep-hint-text">难度 = 词汇视野 × 选牌策略 × 失误率，越简单越容易看走眼。</div></div>' +
+            '<div class="ep-hint-text">难度 = 词汇视野 × 选牌策略 × 失误率，越简单越容易看走眼；困难模式下首墩由随机一位人机先出。</div></div>' +
             '<div class="form-group"><label class="form-label">炸弹门槛</label>' +
             '<select class="form-select setting-select" id="epBombMin">' + bombOpts + '</select>' +
             '<div class="ep-hint-text">越长越难凑，也越难被压。</div></div>' +
@@ -1784,16 +1963,28 @@
     function renderResult() {
         var g = S.game;
         var ranks = g.finalRanks || [];
+        var mvpSeat = g.mvp ? g.mvp.seat : -1;
         var rows = ranks.map(function (p) {
             var meCls = p.isHuman ? ' ep-rank-me' : '';
             var medal = p.rank === 1 ? '🥇' : (p.rank === 2 ? '🥈' : (p.rank === 3 ? '🥉' : '4'));
             return '<div class="ep-rank-row' + meCls + '">' +
                 '<span class="ep-rank-medal">' + medal + '</span>' +
-                '<span class="ep-rank-name">' + esc(p.name) + (p.isHuman ? '（你）' : '') + '</span>' +
+                '<span class="ep-rank-name">' + esc(p.name) + (p.isHuman ? '（你）' : '') +
+                (p.seat === mvpSeat ? '<span class="ep-rank-mvp">MVP</span>' : '') + '</span>' +
                 '<span class="ep-rank-state">' + (p.finished ? '已出完' : '剩 ' + p.hand.length + ' 张') + '</span>' +
                 '<span class="ep-rank-words">' + (p.plays.filter(function (x) { return x.word; }).length) + ' 词</span>' +
+                '<span class="ep-rank-score">' + (p.score || 0) + ' 分</span>' +
                 '</div>';
         }).join('');
+
+        var mvpLine = '';
+        if (g.mvp) {
+            mvpLine = '<div class="ep-mvp-line">' +
+                '<i class="fi-sr-trophy"></i>本局 MVP：<b>' + esc(g.mvp.name) +
+                (g.mvp.isHuman ? '（你）' : '') + '</b>' +
+                '<em>' + (g.mvp.score || 0) + ' 分</em>' +
+                '<span>长牌、B2 以上高级词、炸弹各有加权，与胜负分开计</span></div>';
+        }
 
         var mine = g.humanWords.slice();
         var myWordsHTML = '';
@@ -1838,6 +2029,7 @@
             '<span class="ep-result-sub">血战到底 · 排完 4 名' +
             (finishOrder ? ' · 出完顺序：' + finishOrder : '') + '</span></div>' +
             '<div class="ep-ranks">' + rows + '</div>' +
+            mvpLine +
             '<div class="ep-review">' +
             '<h4><i class="fi-rr-star"></i>复盘 · 你拼出的词</h4>' + myWordsHTML +
             '<h4><i class="fi-rr-bulb"></i>复盘 · 你本来还能拼出这些</h4>' + missedHTML +
@@ -2130,7 +2322,9 @@
                 out.push({ token: '__single__', label: '甩单牌', len: 1 });
             }
             if (g.level === 0) {
-                freshWords(findAll(hand, 2, Math.max(2, bombMin - 1), known))
+                // 提示与 AI 同口径：不只列门槛以下的短词，词书外的长词（普通牌）也能领出
+                var cap = Math.min(MAX_WORD_LEN, Math.max(3, bombMin + 1));
+                normalLeads(hand, 2, cap, known, g, bombMin)
                     .sort(function (a, b) { return a.length - b.length; })
                     .slice(0, 8).forEach(function (w) {
                         out.push({ token: w, label: w.toUpperCase(), len: w.length });
@@ -2162,6 +2356,108 @@
         render();
     }
 
+    /* ============================ 音效 ============================ */
+
+    // 音效文件不打包进插件（避免 main.js 撑破 5MB），而是放在仓库 static/audio/poker/ 下，
+    // 由主设置页的「下载音效」按钮从 GitHub raw 流式下载，缓存到 localStorage 后复用。
+    var AUDIO_RAW_BASE = 'https://raw.githubusercontent.com/Losecloud/reciting/main/static/audio/poker/';
+    var AUDIO_CACHE_KEY = 'epAudioPack';   // 只存本机（非镜像键），不进用户配置、不参与跨端同步
+
+    var AUDIO = {
+        urls: {},         // 音效名 -> data: URL
+        ready: false,
+        manifest: null
+    };
+
+    // 读本地缓存（跨会话复用，无需每次开桌都重新下载）
+    function loadAudioCache() {
+        if (AUDIO.ready) return true;
+        try {
+            var pack = JSON.parse(localStorage.getItem(AUDIO_CACHE_KEY) || 'null');
+            if (!pack || !pack.files || typeof pack.files !== 'object') return false;
+            var keys = Object.keys(pack.files);
+            if (!keys.length) return false;
+            AUDIO.urls = pack.files;
+            AUDIO.ready = true;
+            return true;
+        } catch (e) { return false; }
+    }
+
+    function clearAudioCache() {
+        AUDIO.urls = {};
+        AUDIO.ready = false;
+        S.audio = {};
+        try { localStorage.removeItem(AUDIO_CACHE_KEY); } catch (e) { /* 忽略 */ }
+    }
+
+    // ArrayBuffer -> base64（分块处理，避免大数组展开触发调用栈上限）
+    function bufToBase64(buf) {
+        var bytes = new Uint8Array(buf);
+        var out = '';
+        var CH = 0x8000;
+        for (var i = 0; i < bytes.length; i += CH) {
+            out += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+        }
+        return btoa(out);
+    }
+
+    // 下载整包音效。onProgress(ratio, loaded, total, label)；ratio 为 null 表示总大小未知。
+    // 串行下载：进度读条平滑、出错也好定位是哪一个文件。
+    function downloadPokerAudio(onProgress) {
+        var total = 0, loaded = 0;
+        return fetch(AUDIO_RAW_BASE + 'manifest.json', { cache: 'no-store' })
+            .then(function (r) {
+                if (!r.ok) throw new Error('清单下载失败（HTTP ' + r.status + '）');
+                return r.json();
+            })
+            .then(function (mf) {
+                if (!mf || !Array.isArray(mf.files) || !mf.files.length) throw new Error('音效清单为空');
+                AUDIO.manifest = mf;
+                total = mf.bytes || 0;
+                var files = {};
+                var chain = Promise.resolve();
+                mf.files.forEach(function (entry) {
+                    chain = chain.then(function () {
+                        if (onProgress) onProgress(total ? loaded / total : null, loaded, total, entry.label || entry.name);
+                        return fetch(AUDIO_RAW_BASE + entry.file, { cache: 'no-store' })
+                            .then(function (r) {
+                                if (!r.ok) throw new Error('「' + (entry.label || entry.name) + '」下载失败（HTTP ' + r.status + '）');
+                                return r.arrayBuffer();
+                            })
+                            .then(function (buf) {
+                                files[entry.name] = 'data:audio/wav;base64,' + bufToBase64(buf);
+                                loaded += buf.byteLength;
+                                if (onProgress) onProgress(total ? loaded / total : null, loaded, total, entry.label || entry.name);
+                            });
+                    });
+                });
+                return chain.then(function () {
+                    AUDIO.urls = files;
+                    AUDIO.ready = true;
+                    try {
+                        localStorage.setItem(AUDIO_CACHE_KEY, JSON.stringify({ version: mf.version || 1, files: files }));
+                    } catch (e) { /* 配额不足：内存里已可用，本次会话照常出声 */ }
+                    return files;
+                });
+            });
+    }
+
+    // 播放一个音效。未下载 / 未开启音效开关 / 浏览器拦截自动播放时都静默跳过，绝不干扰对局。
+    function sfx(name) {
+        var app = window.app;
+        if (app && app.settings && app.settings.enableSoundEffects === false) return;
+        if (!loadAudioCache()) return;
+        var url = AUDIO.urls[name];
+        if (!url) return;
+        try {
+            var a = S.audio[name] || (S.audio[name] = new Audio(url));
+            a.currentTime = 0;
+            a.volume = 0.8;
+            var p = a.play();
+            if (p && p.catch) p.catch(function () { /* 自动播放策略：忽略 */ });
+        } catch (e) { /* 忽略 */ }
+    }
+
     /* ============================ 对外接口 ============================ */
 
     var EnglishPoker = {
@@ -2187,7 +2483,15 @@
             S.jokerPick = null;
         },
         // 供「设置」变更词书后重新开局时刷新炸弹池
-        reload: function () { refreshBookPool(); }
+        reload: function () { refreshBookPool(); },
+        // 音效接口：主设置页的「下载音效」入口与对局播放共用这一份实现
+        audio: {
+            isReady: function () { return loadAudioCache(); },
+            download: downloadPokerAudio,
+            clear: clearAudioCache,
+            base: AUDIO_RAW_BASE,
+            cacheKey: AUDIO_CACHE_KEY
+        }
     };
 
     window.EnglishPoker = EnglishPoker;

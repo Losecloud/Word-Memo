@@ -126,16 +126,139 @@ const Storage = {
         }
     },
 
+    // ----------------------------------------
+    // 独立 localStorage 键 → 用户配置镜像（extras）
+    // ----------------------------------------
+    // 收藏词单、词典授权码、AI 模型选择、练习配置等历史上散落在独立 localStorage 键中，
+    // 只随浏览器缓存走、不写入 user_*.json，换端加载同一配置后这些数据会丢失。
+    // 这里把它们集中镜像进用户配置的 extras 分区：写这些键时自动同步，加载配置时回填。
+    MIRROR_KEYS: [
+        'favoriteWordLists',            // 收藏词单（含自建词单的单词及欧路生词本链接）
+        'favoriteWordListCur',
+        'favoriteWordListPreferred',
+        'eudicToken',                   // 欧路词典 OpenAPI 授权码
+        'eudicSynced',                  // 各收藏词单的欧路同步基线
+        'aiModelUsage',                 // AI 模型最近使用顺序
+        'wreBookLang',
+        'wreCefrPrefs',
+        'synonymPracticeConfig',        // 同义替换练习配置
+        'liyiPracticeConfig',           // 熟词僻义练习配置
+        'epConfig',                     // 英文扑克配置
+        'workshopAppFavorites',         // AI 工坊收藏
+        'wordListColWidths',            // 浏览词单列宽
+        'enabledDicts', 'knownDicts', 'dictMetas', 'browseDictCur', 'baseDictDisabled', // 词典启用/清单/首选
+        'writingInputDebounce', 'cefrMarkEnabled', 'aiCorrectionEnabled' // AI 工坊写作设置
+    ],
+    MIRROR_KEY_PREFIXES: ['aiModel_'],  // AI 各下拉上次选中的模型 ID
+
+    // 该键是否需随用户配置一同持久化
+    _isMirrorKey(k) {
+        if (!k) return false;
+        if (this.MIRROR_KEYS.indexOf(k) >= 0) return true;
+        if (this.MIRROR_KEY_PREFIXES.some(p => k.indexOf(p) === 0)) return true;
+        const user = this.getCurrentUser() || 'default';
+        return k === `liyiWordStats_${user}`; // 熟词僻义单词练习统计（按用户隔离）
+    },
+
+    // 采集当前所有待镜像键的原始值
+    _collectExtras() {
+        const extras = {};
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (this._isMirrorKey(k)) extras[k] = localStorage.getItem(k);
+            }
+        } catch (e) { /* 忽略 */ }
+        return extras;
+    },
+
+    // 把当前待镜像键合并进配置的 extras（已删除的镜像键同步剔除）
+    _syncExtrasToConfig(config) {
+        if (!config) return config;
+        const collected = this._collectExtras();
+        const prev = (config.extras && typeof config.extras === 'object') ? config.extras : {};
+        for (const k of Object.keys(prev)) {
+            if (this._isMirrorKey(k) && !Object.prototype.hasOwnProperty.call(collected, k)) delete prev[k];
+        }
+        config.extras = Object.assign(prev, collected);
+        return config;
+    },
+
+    // 用配置中的 extras 回填独立键（加载配置后调用；值为 null 时移除该键）
+    _applyExtras(config) {
+        const extras = config && config.extras;
+        if (!extras || typeof extras !== 'object') return;
+        this._applyingExtras = true;
+        try {
+            for (const k of Object.keys(extras)) {
+                if (!this._isMirrorKey(k)) continue;
+                try {
+                    if (extras[k] === null || extras[k] === undefined) localStorage.removeItem(k);
+                    else localStorage.setItem(k, String(extras[k]));
+                } catch (e) { /* 忽略单键失败 */ }
+            }
+        } finally {
+            this._applyingExtras = false;
+        }
+    },
+
+    // 拦截独立键的写入/删除，防抖后同步进用户配置（无需改动各业务写入点）
+    _installMirrorHook() {
+        if (this._mirrorHooked) return;
+        this._mirrorHooked = true;
+        const self = this;
+        const rawSet = localStorage.setItem.bind(localStorage);
+        const rawRemove = localStorage.removeItem.bind(localStorage);
+        localStorage.setItem = function (k, v) {
+            rawSet(k, v);
+            if (!self._applyingExtras && self._isMirrorKey(k)) self.scheduleExtrasMirror();
+        };
+        localStorage.removeItem = function (k) {
+            rawRemove(k);
+            if (!self._applyingExtras && self._isMirrorKey(k)) self.scheduleExtrasMirror();
+        };
+    },
+
+    // 防抖同步：把当前待镜像键写入当前用户配置并落盘
+    scheduleExtrasMirror() {
+        if (this._mirrorTimer) clearTimeout(this._mirrorTimer);
+        this._mirrorTimer = setTimeout(() => {
+            this._mirrorTimer = null;
+            const config = this.getUserConfig();
+            if (config) this.saveUserConfig(config);
+        }, 500);
+    },
+
     // 设置当前登录用户
     setCurrentUser(username) {
+        this._installMirrorHook(); // 安装独立键镜像钩子（幂等）
         localStorage.setItem('wordMemory_currentUser', username);
-        // 记录本次登录是否为全新账号（登录前本地无该用户配置）。
-        // 仅全新账号才允许从目录文件恢复数据，避免用旧文件覆盖 localStorage 里的最新数据。
-        this._isFreshUser = !localStorage.getItem(`wordMemory_user_json_${username}`);
         this.initUserConfig(username);
         // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签
         const config = this.getUserConfig();
         if (config && this._migrateCategoryInConfig(config)) this.saveUserConfig(config);
+    },
+
+    // 安全解析 JSON（失败返回 null）
+    _parseJson(text) {
+        if (!text) return null;
+        try { return JSON.parse(text); } catch (e) { return null; }
+    },
+
+    // 配置是否为空壳（无任何用户产生的内容）：用于判断是否可用 user/ 目录文件恢复
+    _isConfigEmpty(config) {
+        if (!config || typeof config !== 'object') return true;
+        const books = config.bookList && config.bookList.books;
+        if (Array.isArray(books) && books.length) return false;
+        const ld = config.learningData || {};
+        if (ld.reviewList && ld.reviewList.length) return false;
+        if (ld.statsHistory && ld.statsHistory.length) return false;
+        if (ld.wordMemory && Object.keys(ld.wordMemory).length) return false;
+        if (config.favoriteWords && config.favoriteWords.length) return false;
+        const today = ld.todayStats || {};
+        if ((today.words || 0) > 0 || (today.time || 0) > 0) return false;
+        if (config.extras && config.extras.favoriteWordLists) return false;
+        return true;
     },
 
     // 获取用户配置文件键名
@@ -147,9 +270,8 @@ const Storage = {
     // 初始化用户配置
     initUserConfig(username) {
         const key = `wordMemory_user_json_${username}`;
-        if (!localStorage.getItem(key)) {
-            // 创建默认科学配置框架
-            const defaultConfig = {
+        // 默认配置框架（无论新建还是合并补齐后续新增字段都要用，故置于分支之外）
+        const defaultConfig = {
                 username: username,
                 version: 1,
                 createdAt: new Date().toISOString(),
@@ -201,9 +323,11 @@ const Storage = {
                     books: []
                 },
                 favoriteWords: [],
+                extras: {}, // 独立 localStorage 键镜像（收藏词单 / 授权码 / AI 模型选择等，见 MIRROR_KEYS）
                 theme: 'light'
             };
-            
+
+        if (!localStorage.getItem(key)) {
             // 尝试迁移旧的无用户数据（如果有的话）
             if (localStorage.getItem('wordMemory_settings')) {
                 try {
@@ -295,10 +419,18 @@ const Storage = {
     saveUserConfig(config) {
         const key = this.getUserConfigKey();
         if (key && config) {
+            // 打上保存时间戳：供加载时与 user/ 文件比较谁更新（换端/手动替换文件后能正确取舍）
+            config.updatedAt = new Date().toISOString();
+            // 先同步独立键镜像（收藏词单 / 授权码 / AI 模型选择 / 练习配置等），保证 json 完整
+            try { this._syncExtrasToConfig(config); } catch (e) { /* 忽略 */ }
             localStorage.setItem(key, JSON.stringify(config));
             // 实时镜像写入本地 user/ 文件夹（异步，失败不影响主流程）
-            this.writeConfigToFile(config).catch((e) => {
+            this.writeConfigToFile(config).then((ok) => {
+                // 写盘成功即已落盘；失败/不可用则标记，界面会在昵称末尾显示感叹号提示
+                this._setConfigDirty(!ok && this.getCurrentUser() !== '游客');
+            }).catch((e) => {
                 console.warn('写入本地配置文件失败:', e);
+                this._setConfigDirty(this.getCurrentUser() !== '游客');
             });
             return true;
         }
@@ -368,10 +500,17 @@ const Storage = {
         }
         try {
             const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-            await this._idbPut('userDir', handle);
+            // 句柄先落地到内存并置为可用：本次会话的读写只依赖它，
+            // 下面 IndexedDB 持久化失败（file:// 或隐私模式下 IndexedDB 被禁用时会抛错）
+            // 只能影响「下次自动恢复授权」，绝不能让已授权的目录在本会话被判为不可用
             this._dirHandle = handle;
             this._dirReady = true;
             localStorage.setItem('wordMemory_haveUserDir', '1');
+            try {
+                await this._idbPut('userDir', handle);
+            } catch (e) {
+                console.warn('目录句柄持久化失败（本次会话仍可读写，下次需重新授权）:', e);
+            }
             console.log('✅ 用户目录已绑定');
             return true;
         } catch (e) {
@@ -438,15 +577,128 @@ const Storage = {
                 const writable = await fileHandle.createWritable();
                 await writable.write(snapshot);
                 await writable.close();
+                return true;
             })
-            .catch((e) => { console.warn('写入本地配置文件失败:', e); });
+            .catch((e) => { console.warn('写入本地配置文件失败:', e); return false; });
         return this._writeChain;
     },
 
-    // 从 user/ 目录读取当前用户配置（仅全新账号时才覆盖本地缓存，避免旧文件覆盖新数据）
+    // ============================================
+    // 配置落盘状态：本地缓存是否比 user/ 文件更新（供界面提示）
+    // ============================================
+
+    _configDirty: false,
+
+    // 最新配置是否尚未写入 user/ 文件（true = 只存在于浏览器缓存，有丢失风险）
+    isConfigDirty() {
+        return !!this._configDirty;
+    },
+
+    // 变更落盘状态并通知宿主界面刷新提示（游客为临时账号，不参与提示）
+    _setConfigDirty(v) {
+        v = !!v;
+        if (this._configDirty === v) return;
+        this._configDirty = v;
+        try {
+            if (typeof window !== 'undefined' && typeof window.__wmConfigDirtyChanged === 'function') {
+                window.__wmConfigDirtyChanged(v);
+            }
+        } catch (e) { /* 忽略 */ }
+    },
+
+    // ============================================
+    // 手动保存 / 导出 / 导入用户配置
+    // ============================================
+
+    // 立即强制落盘：取消防抖窗口，把当前配置（含 extras 镜像）写入缓存与 user/ 文件
+    // 返回 { ok, file, reason }：ok 表示缓存已写入，file 表示已落到 user/ 文件
+    async flushUserConfig() {
+        if (this._mirrorTimer) { clearTimeout(this._mirrorTimer); this._mirrorTimer = null; }
+        const key = this.getUserConfigKey();
+        const config = this.getUserConfig();
+        if (!key || !config) return { ok: false, file: false, reason: 'no-user' };
+        config.updatedAt = new Date().toISOString(); // 手动保存即最新时间戳，换端加载时不被旧文件压制
+        try { this._syncExtrasToConfig(config); } catch (e) { /* 忽略 */ }
+        localStorage.setItem(key, JSON.stringify(config));
+        // 手动保存发生在用户手势中：借机重新申请页面加载时无法申请的目录授权
+        // （restoreUserDirectory 内的 requestPermission 必须处于手势中才会被浏览器放行）
+        if (!this.isFileSystemReady()) {
+            try { await this.restoreUserDirectory(); } catch (e) { /* 忽略 */ }
+        }
+        if (!this.isFileSystemReady()) {
+            this._setConfigDirty(this.getCurrentUser() !== '游客');
+            return { ok: true, file: false, reason: this.hasUserDirectory() ? 'need-permission' : 'no-dir' };
+        }
+        const file = await this.writeConfigToFile(config);
+        this._setConfigDirty(!file && this.getCurrentUser() !== '游客');
+        return { ok: true, file: !!file, reason: file ? '' : 'write-failed' };
+    },
+
+    // 导出当前账号配置（含 extras 镜像）：返回 { name, text }，未登录返回 null
+    exportUserConfig() {
+        const user = this.getCurrentUser();
+        const config = this.getUserConfig();
+        if (!user || !config) return null;
+        try { this._syncExtrasToConfig(config); } catch (e) { /* 忽略 */ }
+        config.username = user;
+        return { name: this._userFile(user), text: JSON.stringify(config, null, 2) };
+    },
+
+    // 导入配置到当前登录账号（username 一律以当前账号为准）：返回 { ok, error }
+    importUserConfig(text) {
+        const user = this.getCurrentUser();
+        if (!user) return { ok: false, error: '请先登录账号' };
+        let config = null;
+        try { config = JSON.parse(text); } catch (e) { return { ok: false, error: '文件不是有效的 JSON' }; }
+        if (!config || typeof config !== 'object' || Array.isArray(config)) {
+            return { ok: false, error: '配置格式不正确' };
+        }
+        config.username = user;
+        config.updatedAt = new Date().toISOString(); // 导入即视为最新，重新载入后不会被旧文件回退
+        delete config.version;
+        localStorage.setItem(`wordMemory_user_json_${user}`, JSON.stringify(config));
+        this.initUserConfig(user); // 补齐后续新增字段的默认值
+        const merged = this.getUserConfig();
+        this._applyExtras(merged); // 回填收藏词单 / 授权码 / AI 配置等独立键
+        return { ok: true, config: merged };
+    },
+
+    // 目录文件与本地缓存谁为准：决定加载时采纳哪一份
+    //  - 本地无该用户配置/是空壳 → 文件为准
+    //  - 任一方带 updatedAt（新版保存时写入）→ 取时间较新者
+    //  - 双方都无时间戳（历史配置）→ 文件明显更完整时以文件为准
+    //    （用户手动替换/拷贝进来的完整配置通常远大于残留缓存，不能反过来被缓存覆盖）
+    _shouldFileWin(cache, file) {
+        if (!file) return false;
+        if (!cache || this._isConfigEmpty(cache)) return true;
+        const ct = Date.parse(cache.updatedAt || '') || 0;
+        const ft = Date.parse(file.updatedAt || '') || 0;
+        if (ct || ft) return ft >= ct;
+        try {
+            const cl = JSON.stringify(cache).length;
+            const fl = JSON.stringify(file).length;
+            return fl > cl * 1.2 && (fl - cl) > 4096;
+        } catch (e) { return false; }
+    },
+
+    // 采纳文件配置到本地缓存；容量不足时告警并置标记，避免随后把旧缓存反写覆盖文件
+    _adoptFileConfig(name, config) {
+        try {
+            localStorage.setItem(`wordMemory_user_json_${name}`, JSON.stringify(config));
+            this._adoptFailed = false;
+            return true;
+        } catch (e) {
+            this._adoptFailed = true;
+            console.warn('配置文件写入本地缓存失败（本次以文件数据为准，不会反写覆盖文件）:', e);
+            return false;
+        }
+    },
+
+    // 从 user/ 目录读取当前用户配置（文件更新时以文件为准；否则保留本地最新数据）
     async loadConfigFromFile(username) {
         const name = username || this.getCurrentUser();
         if (!name || name === '游客' || !this.isFileSystemReady()) return null;
+        const cache = this._parseJson(localStorage.getItem(`wordMemory_user_json_${name}`));
         // 桥接模式：走内置服务读取
         if (!this._hasDirAccess()) {
             try {
@@ -454,9 +706,7 @@ const Storage = {
                 if (!res.ok) return null;
                 const config = await res.json();
                 if (config && config.username) {
-                    if (this._isFreshUser) {
-                        localStorage.setItem(`wordMemory_user_json_${name}`, JSON.stringify(config));
-                    }
+                    if (this._shouldFileWin(cache, config)) this._adoptFileConfig(name, config);
                     return config;
                 }
             } catch (e) {
@@ -471,11 +721,9 @@ const Storage = {
             if (!text) return null;
             const config = JSON.parse(text);
             if (config && config.username) {
-                // 仅当本地无该用户配置（全新账号）时才用目录文件恢复；
-                // 已存在账号以 localStorage 为准，防止并发写入残留的旧文件把最新数据冲掉。
-                if (this._isFreshUser) {
-                    localStorage.setItem(`wordMemory_user_json_${name}`, JSON.stringify(config));
-                }
+                // 文件比本地缓存新（含用户手动替换文件）时采纳文件；
+                // 否则以 localStorage 为准，避免并发写入残留的旧文件把最新数据冲掉。
+                if (this._shouldFileWin(cache, config)) this._adoptFileConfig(name, config);
                 return config;
             }
         } catch (e) {
@@ -487,20 +735,30 @@ const Storage = {
     // 初始化文件系统：恢复目录授权；用文件夹配置覆盖缓存，补齐新增字段并写回文件
     async initUserFileSystem(username) {
         await this.restoreUserDirectory();
-        if (this.isFileSystemReady()) {
-            const user = username || this.getCurrentUser();
-            // 游客为临时体验账号，不参与 user/ 目录的文件读写
-            if (user && user !== '游客') {
-                await this.loadConfigFromFile(user);
-                // 补齐后续新增字段的默认值（不影响已有数据），再写回文件，保证字段一次落盘
-                this.initUserConfig(user);
-                const key = `wordMemory_user_json_${user}`;
-                try {
-                    const config = JSON.parse(localStorage.getItem(key));
-                    if (config) await this.writeConfigToFile(config);
-                } catch (e) { /* 忽略 */ }
-            }
+        this._installMirrorHook(); // 保证刷新后继续镜像独立键（登录时 setCurrentUser 已安装，此处兜底）
+        this._adoptFailed = false;
+        const user = username || this.getCurrentUser();
+        if (user && user !== '游客') {
+            // 有目录/桥接时按「文件与缓存谁更新」取舍，再补齐新增字段
+            if (this.isFileSystemReady()) await this.loadConfigFromFile(user);
+            this.initUserConfig(user);
+            const key = `wordMemory_user_json_${user}`;
+            try {
+                const config = JSON.parse(localStorage.getItem(key));
+                if (config) {
+                    // 回填独立键（收藏词单 / 欧路授权码 / AI 模型选择 / 练习配置等），
+                    // 否则换端加载配置后这些数据仍停留在旧端缓存里
+                    this._applyExtras(config);
+                    // 反向：本机已有但配置里缺的独立键（老账号首次升级）也要收进 extras
+                    this._syncExtrasToConfig(config);
+                    // 缓存未能承载文件数据时跳过反写，否则会用旧缓存覆盖掉更大的新文件
+                    if (!this._adoptFailed) this.saveUserConfig(config);
+                }
+            } catch (e) { /* 忽略 */ }
         }
+        // 本次会话无法写盘时标记「未落盘」，界面据此在昵称末尾提示手动保存
+        // （游客为临时账号，文件本就不持久化，不提示）
+        this._setConfigDirty(!!user && user !== '游客' && !this.isFileSystemReady());
         return this.isFileSystemReady();
     },
 
@@ -690,7 +948,8 @@ const Storage = {
         else history.push(historyItem);
         
         history.sort((a, b) => new Date(b.date) - new Date(a.date));
-        config.learningData.statsHistory = history.slice(0, 90);
+        // 完整保留全部历史（原先截断为最近 90 天，会让「学习天数/累计时长/累计单词」不完整）
+        config.learningData.statsHistory = history;
         
         this.saveUserConfig(config);
         return config.learningData.statsHistory;
@@ -716,20 +975,30 @@ const Storage = {
         return result;
     },
 
-    /** 统计摘要：近 N 天的学习天数/累计时长/累计单词/平均正确率 */
-    getStatsSummary(days = 30) {
-        // 只统计有数据的天（空天不计入学习天数，也不拉低正确率）
-        const history = this.getRecentStats(days).filter(item =>
-            (item.time || 0) > 0 || (item.words || 0) > 0 || (item.correct || 0) > 0 || (item.wrong || 0) > 0);
+    // 概要卡片：天数/时长/单词取「全部历史记录」（与图表的时间范围切换无关），
+    // 平均正确率取近 7 天以反映近期状态，并给出与历史平均正确率的差值（±n%）
+    getStatsSummary() {
+        const hasRecord = item =>
+            (item.time || 0) > 0 || (item.words || 0) > 0 || (item.correct || 0) > 0 || (item.wrong || 0) > 0;
+        const all = (this.loadStatsHistory() || []).filter(hasRecord);
+        const recent = this.getRecentStats(7).filter(hasRecord);
 
-        const totalDays = history.length;
-        const totalTime = history.reduce((s, i) => s + (i.time || 0), 0);
-        const totalWords = history.reduce((s, i) => s + (i.words || 0), 0);
-        const totalCorrect = history.reduce((s, i) => s + (i.correct || 0), 0);
-        const totalAttempts = history.reduce((s, i) => s + (i.correct || 0) + (i.wrong || 0), 0);
-        const avgMastery = totalAttempts > 0 ? Math.round(totalCorrect / totalAttempts * 100) : 0;
+        const rate = list => {
+            const attempts = list.reduce((s, i) => s + (i.correct || 0) + (i.wrong || 0), 0);
+            return attempts > 0 ? Math.round(list.reduce((s, i) => s + (i.correct || 0), 0) / attempts * 100) : null;
+        };
+        const recentAccuracy = rate(recent);
+        const overallAccuracy = rate(all);
 
-        return { totalDays, totalTime, totalWords, avgMastery };
+        return {
+            totalDays: all.length,
+            totalTime: all.reduce((s, i) => s + (i.time || 0), 0),
+            totalWords: all.reduce((s, i) => s + (i.words || 0), 0),
+            recentAccuracy,          // null = 近 7 天无答题记录
+            overallAccuracy,         // null = 历史无答题记录
+            // 近期相对历史平均正确率的差：正=上升，负=下降，null=无历史可比
+            accuracyDelta: (recentAccuracy === null || overallAccuracy === null) ? null : recentAccuracy - overallAccuracy
+        };
     },
 
     clearStatsHistory() {
@@ -1171,32 +1440,27 @@ const Storage = {
     /** 获取所有单词的复习统计概览 */
     getMemoryOverview() {
         const map = this.loadAllMemory();
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        let totalWords = 0, dueToday = 0, overdue = 0;
+        let totalWords = 0;
         let avgEF = 0, avgInterval = 0;
 
         for (const mem of Object.values(map)) {
             totalWords++;
             avgEF += mem.ef || 2.5;
             avgInterval += mem.interval || 0;
-
-            if (mem.nextReviewDate) {
-                const due = new Date(mem.nextReviewDate);
-                if (due <= today) {
-                    dueToday++;
-                    // 逾期超过 1 天算 overdue
-                    if (due < new Date(today.getTime() - 86400000)) {
-                        overdue++;
-                    }
-                }
-            }
         }
+
+        // 到期数与「开始复习」按钮共用 getDueWords 同一口径（含排除「太简单」标记），
+        // 两处必须同源：否则面板显示的「今日到期」会与实际可复习数量对不上
+        const dueWords = this.getDueWords();
+        const overdueLine = new Date(today.getTime() - 86400000);
+        const overdue = dueWords.filter(it => new Date(it.memory.nextReviewDate) < overdueLine).length;
 
         return {
             totalWords,
-            dueToday,
+            dueToday: dueWords.length,
             overdue,
             avgEF: totalWords > 0 ? (avgEF / totalWords).toFixed(2) : '2.50',
             avgInterval: totalWords > 0 ? Math.round(avgInterval / totalWords) : 0
@@ -1224,3 +1488,8 @@ const Storage = {
 };
 
 window.Storage = Storage;
+
+// 立即安装独立键镜像钩子：任一加载本模块的页面（含 Obsidian 侧栏 iframe）写镜像键时都能同步进用户配置
+if (typeof localStorage !== 'undefined' && typeof Storage._installMirrorHook === 'function') {
+    Storage._installMirrorHook();
+}

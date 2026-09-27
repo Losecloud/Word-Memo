@@ -65,7 +65,9 @@ examples/index.html
 /.trae
 /.obsidian
 /data/oaldpe
-/static/audio
+/static/audio/*
+# 英文扑克音效包例外：应用运行时从 GitHub raw 下载（不打包进插件），故必须入库
+!/static/audio/poker/
 /tools/阅读联想记忆---智能生词串文
 tools/微信读书_划线与想法导出_实现教程.md
 tools/欧路词典API调用指南.md

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <!-- 防闪烁：同步读取 localStorage 主题，在渲染前设置 data-theme + 内联深色模式 CSS 变量，避免深色模式页面闪烁 -->
-    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); var c = u ? JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}') : {}; var p = new URLSearchParams(location.search); var v = p.get('wmView'); var t; if (v === 'cover') { t = p.get('wmTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else if (c.basicSettings && c.basicSettings.followSystemTheme) { var q = p.get('wmTheme'); t = q || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else { t = c.theme; } if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (v === 'dict') { document.documentElement.classList.add('wm-sidebar-mode'); if (!c.basicSettings || c.basicSettings.hideSidebarImport !== false) document.documentElement.classList.add('wm-hide-import'); } else if (v === 'cover') { document.documentElement.classList.add('wm-cover-mode'); var ct = localStorage.getItem('wordMemory_coverViewType_' + (u || 'guest')); if (ct !== 'nebula' && ct !== 'chaos') ct = 'dandelion'; document.documentElement.classList.add('wm-cover-boot-' + ct); } } catch(e) {}</script>
+    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); var c = u ? JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}') : {}; var p = new URLSearchParams(location.search); var v = p.get('wmView'); var t; if (v === 'cover') { t = p.get('wmTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else if (!c.basicSettings || c.basicSettings.followSystemTheme !== false) { var q = p.get('wmTheme'); t = q || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else { t = c.theme; } if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (v === 'dict') { document.documentElement.classList.add('wm-sidebar-mode'); if (!c.basicSettings || c.basicSettings.hideSidebarImport !== false) document.documentElement.classList.add('wm-hide-import'); } else if (v === 'cover') { document.documentElement.classList.add('wm-cover-mode'); var ct = localStorage.getItem('wordMemory_coverViewType_' + (u || 'guest')); if (ct !== 'nebula' && ct !== 'chaos') ct = 'dandelion'; document.documentElement.classList.add('wm-cover-boot-' + ct); } } catch(e) {}</script>
     <style>
         /* 关键 CSS 变量 + 基础元素样式：同步内联，确保深色模式在外部样式表加载前即可生效，避免白屏闪烁 */
         [data-theme="dark"] {
@@ -1025,12 +1025,26 @@
                     <button class="user-menu-btn hidden" id="userMenuBtn" title="用户菜单">
                         <span class="user-avatar" id="userAvatar">词</span>
                         <span class="user-name" id="headerUserName">用户</span>
+                        <i class="fi-sr-exclamation config-dirty-hint hidden" id="configDirtyHint"
+                           title="最新配置尚未保存到本地 user/ 文件，仅存在于浏览器缓存（自动保存未能落盘）。请点开本菜单，选择「保存用户配置」。"></i>
                         <span class="user-caret">▾</span>
                     </button>
                     <div class="user-dropdown hidden" id="userDropdown">
                         <div class="dropdown-item" id="dropdownProfile">个人信息</div>
                         <div class="dropdown-item" id="dropdownStats">学习数据</div>
                         <div class="dropdown-item" id="dropdownSyncDir">绑定本地文件夹</div>
+                        <div class="dropdown-item" id="dropdownSaveConfig">
+                            <i class="dropdown-item-icon fi-rr-disk"></i>
+                            <span>保存用户配置</span>
+                        </div>
+                        <div class="dropdown-item" id="dropdownExportConfig">
+                            <i class="dropdown-item-icon fi-rr-download"></i>
+                            <span>导出用户配置</span>
+                        </div>
+                        <div class="dropdown-item" id="dropdownImportConfig">
+                            <i class="dropdown-item-icon fi-rr-upload"></i>
+                            <span>导入用户配置</span>
+                        </div>
                         <div class="dropdown-divider"></div>
                         <div class="dropdown-item" id="dropdownDarkMode">
                             <svg class="dropdown-item-icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -3773,8 +3787,11 @@
                     <div class="summary-card">
                         <div class="summary-icon"><svg class="svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg></div>
                         <div class="summary-content">
-                            <div class="summary-value" id="summaryAvgMastery">0%</div>
-                            <div class="summary-label">平均正确率</div>
+                            <div class="summary-value-row">
+                                <div class="summary-value" id="summaryAvgMastery">0%</div>
+                                <span class="summary-delta hidden" id="summaryAccuracyDelta"></span>
+                            </div>
+                            <div class="summary-label" title="显示近 7 天正确率；右侧 ±n% 为与历史平均正确率的差值">平均正确率</div>
                         </div>
                     </div>
                 </div>
@@ -4119,6 +4136,13 @@
                         <input type="checkbox" class="setting-checkbox" id="enableSoundEffects" checked>
                     </label>
                     <div class="setting-hint">答对/答错时播放音效</div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">英文扑克音效包</label>
+                    <button type="button" class="dict-apply-btn" id="pokerSfxBtn">下载音效包（约 150 KB）</button>
+                    <div class="setting-hint" id="pokerSfxHint">
+                        出牌 / 炸弹 / 牌权切换 / 胜负音效。音频文件不随插件打包，点上方按钮从 GitHub 下载并缓存到本机。
+                    </div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">动画效果类型</label>
