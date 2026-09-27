@@ -10752,24 +10752,35 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 英文扑克音效包的下载入口（主设置 · 基本设置页）。
-    // 音频文件不进插件包，改由 GitHub raw 流式下载并缓存到本机 localStorage；
-    // 进度读条直接复用词典下载的按钮外壳（.dict-dl-btn），两处观感与配色一致。
-    setupPokerSfxDownload() {
+    // web 端与 OB 开发态：static/audio/poker/ 就在仓库里，直接读本地文件，无需下载；
+    // OB 发行包不含 static/audio（避免 main.js 撑破 5MB），才需要从 GitHub 下载缓存到本机。
+    // 进度读条复用词典下载的按钮外壳（.dict-dl-btn），两处观感与配色一致。
+    async setupPokerSfxDownload() {
         const btn = document.getElementById('pokerSfxBtn');
         const hint = document.getElementById('pokerSfxHint');
         if (!btn) return;
         const api = window.EnglishPoker && window.EnglishPoker.audio;
 
-        const paintIdle = () => {
+        const paintIdle = async () => {
             if (!api) {
                 btn.disabled = true;
                 btn.textContent = '音效模块不可用';
                 return;
             }
-            const ready = api.isReady();
             btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
             btn.style.removeProperty('--dl-progress');
             btn.disabled = false;
+            // 本地已有音频文件：无需下载，直接置为已就绪
+            const local = await api.probeLocal();
+            if (local) {
+                btn.disabled = true;
+                btn.textContent = '音效已内置（读取本地文件）';
+                if (hint) {
+                    hint.textContent = '音效文件在 static/audio/poker/，直接读取本地文件，无需下载；受上方「音效提示」开关控制。';
+                }
+                return;
+            }
+            const ready = api.isReady();
             btn.textContent = ready ? '音效已下载 · 点击重新下载' : '下载音效包（约 150 KB）';
             if (hint) {
                 hint.textContent = ready

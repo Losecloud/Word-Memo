@@ -18,8 +18,8 @@
  * - AI 强弱 = 词汇视野（CEFR 档）× 选牌策略（按权重随机出 1~N 字）× 失误率；
  *   它还会避开手里的炸弹材料，不会为了跟小牌把攒好的炸弹拆了；只看得见自己的手牌与桌面公开信息。
  *   困难模式首墩由随机一位人机先出。
- * - 音效（出牌 / 炸弹 / 牌权切换 / 胜负）不打包进插件，放在仓库 static/audio/poker/，
- *   由设置页按需从 GitHub 下载并缓存到本机 localStorage（见文件末尾「音效」段）。
+ * - 音效（出牌 / 炸弹 / 牌权切换 / 胜负）放在仓库 static/audio/poker/：web 端直接读本地文件，
+ *   OB 发行包不含该目录，回退到设置页下载的缓存或 GitHub raw 直链（见文件末尾「音效」段）。
  */
 (function () {
     'use strict';
@@ -2358,15 +2358,18 @@
 
     /* ============================ 音效 ============================ */
 
-    // 音效文件不打包进插件（避免 main.js 撑破 5MB），而是放在仓库 static/audio/poker/ 下，
-    // 由主设置页的「下载音效」按钮从 GitHub raw 流式下载，缓存到 localStorage 后复用。
+    // 音效文件放仓库 static/audio/poker/ 下，web 端直接按相对路径读取，零下载、离线可用。
+    // OB 发行包不内嵌 static/audio（避免 main.js 撑破 5MB），本地相对路径会 404，
+    // 这时依次回退到「设置页下载的本地缓存 → GitHub raw 直链」。音频始终只有一份，不重复落盘。
+    var AUDIO_REL_BASE = 'static/audio/poker/';
     var AUDIO_RAW_BASE = 'https://raw.githubusercontent.com/Losecloud/reciting/main/static/audio/poker/';
     var AUDIO_CACHE_KEY = 'epAudioPack';   // 只存本机（非镜像键），不进用户配置、不参与跨端同步
 
     var AUDIO = {
         urls: {},         // 音效名 -> data: URL
         ready: false,
-        manifest: null
+        manifest: null,
+        local: null       // 本地相对路径是否可用：null 未探测 / true 可用 / false 需远程
     };
 
     // 读本地缓存（跨会话复用，无需每次开桌都重新下载）
@@ -2442,20 +2445,68 @@
             });
     }
 
-    // 播放一个音效。未下载 / 未开启音效开关 / 浏览器拦截自动播放时都静默跳过，绝不干扰对局。
+    // 探测「本地相对路径」是否可读：web 端与 OB 开发态为 true，OB 发行包为 false。
+    // 只探一次并缓存结果，供 sfx 与设置页共用。
+    function probeLocalAudio() {
+        if (AUDIO.local !== null) return Promise.resolve(AUDIO.local);
+        return new Promise(function (resolve) {
+            var done = false;
+            var finish = function (ok) {
+                if (done) return;
+                done = true;
+                AUDIO.local = ok;
+                resolve(ok);
+            };
+            var a = new Audio();
+            a.addEventListener('loadedmetadata', function () { finish(true); });
+            a.addEventListener('error', function () { finish(false); });
+            setTimeout(function () { finish(false); }, 4000); // 兜底：个别环境不触发任何事件
+            try {
+                a.preload = 'metadata';
+                a.src = AUDIO_REL_BASE + 'play.wav';
+            } catch (e) { finish(false); }
+        });
+    }
+
+    // 一个音效的候选地址，按优先级排列
+    function audioSources(name) {
+        if (AUDIO.local === true) return [AUDIO_REL_BASE + name + '.wav'];
+        var remote = [];
+        if (loadAudioCache() && AUDIO.urls[name]) remote.push(AUDIO.urls[name]); // 设置页下载的缓存
+        remote.push(AUDIO_RAW_BASE + name + '.wav');                            // 未下载时在线直链
+        if (AUDIO.local === false) return remote;
+        return [AUDIO_REL_BASE + name + '.wav'].concat(remote);                 // 未探测：本地优先
+    }
+
+    function tryPlay(slot) {
+        var a = slot.el;
+        a.volume = 0.8;
+        try { a.currentTime = 0; } catch (e) { /* 尚未可定位时忽略 */ }
+        var p = a.play();
+        if (p && p.catch) p.catch(function () { /* 自动播放策略：忽略 */ });
+    }
+
+    // 播放一个音效。未开启音效开关、或所有候选地址都不可用时静默跳过，绝不干扰对局。
     function sfx(name) {
         var app = window.app;
         if (app && app.settings && app.settings.enableSoundEffects === false) return;
-        if (!loadAudioCache()) return;
-        var url = AUDIO.urls[name];
-        if (!url) return;
-        try {
-            var a = S.audio[name] || (S.audio[name] = new Audio(url));
-            a.currentTime = 0;
-            a.volume = 0.8;
-            var p = a.play();
-            if (p && p.catch) p.catch(function () { /* 自动播放策略：忽略 */ });
-        } catch (e) { /* 忽略 */ }
+        var slot = S.audio[name];
+        if (!slot) {
+            var list = audioSources(name);
+            var el = new Audio();
+            el.preload = 'auto';
+            slot = S.audio[name] = { el: el, idx: 0, list: list };
+            el.addEventListener('error', function () {
+                // 本地相对路径在 OB 发行包里不存在：顺次回退到「下载缓存 → raw 直链」
+                if (slot.idx + 1 < slot.list.length) {
+                    slot.idx++;
+                    el.src = slot.list[slot.idx];
+                    tryPlay(slot);
+                }
+            });
+            el.src = list[0];
+        }
+        tryPlay(slot);
     }
 
     /* ============================ 对外接口 ============================ */
@@ -2487,6 +2538,7 @@
         // 音效接口：主设置页的「下载音效」入口与对局播放共用这一份实现
         audio: {
             isReady: function () { return loadAudioCache(); },
+            probeLocal: probeLocalAudio,
             download: downloadPokerAudio,
             clear: clearAudioCache,
             base: AUDIO_RAW_BASE,
