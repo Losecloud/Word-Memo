@@ -16695,6 +16695,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--text-tertiary);
 }
 
+/* 开桌设置：音效包。按钮复用词典下载的进度条外壳（.dict-dl-btn），
+   这里只限宽，免得一个进度条横贯整页显得突兀 */
+.ep-sfx-field {
+    max-width: 420px;
+}
+
 .ep-empty {
     color: var(--text-secondary);
     font-size: 0.88rem;

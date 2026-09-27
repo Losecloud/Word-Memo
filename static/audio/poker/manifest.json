@@ -16,7 +16,7 @@
     {
       "name": "bomb",
       "file": "bomb.wav",
-      "bytes": 55168,
+      "bytes": 39734,
       "label": "炸弹"
     },
     {
@@ -38,5 +38,5 @@
       "label": "失败"
     }
   ],
-  "bytes": 177984
+  "bytes": 162550
 }

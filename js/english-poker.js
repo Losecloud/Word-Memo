@@ -1632,7 +1632,7 @@
     function render() {
         var root = document.getElementById('epBody');
         if (!root || !S.cfg) return;
-        if (S.view === 'config') { root.innerHTML = renderConfig(); return; }
+        if (S.view === 'config') { root.innerHTML = renderConfig(); paintSfxButton(); return; }
         if (S.view === 'result') { root.innerHTML = renderResult(); return; }
         root.innerHTML = renderGame();
         markOverlaps();
@@ -1704,6 +1704,11 @@
             '</div>' +
             '<label class="ep-book ep-inline"><input type="checkbox" id="epHints"' +
             (S.cfg.hints ? ' checked' : '') + '><span class="ep-book-name">开启提示（列出可出的词、点了自动选牌）；关闭时按「选牌顺序」拼词，更考验手法</span></label>' +
+            '<div class="ep-field ep-sfx-field">' +
+            '<div class="ep-field-label">音效包（出牌 / 炸弹 / 牌权切换 / 胜负）</div>' +
+            '<button type="button" class="dict-apply-btn" id="epSfxBtn">加载音效包</button>' +
+            '<div class="ep-books-foot" id="epSfxHint">正在检查本地音频…</div>' +
+            '</div>' +
             (S.dataReady ? '' : '<div class="ep-loading">词库加载中，请稍候…</div>') +
             '<div class="ep-actions"><button class="ep-btn ep-btn-gold ep-btn-big" id="epStartBtn"' +
             (S.dataReady ? '' : ' disabled') + '>' +
@@ -2111,6 +2116,7 @@
             var t = e.target.closest('button');
             if (!t) return;
             if (t.id === 'epStartBtn') { startMatch(); return; }
+            if (t.id === 'epSfxBtn') { handleSfxClick(t); return; }
             if (t.id === 'epPlayBtn') {
                 if (S.packPick !== null && S.packs[S.packPick]) humanPlayPack();
                 else humanPlay();
@@ -2386,13 +2392,6 @@
         } catch (e) { return false; }
     }
 
-    function clearAudioCache() {
-        AUDIO.urls = {};
-        AUDIO.ready = false;
-        S.audio = {};
-        try { localStorage.removeItem(AUDIO_CACHE_KEY); } catch (e) { /* 忽略 */ }
-    }
-
     // ArrayBuffer -> base64（分块处理，避免大数组展开触发调用栈上限）
     function bufToBase64(buf) {
         var bytes = new Uint8Array(buf);
@@ -2509,6 +2508,78 @@
         tryPlay(slot);
     }
 
+    // 开桌设置页的「音效包」按钮状态：本地有文件就直接读（web 端 / OB 开发态），
+    // 只有 OB 发行包（不含 static/audio）才需要从 GitHub 下载并缓存。
+    function paintSfxButton() {
+        var btn = document.getElementById('epSfxBtn');
+        var hint = document.getElementById('epSfxHint');
+        if (!btn) return;
+        btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
+        btn.style.removeProperty('--dl-progress');
+        btn.disabled = false;
+        btn.dataset.mode = '';
+        probeLocalAudio().then(function (local) {
+            if (!btn.isConnected) return;   // 探测期间已切走视图
+            if (local) {
+                btn.dataset.mode = 'local';
+                btn.textContent = '音效包已加载（本地内置，无需下载）';
+                if (hint) hint.textContent = '直接读取 static/audio/poker/ 下的音频，离线可用；受主设置里「音效提示」开关控制。';
+                return;
+            }
+            var ready = loadAudioCache();
+            btn.dataset.mode = 'remote';
+            btn.textContent = ready ? '音效包已下载 · 点击重新下载' : '下载音效包（约 175 KB）';
+            if (hint) hint.textContent = ready
+                ? '已缓存到本机，对局中会出声；受主设置里「音效提示」开关控制。'
+                : '音频不随插件打包，点上方按钮从 GitHub 下载并缓存到本机。';
+        });
+    }
+
+    // 字节数格式化（音效包下载进度用）
+    function sizeText(n) {
+        if (!n) return '0 B';
+        if (n < 1024) return n + ' B';
+        if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+        return (n / 1048576).toFixed(2) + ' MB';
+    }
+
+    // 点击开桌设置页的「音效包」按钮：本地已内置则只提示；否则流式下载并显示读条。
+    function handleSfxClick(btn) {
+        if (btn.dataset.mode === 'local') { toast('音效包已内置在本地，无需下载', 'info'); return; }
+        btn.classList.add('dict-dl-btn');
+        btn.disabled = true;
+        btn.innerHTML =
+            '<span class="dict-dl-fill"></span>' +
+            '<span class="dict-dl-label dict-dl-label-base"></span>' +
+            '<span class="dict-dl-label dict-dl-label-on"></span>';
+        var base = btn.querySelector('.dict-dl-label-base');
+        var on = btn.querySelector('.dict-dl-label-on');
+        var set = function (ratio, label) {
+            btn.classList.toggle('dict-dl-unknown', ratio == null);
+            btn.style.setProperty('--dl-progress', ratio == null ? '100%' : (ratio * 100).toFixed(1) + '%');
+            base.textContent = label;
+            on.textContent = label;
+        };
+        set(0, '准备下载…');
+        var lastPaint = 0;
+        downloadPokerAudio(function (ratio, loaded, total, label) {
+            var now = performance.now();
+            if (now - lastPaint < 120) return;   // 节流，避免文字抖动
+            lastPaint = now;
+            set(ratio, ratio == null
+                ? '下载中 · ' + sizeText(loaded)
+                : Math.round(ratio * 100) + '% · ' + sizeText(loaded) + '/' + sizeText(total) +
+                  (label ? ' · ' + label : ''));
+        }).then(function () {
+            set(1, '音效已就绪');
+            toast('英文扑克音效包已下载并缓存', 'success');
+            setTimeout(paintSfxButton, 700);
+        }).catch(function (err) {
+            paintSfxButton();
+            toast('音效下载失败：' + ((err && err.message) || err), 'error');
+        });
+    }
+
     /* ============================ 对外接口 ============================ */
 
     var EnglishPoker = {
@@ -2534,16 +2605,7 @@
             S.jokerPick = null;
         },
         // 供「设置」变更词书后重新开局时刷新炸弹池
-        reload: function () { refreshBookPool(); },
-        // 音效接口：主设置页的「下载音效」入口与对局播放共用这一份实现
-        audio: {
-            isReady: function () { return loadAudioCache(); },
-            probeLocal: probeLocalAudio,
-            download: downloadPokerAudio,
-            clear: clearAudioCache,
-            base: AUDIO_RAW_BASE,
-            cacheKey: AUDIO_CACHE_KEY
-        }
+        reload: function () { refreshBookPool(); }
     };
 
     window.EnglishPoker = EnglishPoker;
