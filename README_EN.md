@@ -117,7 +117,7 @@ Word Memo is fully offline for local lookup, review and visual covers. The remot
 
 | Service | Triggered when | Notes |
 | --- | --- | --- |
-| GitHub (`raw.githubusercontent.com`, `github.com/.../releases/download/...`) | Opening the About page, or clicking **下载** on a dictionary pack | Public read-only download of the documentation and the dictionary data file you asked for. No data is sent. |
+| GitHub (`raw.githubusercontent.com`, `github.com/.../releases/download/...`) | Opening the About page, clicking **下载** on a dictionary pack, or opening the **English Poker** table setup | Public read-only download of the documentation, the dictionary data you asked for, and the English Poker sound pack (~160 KB, fetched automatically on first entering the setup screen and cached locally, offline afterwards). No data is sent. |
 | Your AI provider (OpenAI, SiliconFlow, or any OpenAI-compatible endpoint) | When you request a translation or an AI explanation, or when entries are filled in after an import | Endpoint and API key are configured by you and stored locally. Nothing is sent without your action. |
 | Eudic OpenAPI (`api.frdic.com`) | When you use the Eudic integration | Requires your own token. |
 | WeRead (`i.weread.qq.com`) | When you load the English classics ranking, or export highlights | Requires your own key. |

@@ -17,6 +17,15 @@
     --text-tertiary: #9CA3AF;
     --border-color: #E5E7EB;
     --hover-bg: #ECEDEF;
+    /* CEFR 六级主题色（默认 color_1 Nature，与小程序 colorConfig.js 同名色库一致）
+       实际取值由 app.js 的 applyCefrTheme() 按用户在「页面设置-主题样式」选中的色库写入 documentElement，
+       此处仅作首屏兜底，避免样式未生效前的闪烁 */
+    --cefr-a1: #57912b;
+    --cefr-a2: #93a418;
+    --cefr-b1: #b9780f;
+    --cefr-b2: #b6620e;
+    --cefr-c1: #b32e27;
+    --cefr-c2: #b1296d;
     /* 结算页散点图象限底色：右上「快而准」/ 左下「慢而易错」（深色模式在下方覆盖） */
     --scatter-quad-tr: #f4dee1;
     --scatter-quad-bl: #dee2ed;
@@ -53,6 +62,11 @@
     --radius-lg: 0.75rem;
     --radius-xl: 1rem;
     --radius-full: 9999px;
+
+    /* 字体设置（页面设置-主题样式）：英文字体在前、中文字体在后，实际取值由 app.js 写入 documentElement */
+    --ui-font-cn: 'Microsoft YaHei';
+    --ui-font-en: 'Inter';
+    --ui-font-stack: var(--ui-font-en), var(--ui-font-cn), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* 暗黑模式 */
@@ -120,7 +134,7 @@ html {
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    font-family: var(--ui-font-stack);
     background: var(--background);
     color: var(--text-primary);
     line-height: 1.6;
@@ -2823,12 +2837,12 @@ body.nebula-word-themed .nebula-card {
     white-space: nowrap;
     font-style: normal; /* 防止继承父元素斜体（如翻译卡片的 .translation-original） */
 }
-.cefr-level-badge.cefr-a1 { color: #57912b; }
-.cefr-level-badge.cefr-a2 { color: #93a418; }
-.cefr-level-badge.cefr-b1 { color: #b9780f; }
-.cefr-level-badge.cefr-b2 { color: #b6620e; }
-.cefr-level-badge.cefr-c1 { color: #b32e27; }
-.cefr-level-badge.cefr-c2 { color: #b1296d; }
+.cefr-level-badge.cefr-a1 { color: var(--cefr-a1); }
+.cefr-level-badge.cefr-a2 { color: var(--cefr-a2); }
+.cefr-level-badge.cefr-b1 { color: var(--cefr-b1); }
+.cefr-level-badge.cefr-b2 { color: var(--cefr-b2); }
+.cefr-level-badge.cefr-c1 { color: var(--cefr-c1); }
+.cefr-level-badge.cefr-c2 { color: var(--cefr-c2); }
 .nebula-card-speak {
     margin-left: auto;
     flex: 0 0 auto;
@@ -3736,64 +3750,64 @@ body.nebula-word-themed .nebula-card {
 
 /* CEFR等级样式 */
 .word-pos.cefr-a1 {
-    background: rgba(87, 145, 43, 0.15);
-    color: #57912b;
+    background: color-mix(in srgb, var(--cefr-a1) 15%, transparent);
+    color: var(--cefr-a1);
 }
 
 .word-pos.cefr-a2 {
-    background: rgba(147, 164, 24, 0.15);
-    color: #93a418;
+    background: color-mix(in srgb, var(--cefr-a2) 15%, transparent);
+    color: var(--cefr-a2);
 }
 
 .word-pos.cefr-b1 {
-    background: rgba(185, 120, 15, 0.15);
-    color: #b9780f;
+    background: color-mix(in srgb, var(--cefr-b1) 15%, transparent);
+    color: var(--cefr-b1);
 }
 
 .word-pos.cefr-b2 {
-    background: rgba(182, 98, 14, 0.15);
-    color: #b6620e;
+    background: color-mix(in srgb, var(--cefr-b2) 15%, transparent);
+    color: var(--cefr-b2);
 }
 
 .word-pos.cefr-c1 {
-    background: rgba(179, 46, 39, 0.15);
-    color: #b32e27;
+    background: color-mix(in srgb, var(--cefr-c1) 15%, transparent);
+    color: var(--cefr-c1);
 }
 
 .word-pos.cefr-c2 {
-    background: rgba(177, 41, 109, 0.15);
-    color: #b1296d;
+    background: color-mix(in srgb, var(--cefr-c2) 15%, transparent);
+    color: var(--cefr-c2);
 }
 
 /* CEFR等级样式（word-level 徽标，同义替换练习等复用） */
 .word-level.cefr-a1 {
-    background: rgba(87, 145, 43, 0.15);
-    color: #57912b;
+    background: color-mix(in srgb, var(--cefr-a1) 15%, transparent);
+    color: var(--cefr-a1);
 }
 
 .word-level.cefr-a2 {
-    background: rgba(147, 164, 24, 0.15);
-    color: #93a418;
+    background: color-mix(in srgb, var(--cefr-a2) 15%, transparent);
+    color: var(--cefr-a2);
 }
 
 .word-level.cefr-b1 {
-    background: rgba(185, 120, 15, 0.15);
-    color: #b9780f;
+    background: color-mix(in srgb, var(--cefr-b1) 15%, transparent);
+    color: var(--cefr-b1);
 }
 
 .word-level.cefr-b2 {
-    background: rgba(182, 98, 14, 0.15);
-    color: #b6620e;
+    background: color-mix(in srgb, var(--cefr-b2) 15%, transparent);
+    color: var(--cefr-b2);
 }
 
 .word-level.cefr-c1 {
-    background: rgba(179, 46, 39, 0.15);
-    color: #b32e27;
+    background: color-mix(in srgb, var(--cefr-c1) 15%, transparent);
+    color: var(--cefr-c1);
 }
 
 .word-level.cefr-c2 {
-    background: rgba(177, 41, 109, 0.15);
-    color: #b1296d;
+    background: color-mix(in srgb, var(--cefr-c2) 15%, transparent);
+    color: var(--cefr-c2);
 }
 
 /* 单词统计信息（正确率）*/
@@ -4129,33 +4143,33 @@ body.nebula-word-themed .nebula-card {
 
 /* CEFR等级样式（拼写模式） */
 .meaning-pos.cefr-a1 {
-    background: rgba(87, 145, 43, 0.15);
-    color: #57912b;
+    background: color-mix(in srgb, var(--cefr-a1) 15%, transparent);
+    color: var(--cefr-a1);
 }
 
 .meaning-pos.cefr-a2 {
-    background: rgba(147, 164, 24, 0.15);
-    color: #93a418;
+    background: color-mix(in srgb, var(--cefr-a2) 15%, transparent);
+    color: var(--cefr-a2);
 }
 
 .meaning-pos.cefr-b1 {
-    background: rgba(185, 120, 15, 0.15);
-    color: #b9780f;
+    background: color-mix(in srgb, var(--cefr-b1) 15%, transparent);
+    color: var(--cefr-b1);
 }
 
 .meaning-pos.cefr-b2 {
-    background: rgba(182, 98, 14, 0.15);
-    color: #b6620e;
+    background: color-mix(in srgb, var(--cefr-b2) 15%, transparent);
+    color: var(--cefr-b2);
 }
 
 .meaning-pos.cefr-c1 {
-    background: rgba(179, 46, 39, 0.15);
-    color: #b32e27;
+    background: color-mix(in srgb, var(--cefr-c1) 15%, transparent);
+    color: var(--cefr-c1);
 }
 
 .meaning-pos.cefr-c2 {
-    background: rgba(177, 41, 109, 0.15);
-    color: #b1296d;
+    background: color-mix(in srgb, var(--cefr-c2) 15%, transparent);
+    color: var(--cefr-c2);
 }
 
 .example-sentence {
@@ -4612,6 +4626,8 @@ body.nebula-word-themed .nebula-card {
 .memory-aid-modal-body {
     padding: var(--spacing-lg);
     overflow-y: auto;
+    /* 始终为滚动条预留空间：内容多少引起滚动条出现/消失时宽度不抖动 */
+    scrollbar-gutter: stable;
     flex: 1;
     color: var(--text-primary);
     font-size: 0.95rem;
@@ -10114,6 +10130,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* 始终为滚动条预留空间：内容多少引起滚动条出现/消失时，body 内宽度不抖动 */
+    scrollbar-gutter: stable;
     /* 内容区块纵向排布并统一留白 */
     display: flex;
     flex-direction: column;
@@ -10430,6 +10448,185 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     margin-bottom: var(--spacing-md);
     padding-bottom: var(--spacing-xs);
     border-bottom: 2px solid var(--border-color);
+}
+
+/* ============ 页面设置-主题样式：CEFR 色库点选 ============ */
+.cefr-theme-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.cefr-theme-card {
+    flex: 1 1 calc(50% - var(--spacing-sm));
+    min-width: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    cursor: pointer;
+    position: relative;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.cefr-theme-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.cefr-theme-card.active {
+    border-color: var(--primary-color);
+}
+
+/* 六格色带预览 */
+.cefr-theme-preview {
+    display: flex;
+    height: 18px;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.cefr-theme-swatch {
+    flex: 1;
+}
+
+.cefr-theme-name {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-align: left;
+}
+
+.cefr-theme-card.active .cefr-theme-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* 选中勾：用「卡片 + 后代」提升优先级，覆盖全局 uicon 的 display:inline-flex 兜底 */
+.cefr-theme-card .cefr-theme-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    line-height: 1;
+}
+
+.cefr-theme-card.active .cefr-theme-check {
+    display: flex;
+}
+
+/* ============ 页面设置-主题样式：字体设置（左中文 / 右英文，ai-picker 下拉） ============ */
+.font-picker {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.font-picker .font-picker-dd {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.font-picker .ai-picker-trigger {
+    width: 100%;
+}
+
+/* 字体名占满剩余空间，栏目标注（中文字体 / English Fonts）靠右低对比显示 */
+.font-picker .ai-picker-trigger-id {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.font-picker .ai-picker-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.font-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.font-picker-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 栏目标注：仅在选中项（触发器 / 面板 active 项）右对齐显示 */
+.font-picker-label {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.font-picker-dd .font-picker-label {
+    margin-left: 8px;
+}
+
+.font-picker-item .font-picker-label {
+    display: none;
+}
+
+.font-picker-item.ai-picker-item-active .font-picker-label {
+    display: inline;
+}
+
+/* 选中勾：仅选中项显示（用「类 + 后代」提升优先级，覆盖全局 uicon 的 display 兜底） */
+.font-picker-item .ai-picker-item-check {
+    display: none;
+    margin-left: 0;
+}
+
+.font-picker-item.ai-picker-item-active .ai-picker-item-check {
+    display: inline-flex;
+}
+
+/* ============ 页面设置：板块标题折叠（默认折叠） ============ */
+.setting-section-title.collapsible {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: color var(--transition-fast);
+}
+
+.setting-section-title.collapsible:hover {
+    color: var(--primary-color);
+}
+
+.setting-section-caret {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    color: var(--text-secondary);
+    transition: transform var(--transition-fast);
+}
+
+.setting-section-title.collapsible:not(.collapsed) .setting-section-caret {
+    transform: rotate(90deg);
+}
+
+.setting-section-body.collapsed {
+    display: none;
 }
 
 .setting-label {
@@ -13581,12 +13778,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* CEFR 六色（与 .cefr-level-badge 保持一致） */
-.wre-cefr-dot.cefr-a1, .wre-cefr-word.cefr-a1, .wre-cefr-pick.cefr-a1 { color: #57912b; }
-.wre-cefr-dot.cefr-a2, .wre-cefr-word.cefr-a2, .wre-cefr-pick.cefr-a2 { color: #93a418; }
-.wre-cefr-dot.cefr-b1, .wre-cefr-word.cefr-b1, .wre-cefr-pick.cefr-b1 { color: #b9780f; }
-.wre-cefr-dot.cefr-b2, .wre-cefr-word.cefr-b2, .wre-cefr-pick.cefr-b2 { color: #b6620e; }
-.wre-cefr-dot.cefr-c1, .wre-cefr-word.cefr-c1, .wre-cefr-pick.cefr-c1 { color: #b32e27; }
-.wre-cefr-dot.cefr-c2, .wre-cefr-word.cefr-c2, .wre-cefr-pick.cefr-c2 { color: #b1296d; }
+.wre-cefr-dot.cefr-a1, .wre-cefr-word.cefr-a1, .wre-cefr-pick.cefr-a1 { color: var(--cefr-a1); }
+.wre-cefr-dot.cefr-a2, .wre-cefr-word.cefr-a2, .wre-cefr-pick.cefr-a2 { color: var(--cefr-a2); }
+.wre-cefr-dot.cefr-b1, .wre-cefr-word.cefr-b1, .wre-cefr-pick.cefr-b1 { color: var(--cefr-b1); }
+.wre-cefr-dot.cefr-b2, .wre-cefr-word.cefr-b2, .wre-cefr-pick.cefr-b2 { color: var(--cefr-b2); }
+.wre-cefr-dot.cefr-c1, .wre-cefr-word.cefr-c1, .wre-cefr-pick.cefr-c1 { color: var(--cefr-c1); }
+.wre-cefr-dot.cefr-c2, .wre-cefr-word.cefr-c2, .wre-cefr-pick.cefr-c2 { color: var(--cefr-c2); }
 
 .wre-cefr-word {
     font-weight: 600;
@@ -14669,6 +14866,321 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-md);
 }
 
+/* 写作设置「额外要求」为多行输入：textarea 不继承字体，需显式继承正文字体；
+   默认 rows=2 的两行高度，仅允许纵向拉伸 */
+#writingSettingsModal textarea.form-input {
+    font-family: inherit;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+/* sheet 分组（基本参数 / 动画效果）：切换时只显示其中一个。
+   高度由 JS 按「基本参数」实测值写入 --ws-sheet-h，保证切换 sheet 时弹窗高度不变，
+   内容超出则在 sheet 内滚动 */
+.ws-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    height: var(--ws-sheet-h, auto);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.ws-sheet::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ws-sheet::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ws-sheet::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.ws-sheet::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}
+
+/* 左右并排的两个开关（随波倾斜 / 明暗呼吸），压低内容高度 */
+.setting-content.ws-toggles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.ws-toggles .setting-item {
+    padding: 0.75rem 0.9rem;
+    gap: 0.6rem;
+}
+
+.ws-toggles .setting-item-desc {
+    font-size: 0.78rem;
+}
+
+/* 淡纹颜色：直接展示色块点选（对齐参考工程的 flex flex-wrap items-center gap-3） */
+.ws-colors {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 6px;
+}
+
+.ws-swatch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.ws-swatch:hover {
+    transform: scale(1.08);
+}
+
+.ws-swatch.active {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-primary);
+}
+
+.ws-swatch.active:not(.ws-swatch-custom)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.45);
+}
+
+/* 自定义颜色：与预置色块同一形态（饱满圆角色块），中心一枚画笔图标表示「自定义」，
+   色块整体即取色触发区（内嵌原生 color input 铺满并透明覆盖） */
+.ws-swatch-custom {
+    display: block;
+    overflow: hidden;
+}
+
+.ws-swatch-custom input[type="color"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: none;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.ws-swatch-brush {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    color: #fff;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+}
+
+/* 自定义色块与预置色块之间的分隔线 */
+.ws-color-sep {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 1px;
+    margin: 5px 0;
+    background: var(--border-color);
+}
+
+@media (max-width: 640px) {
+    .setting-content.ws-toggles {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 淡纹类型：圆点型 / 线条型 点选（一次性套用段长与粗细两个参数） */
+.ws-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.75rem;
+}
+
+.ws-chip {
+    flex: 1 1 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.ws-chip:hover {
+    border-color: var(--primary-color);
+}
+
+.ws-chip.active {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.ws-chip-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ws-chip-desc {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 高级设置折叠区：默认仅显示标题行，点击后在其下方展开内容
+   （折叠时占用极小高度，展开的内容在 ws-sheet 的剩余空间内滚动） */
+.ws-adv {
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.ws-adv-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding-bottom: 0.9rem;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+
+
+.ws-adv-caret {
+    flex: 0 0 auto;
+    margin-left: auto;
+    width: 16px;
+    height: 16px;
+    color: var(--text-secondary);
+    transition: transform var(--transition-fast);
+}
+
+.ws-adv:not(.collapsed) .ws-adv-caret {
+    transform: rotate(90deg);
+}
+
+.ws-adv-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.ws-adv.collapsed .ws-adv-body {
+    display: none;
+}
+
+/* 「AI 校阅淡纹」板块标题 */
+.ws-board-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ws-board-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ws-board-title > i {
+    color: var(--primary-color);
+}
+
+.ws-board-desc {
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+/* 实时预览：动态淡纹铺在示例句下方（canvas 由 createProofreadWave 绘制） */
+.ws-wave-preview {
+    position: relative;
+    padding: 1.1rem 1.2rem 1.4rem;
+    background: var(--background);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 1.15rem;
+    line-height: 1.8;
+    color: var(--text-primary);
+}
+
+.ws-wave-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    display: block;
+}
+
+/* 参数行：标签 + 读数 + 滑块 */
+.ws-params {
+    display: grid;
+    padding: 0 0.7rem;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-sm) var(--spacing-lg);
+}
+
+.ws-param {
+    min-width: 0;
+}
+
+.ws-param-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.ws-param-val {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.ws-param .setting-slider {
+    margin: 6px 0 0;
+}
+
+@media (max-width: 640px) {
+    .ws-params {
+        grid-template-columns: 1fr;
+    }
+}
+
 .ws-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -15349,7 +15861,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     outline: none;
     background: transparent;
     color: var(--text-primary);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--ui-font-stack);
     font-size: 1.4rem;
     line-height: 1.6;
     padding: 0;
@@ -15407,54 +15919,20 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background-color: color-mix(in srgb, var(--error) 34%, transparent) !important;
 }
 
-/* AI 分析中：被分析文本下方漂浮的呼吸虚线（每个虚线条纹为独立元素，各自缓慢上下浮动） */
+/* AI 分析中：被分析文本下方的「校阅淡纹」。
+   线段由 canvas 引擎（createProofreadWave）绘制，此处的 span 只作为测量锚点。 */
 .writing-editor .writing-ai-underline {
-    --spd: 1;
-    --dot-alpha: 0.5;
-}
-/* 等待期（防抖中）：更缓慢、更清淡 */
-.writing-editor .writing-ai-underline.is-wait {
-    --spd: 1.6;
-    --dot-alpha: 0.26;
-}
-/* 承载虚线的词/片段：作为条纹的定位容器 */
-.writing-editor .writing-ai-underline .ai-u {
     position: relative;
-    display: inline-block;
 }
-.writing-editor .writing-ai-underline .ai-dot {
+
+/* 校阅淡纹 canvas 覆盖层：对齐编辑区、随滚动容器一起滚动，不拦截任何指针事件 */
+.writing-input-wrapper .writing-ai-canvas {
     position: absolute;
-    bottom: -1px;
-    width: 3px;
-    height: 3px;
-    margin-left: 1.5px;
-    border-radius: 50%;
-    background-color: var(--primary-color);
-    opacity: var(--dot-alpha);
+    left: 0;
+    top: 0;
+    z-index: 3;
     pointer-events: none;
-    user-select: none;
-    animation: writingDotFloat calc(3.4s * var(--spd)) ease-in-out infinite;
-    animation-delay: calc(var(--i, 0) * -0.27s);
-}
-/* 组内条纹的周期再错开几档，使同一行内每个点节奏都不同 */
-.writing-editor .writing-ai-underline .ai-dot:nth-child(3n) {
-    animation-duration: calc(4.1s * var(--spd));
-}
-.writing-editor .writing-ai-underline .ai-dot:nth-child(3n + 2) {
-    animation-duration: calc(2.9s * var(--spd));
-}
-@keyframes writingDotFloat {
-    0%, 100% { transform: translateY(1.4px) translateX(0); opacity: calc(var(--dot-alpha) * 0.75); }
-    35% { transform: translateY(-0.6px) translateX(0.6px); opacity: var(--dot-alpha); }
-    70% { transform: translateY(-1.6px) translateX(-0.5px); opacity: calc(var(--dot-alpha) * 0.9); }
-}
-/* 结果返回后淡出 */
-.writing-editor .writing-ai-underline.out .ai-dot {
-    animation: writingUnderlineOut 0.4s ease forwards;
-}
-@keyframes writingUnderlineOut {
-    from { opacity: var(--dot-alpha); }
-    to { opacity: 0; }
+    display: block;
 }
 
 /* ============ AI 纠正窗口（照抄小程序 writing 的 tip-popup） ============ */
@@ -16242,7 +16720,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     to { transform: translateY(0); opacity: 1; }
 }
 
-/* 复制/删除等操作的浮动 toast */
+/* 复制/删除等操作的浮动 toast：默认在视窗正中浮出（不依赖当前所在区域） */
 .writing-toast {
     position: fixed;
     top: 50%;
@@ -16258,11 +16736,24 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     box-shadow: 0 4px 16px rgba(0,0,0,0.25);
     pointer-events: none;
     animation: toastIn 0.25s ease-out;
+    animation-fill-mode: forwards;
 }
 
 @keyframes toastIn {
     from { opacity: 0; transform: translate(-50%, -40%); }
     to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* 「我的收藏」弹窗内的提示改到视窗顶部：离阅读/练习视窗远些，不压住正文 */
+.writing-toast.writing-toast-top {
+    top: 24px;
+    animation: toastInTop 0.25s ease-out;
+    animation-fill-mode: forwards;
+}
+
+@keyframes toastInTop {
+    from { opacity: 0; transform: translate(-50%, -12px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* 进度模态框 */
@@ -16542,13 +17033,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: #e0b25e;
 }
 
-.ep-btn-hint {
-    background: rgba(212, 162, 76, 0.2);
-    border-color: var(--ep-gold);
-    color: #f0d9a8;
-    letter-spacing: 1px;
-}
-
 .ep-btn-ghost {
     background: transparent;
     border-color: rgba(255, 255, 255, 0.22);
@@ -16624,57 +17108,95 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 0.95rem;
 }
 
-/* 词书多选列表：浮层内滚动，滚动条由全局规则跟随主题 */
+/* 词书选择器：完整对齐阅读联想记忆应用的 .book-selector（容器内边距/间距、
+   胶囊高度 50px、图标 1.2rem、名称 500、计数 0.85rem opacity .7、选中=实底强调色）。
+   浮层内滚动，滚动条由全局规则跟随主题。 */
 .ep-books {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
     gap: var(--spacing-sm);
+    min-height: 80px;
     max-height: 260px;
     overflow: auto;
-    padding: 6px;
+    padding: var(--spacing-lg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     background: var(--background);
 }
 
-.ep-book {
+.ep-book-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    height: 50px;
+    padding: 0.5rem 1rem;
+    background: var(--surface);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.ep-book-pill:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.ep-book-pill.selected {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+
+.ep-book-pill-icon {
+    font-size: 1.2rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+.ep-book-pill-name {
+    font-weight: 500;
+}
+
+.ep-book-pill-count {
+    opacity: 0.7;
+    font-size: 0.85rem;
+}
+
+/* 「开启提示」开关行：文字在左（带 bulb 图标），switch 在右 */
+.ep-switch-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0.5rem 0.65rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-    color: var(--text-primary);
-    font-size: 0.9rem;
-}
-
-.ep-book:hover {
-    background: var(--hover-bg);
-}
-
-.ep-book input {
-    flex: 0 0 auto;
-    accent-color: var(--primary-color);
-}
-
-.ep-book-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.ep-book-count {
-    color: var(--text-tertiary);
-    font-size: 0.78rem;
-    flex: 0 0 auto;
-}
-
-.ep-inline {
+    gap: var(--spacing-md);
+    padding: 0.7rem 0.9rem;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
+    cursor: pointer;
+}
+
+.ep-switch-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0 6px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.ep-switch-text > i {
+    color: var(--warning);
+}
+
+.ep-switch-note {
+    flex-basis: 100%;
+    font-style: normal;
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
 }
 
 .ep-books-foot,
@@ -16689,10 +17211,20 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--text-tertiary);
 }
 
-/* 开桌设置：音效包。按钮复用词典下载的进度条外壳（.dict-dl-btn），
-   这里只限宽，免得一个进度条横贯整页显得突兀 */
-.ep-sfx-field {
-    max-width: 420px;
+/* 英文扑克设置页的典雅下拉（复用全局 .ai-picker）：占满整行，浮层覆盖而非撑开布局 */
+.ep-picker {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
+.ep-picker .ai-picker-trigger {
+    width: 100%;
+}
+
+.ep-picker .ai-picker-panel {
+    width: 100%;
+    max-width: none;
 }
 
 .ep-empty {
@@ -16750,7 +17282,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 0.8rem;
     color: var(--ep-mut);
     background: rgba(0, 0, 0, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .ep-chip-req {
@@ -16863,6 +17394,40 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: 6px;
 }
 
+/* 牌河上的出牌：与手牌同一套扑克语言 —— 叠住左邻右半、字母与副字母贴左上角。
+   只作用于牌河，拼牌条（ep-preview）与编组牌组保持原样的小牌平铺。 */
+.ep-rz-plays .ep-word-tiles {
+    gap: 0;
+}
+
+.ep-rz-plays .ep-card-sm {
+    width: 36px;
+    height: 50px;
+    border-radius: 7px;
+    margin-left: -18px; /* 叠住左邻牌的右半，每张净占 18px */
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.ep-rz-plays .ep-card-sm:first-child {
+    margin-left: 0;
+}
+
+.ep-rz-plays .ep-card-sm .ep-card-letter {
+    position: absolute;
+    top: 4px;
+    left: 5px;
+    font-size: 15px;
+}
+
+.ep-rz-plays .ep-card-sm .ep-card-sub {
+    position: absolute;
+    top: 22px;
+    left: 6px;
+    bottom: auto;
+    font-size: 8px;
+}
+
 /* 循环跟过好几手时，只角标一个「×N」—— 新牌叠在旧牌上，不铺开历史牌 */
 .ep-rz-pile {
     align-self: flex-start;
@@ -16909,6 +17474,62 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 0.6rem;
     font-weight: 700;
     line-height: 1.5;
+}
+
+/* 音量按钮左侧的音效状态：默认隐形，加载/刚就绪时 .show 淡入，到点淡出。
+   用台面自己的次级文字色（--ep-mut），在深浅主题下都能在绒面上读清。 */
+.ep-vol-hint {
+    position: absolute;
+    top: 20px;
+    right: 54px;
+    z-index: 24;
+    max-width: 40%;
+    font-size: 0.78rem;
+    line-height: 1;
+    color: var(--ep-mut);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+}
+
+.ep-vol-hint.show {
+    opacity: 1;
+}
+
+/* 桌面右上角的音量按钮：低对比度，像桌角的一个小配件，不抢牌面的注意力。
+   z 高于出牌区(10~13)，低于炸弹浮层(40)。 */
+.ep-vol {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 24;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(233, 243, 237, 0.62);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.ep-vol:hover {
+    color: #e9f3ed;
+    border-color: rgba(255, 255, 255, 0.32);
+    background: rgba(0, 0, 0, 0.34);
+}
+
+.ep-vol:focus-visible {
+    outline: 2px solid var(--ep-gold);
+    outline-offset: 1px;
 }
 
 /* 炸弹浮层：出炸弹时亮出词 / 音标 / 释义，并停 3 秒（否则本墩一收就什么都看不见了） */
@@ -17016,6 +17637,14 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: #e9f3ed;
     line-height: 1.75;
     margin: 2px 0 4px;
+}
+
+/* 最近练习时间提示：比例句更淡的灰色小字，紧贴例句下方 */
+.ep-charm-hint {
+    font-size: 0.76rem;
+    color: var(--ep-mut);
+    line-height: 1.5;
+    margin: 0 0 4px;
 }
 
 .ep-charm-blank {
@@ -17382,13 +18011,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* —— 手牌 —— */
-.ep-hand {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-}
 
-/* 牌面：象牙底 + 底部厚边（牌的侧面）+ 投影，元音红、辅音黑 —— 英语麻将的同一套语言 */
+/* 牌面：象牙底 + 一层很薄的底部边缘（牌的侧厚）+ 投影，元音红、辅音黑 —— 薄扑克质感 */
 .ep-card {
     position: relative;
     width: 36px;
@@ -17397,10 +18021,10 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: linear-gradient(180deg, #fffdf7, #efe9dc);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.9),
-        inset 0 -2px 0 rgba(0, 0, 0, 0.06),
-        0 3px 0 #c9c1ae,
-        0 4px 2px rgba(0, 0, 0, 0.2),
-        0 5px 8px rgba(0, 0, 0, 0.3);
+        inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+        0 1px 0 #d4cdbd,
+        0 2px 2px rgba(0, 0, 0, 0.18),
+        0 3px 6px rgba(0, 0, 0, 0.24);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -17426,8 +18050,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.9),
         0 0 0 2px var(--ep-gold),
-        0 3px 0 #c9c1ae,
-        0 5px 10px rgba(0, 0, 0, 0.35);
+        0 1px 0 #d4cdbd,
+        0 3px 7px rgba(0, 0, 0, 0.3);
 }
 
 .ep-card-joker-c .ep-card-letter,
@@ -17443,6 +18067,34 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 8px;
     line-height: 1;
     color: #9a9384;
+}
+
+/* 王的「辅/元 音」两字竖向排（认牌更顺，与牌面竖排观感一致） */
+.ep-card-sub-v {
+    white-space: pre-line;
+    text-align: center;
+    line-height: 1.1;
+    letter-spacing: 0;
+}
+
+/* 牌角的小花牌图标：辅音黑、元音红、王金 —— 与牌面字的色系一致 */
+.ep-card-suit {
+    position: absolute;
+    right: 4px;
+    bottom: 3px;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--ep-ink);
+    opacity: 0.2;
+}
+
+.ep-card-vowel .ep-card-suit {
+    color: var(--ep-vowel);
+}
+
+.ep-card-joker-c .ep-card-suit,
+.ep-card-joker-v .ep-card-suit {
+    color: #b8863b;
 }
 
 .ep-card[data-ep-card] {
@@ -17463,7 +18115,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .ep-card-sel,
 .ep-card-sel[data-ep-card]:hover {
     transform: translateY(-10px);
-    box-shadow: 0 2px 0 var(--ep-gold), 0 0 0 3px var(--ep-gold), 0 6px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 1.5px 0 var(--ep-gold), 0 0 0 1.5px var(--ep-gold), 0 4px 9px rgba(0, 0, 0, 0.35);
 }
 
 /* 小牌：词面用（牌河、预览、复盘） */
@@ -17473,8 +18125,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border-radius: 5px;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.9),
-        0 2px 0 #c9c1ae,
-        0 3px 6px rgba(0, 0, 0, 0.28);
+        0 1px 0 #d4cdbd,
+        0 2px 5px rgba(0, 0, 0, 0.22);
 }
 
 .ep-card-sm .ep-card-letter {
@@ -17484,6 +18136,65 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .ep-card-sm .ep-card-sub {
     bottom: 2px;
     font-size: 7px;
+}
+
+/* —— 手牌：扑克式叠放 ——
+   每张只露左侧一半（负 margin 叠住上一张的右半），字母与副字母贴着左上角摆放，
+   正好落在「露出来的那一半」里，一眼能认牌；牌多了横向滚动，不换行不挤压。 */
+.ep-hand {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 0;
+    margin-top: 15px;
+    padding: 16px 4px 6px; /* 上方留白给「选中抬起」的位移，别被裁掉 */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
+/* 深色牌桌：横向滚动条不能跟着浅色主题变白 */
+.ep-hand::-webkit-scrollbar {
+    height: 6px;
+}
+
+.ep-hand::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+}
+
+.ep-hand::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ep-hand .ep-card {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 74px;
+    border-radius: 8px;
+    margin-left: -26px; /* 叠住左邻牌的右半，每张净占 26px */
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.ep-hand .ep-card:first-child {
+    margin-left: 0;
+}
+
+/* 悬浮/选中的牌只做原位抬升，不置顶 —— 置顶会遮住右侧叠着的其他牌 */
+.ep-hand .ep-card-letter {
+    position: absolute;
+    top: 5px;
+    left: 6px;
+    font-size: 21px;
+}
+
+.ep-hand .ep-card-sub {
+    position: absolute;
+    top: 30px;
+    left: 10px;
+    bottom: auto;
+    font-size: 9px;
 }
 
 .ep-word-tiles {
@@ -17526,7 +18237,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.9),
         0 0 0 2px var(--ep-gold),
-        0 2px 0 #c9c1ae,
+        0 1px 0 #d4cdbd,
         0 3px 6px rgba(0, 0, 0, 0.3);
 }
 
@@ -17634,6 +18345,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     align-items: center;
     gap: var(--spacing-sm);
     flex-wrap: wrap;
+}
+
+/* 开桌设置页：开始按钮居中 */
+.ep-actions-center {
+    justify-content: center;
 }
 
 /* —— 炸弹编组 —— */
@@ -17762,7 +18478,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 /* 手里那几张已编组的牌：压暗 + 虚线金框，表示「它们在编组里等着」 */
 .ep-card-packed {
-    opacity: 0.5;
+    opacity: 0.3;
+    filter: invert(0.3);
 }
 
 .ep-card-packed::after {
@@ -17789,47 +18506,37 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     font-size: 0.88rem;
 }
 
-.ep-hints {
+/* 提示模式：拼牌条右侧的一行「可拼词」选项，套用 ep-check 的 pill 样式，点一下按该词重排选牌 */
+.ep-order-opts {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
+    max-width: 100%;
 }
 
-.ep-hint-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.08);
-    color: #e8f2ec;
-    border-radius: var(--radius-full);
-    padding: 4px 12px;
-    font-size: 0.8rem;
-    font-weight: 600;
+/* 选项本体沿用 .ep-check 的底样式，只覆盖掉它「靠右推」的 margin 与按钮默认字体，与结论同款 */
+.ep-order-opt {
+    margin-left: 0;
+    font-family: inherit;
+    font-weight: inherit;
     cursor: pointer;
+    color: #e8f2ec;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     transition: all var(--transition-fast);
 }
 
-.ep-hint-chip:hover {
+.ep-order-opt:hover {
     border-color: var(--ep-gold);
     background: rgba(212, 162, 76, 0.18);
     color: #fff;
 }
 
-.ep-hint-chip em {
-    font-style: normal;
-    color: var(--ep-mut);
-    font-size: 0.7rem;
-}
-
-.ep-hint-bomb {
-    border-color: rgba(212, 162, 76, 0.7);
+/* 炸弹词：金框金字的暗示 */
+.ep-order-bomb {
+    border-color: rgba(212, 162, 76, 0.65);
     color: #f3c96b;
-}
-
-.ep-hints-empty {
-    color: var(--ep-mut);
-    font-size: 0.82rem;
 }
 
 /* —— 对局记录 —— */
@@ -18078,10 +18785,6 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 @media (max-width: 768px) {
-    .ep-books {
-        grid-template-columns: 1fr;
-    }
-
     .ep-game,
     .ep-result {
         padding: var(--spacing-md);
@@ -18120,6 +18823,40 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
         max-width: 80%;
     }
 
+    /* 牌河扑克牌在窄屏统一缩一号，仍保持「露左半」的叠放节奏 */
+    .ep-rz-plays .ep-card-sm {
+        width: 30px;
+        height: 42px;
+        border-radius: 6px;
+        margin-left: -15px;
+    }
+
+    .ep-rz-plays .ep-card-sm .ep-card-letter {
+        top: 3px;
+        left: 4px;
+        font-size: 13px;
+    }
+
+    .ep-rz-plays .ep-card-sm .ep-card-sub {
+        top: 19px;
+        left: 5px;
+        font-size: 7px;
+    }
+
+    .ep-vol {
+        top: 8px;
+        right: 8px;
+        width: 30px;
+        height: 30px;
+        font-size: 0.9rem;
+    }
+
+    .ep-vol-hint {
+        top: 15px;
+        right: 44px;
+        font-size: 0.72rem;
+    }
+
     .ep-reveal-word {
         font-size: 1.5rem;
     }
@@ -18154,6 +18891,26 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
     .ep-card-letter {
         font-size: 19px;
+    }
+
+    /* 手牌叠放在窄屏统一缩一号，仍保持「露左半」的叠放节奏 */
+    .ep-hand .ep-card {
+        width: 44px;
+        height: 63px;
+        border-radius: 7px;
+        margin-left: -22px;
+    }
+
+    .ep-hand .ep-card-letter {
+        top: 4px;
+        left: 5px;
+        font-size: 18px;
+    }
+
+    .ep-hand .ep-card-sub {
+        top: 25px;
+        left: 6px;
+        font-size: 8px;
     }
 }
 

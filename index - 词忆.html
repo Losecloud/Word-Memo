@@ -314,12 +314,12 @@
             background: #f5f5f5;
         }
         [data-theme="dark"] .dl-cefr { background: #2a2a2a; }
-        .dl-cefr-a1 { color: #57912b; }
-        .dl-cefr-a2 { color: #93a418; }
-        .dl-cefr-b1 { color: #b9780f; }
-        .dl-cefr-b2 { color: #b6620e; }
-        .dl-cefr-c1 { color: #b32e27; }
-        .dl-cefr-c2 { color: #b1296d; }
+        .dl-cefr-a1 { color: var(--cefr-a1); }
+        .dl-cefr-a2 { color: var(--cefr-a2); }
+        .dl-cefr-b1 { color: var(--cefr-b1); }
+        .dl-cefr-b2 { color: var(--cefr-b2); }
+        .dl-cefr-c1 { color: var(--cefr-c1); }
+        .dl-cefr-c2 { color: var(--cefr-c2); }
         /* 最近查词删除按钮：样式复用 dict-lookup-clear（圆形 × 按钮），绝对定位整个项右侧正中，仅悬浮该项时显示 */
         .dl-del {
             position: absolute;
@@ -376,9 +376,14 @@
         .dl-ai-translation .dl-ai-body { font-size: 0.95rem; line-height: 1.7; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
         .dl-ai-translation .dl-ai-loading { padding: 12px; text-align: center; color: var(--primary-color); font-size: 0.85rem; }
         .dl-ai-translation .dl-ai-error { padding: 12px; text-align: center; color: var(--error); font-size: 0.85rem; }
-        /* 未配置 API 密钥时的温和提示（灰色、可点击，点击打开 AI 设置） */
-        .dl-ai-config-hint { padding: 10px 12px; text-align: center; color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; border-radius: 8px; transition: background 0.15s ease, color 0.15s ease; }
-        .dl-ai-config-hint:hover { background: var(--hover-bg); color: var(--text-primary); }
+        /* 未配置 API / 无本地结果时的提示：说明一行 + 左右分栏操作（左 AI设置、右 下载词典） */
+        .dl-ai-config-hint { padding: 10px 12px; color: var(--text-secondary); font-size: 0.85rem; border-radius: 8px; }
+        .dl-ai-config-hint .dl-config-caption { text-align: center; line-height: 1.5; margin-bottom: 8px; }
+        .dl-ai-config-hint .dl-config-actions { display: flex; align-items: stretch; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+        .dl-ai-config-hint .dl-config-action { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 8px 10px; background: transparent; border: none; color: var(--text-secondary); font-family: inherit; font-size: 0.85rem; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
+        .dl-ai-config-hint .dl-config-action + .dl-config-action { border-left: 1px solid var(--border-color); }
+        .dl-ai-config-hint .dl-config-action:hover { background: var(--hover-bg); color: var(--primary-color); }
+        .dl-ai-config-hint .dl-config-action i { font-size: 0.95rem; }
         /* AI 翻译详情视图：与 browse-dict detail-head 风格一致 */
         .dict-lookup-ai-detail { padding: 12px; }
         .dict-lookup-ai-detail .dl-ai-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 4px 8px; margin-left: -8px; margin-right: -8px; border-radius: 6px; cursor: pointer; transition: background 0.15s ease; }
@@ -860,6 +865,61 @@
             background: var(--primary-light);
             color: var(--primary-color);
         }
+        /* 删除垃圾桶 icon：默认隐藏，悬浮词条项时显示在重命名按钮右侧 */
+        .settings-dict-picker .dict-picker-item .dict-picker-item-delete {
+            flex-shrink: 0;
+            display: none;
+            width: 20px;
+            height: 20px;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding: 0;
+            cursor: pointer;
+        }
+        .settings-dict-picker .dict-picker-item:hover .dict-picker-item-delete { display: inline-flex; }
+        .settings-dict-picker .dict-picker-item .dict-picker-item-delete:hover {
+            background: color-mix(in srgb, var(--error, #EF4444) 14%, transparent);
+            color: var(--error, #EF4444);
+        }
+        /* 可下载词典条目：不可拖拽，悬浮右侧浮出云下载按钮 */
+        .settings-dict-picker .dict-picker-item-dl { cursor: default; }
+        .settings-dict-picker .dict-picker-item-dl:active { cursor: default; }
+        .settings-dict-picker .dict-picker-item-dl-tag {
+            flex-shrink: 0;
+            font-size: 0.76rem;
+            color: var(--text-secondary);
+        }
+        .settings-dict-picker .dict-picker-item .dict-picker-item-dl-btn {
+            flex-shrink: 0;
+            display: none;
+            width: 20px;
+            height: 20px;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            padding: 0;
+            cursor: pointer;
+        }
+        .settings-dict-picker .dict-picker-item:hover .dict-picker-item-dl-btn { display: inline-flex; }
+        .settings-dict-picker .dict-picker-item .dict-picker-item-dl-btn:hover {
+            background: var(--primary-light);
+            color: var(--primary-color);
+        }
+        .settings-dict-picker .dict-picker-item .dict-picker-item-dl-btn.is-downloading {
+            display: inline-flex;
+            color: var(--primary-color);
+            animation: dict-dl-spin 1s linear infinite;
+        }
+        @keyframes dict-dl-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         /* 重命名编辑态：输入框 + 勾号确认 */
         .settings-dict-picker .dict-picker-item-edit {
             flex: 1;
@@ -2402,9 +2462,9 @@
                                             <div class="topic-text" id="writingTopicText">点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。</div>
                                             <!-- 默认态下的补充说明（灰字）：生成题目后自动隐藏 -->
                                             <div class="topic-intro" id="writingTopicIntro">
-                                                <p><b>使用教程</b>：在下方编辑区写下英文段落（或点「AI生成」取题），系统会实时按 CEFR 等级给每个单词着色。顶部徽章显示各级别词数与预估等级，点徽章可聚焦该级别，点 Beg./Int./Adv. 可按范围筛选；「AI设置」里可调目标等级、文体与实时纠正。</p>
+                                                <p><b>使用教程</b>：在下方编辑区写下英文段落（或点「AI生成」取题），系统会实时按 CEFR 等级给每个单词着色。右侧显示各级占比和预估等级，点击对应等级可聚焦显示该级别；「AI设置」里可调目标等级、文体与实时纠正。</p>
                                                 <p><b>关于 CEFR </b>：欧洲语言共同参考框架(Common European Framework Reference)把语言能力划为 A1–C2 六级。本应用的单词等级主要来自 Cambridge CEFR 词表，极个别单词的不同释义可能存在不同CEFR等级，所以本实例为便于实时渲染采用了官方分级标注每个词的平均难度，仅供参考。</p>
-                                                <p><b>应用致敬</b>：本应用的分级着色思路致敬已于2023年关站的 Duolingo CEFR Test —— 它曾以同样的方式，让学习者直观看见自己的词汇水平。</p>
+                                                <p><b>应用致敬</b>：本应用的分级着色思路致敬已于2023年关站的 Duolingo CEFR Test —— 并在此基础上引入AI自动纠错，和进一步的CEFR综合评估(对标雅思、托福等主流评估体系)。</p>
                                             </div>
                                         </div>
                                     </div>
@@ -2456,22 +2516,22 @@
                                     <div class="eval-chart" id="evalChart">
                                         <!-- 6级柱状图（基线30%，输入后增长到30+百分比） -->
                                         <div class="cefr-bars" id="cefrBars">
-                                            <div class="cefr-bar" data-level="A1" style="--bar-color:#57912b">
+                                            <div class="cefr-bar" data-level="A1" style="--bar-color:var(--cefr-a1)">
                                                 <div class="bar-fill" id="barFillA1"><span class="bar-pct" id="barPctA1">0%</span><span class="bar-label">A1</span></div>
                                             </div>
-                                            <div class="cefr-bar" data-level="A2" style="--bar-color:#93a418">
+                                            <div class="cefr-bar" data-level="A2" style="--bar-color:var(--cefr-a2)">
                                                 <div class="bar-fill" id="barFillA2"><span class="bar-pct" id="barPctA2">0%</span><span class="bar-label">A2</span></div>
                                             </div>
-                                            <div class="cefr-bar" data-level="B1" style="--bar-color:#b9780f">
+                                            <div class="cefr-bar" data-level="B1" style="--bar-color:var(--cefr-b1)">
                                                 <div class="bar-fill" id="barFillB1"><span class="bar-pct" id="barPctB1">0%</span><span class="bar-label">B1</span></div>
                                             </div>
-                                            <div class="cefr-bar" data-level="B2" style="--bar-color:#b6620e">
+                                            <div class="cefr-bar" data-level="B2" style="--bar-color:var(--cefr-b2)">
                                                 <div class="bar-fill" id="barFillB2"><span class="bar-pct" id="barPctB2">0%</span><span class="bar-label">B2</span></div>
                                             </div>
-                                            <div class="cefr-bar" data-level="C1" style="--bar-color:#b32e27">
+                                            <div class="cefr-bar" data-level="C1" style="--bar-color:var(--cefr-c1)">
                                                 <div class="bar-fill" id="barFillC1"><span class="bar-pct" id="barPctC1">0%</span><span class="bar-label">C1</span></div>
                                             </div>
-                                            <div class="cefr-bar" data-level="C2" style="--bar-color:#b1296d">
+                                            <div class="cefr-bar" data-level="C2" style="--bar-color:var(--cefr-c2)">
                                                 <div class="bar-fill" id="barFillC2"><span class="bar-pct" id="barPctC2">0%</span><span class="bar-label">C2</span></div>
                                             </div>
                                         </div>
@@ -4135,7 +4195,7 @@
                         <span>音效提示</span>
                         <input type="checkbox" class="setting-checkbox" id="enableSoundEffects" checked>
                     </label>
-                    <div class="setting-hint">答对/答错时播放音效（英文扑克的打牌音效包在游戏内开桌页下载）</div>
+                    <div class="setting-hint">答对/答错时播放音效</div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">动画效果类型</label>
@@ -4429,9 +4489,14 @@
                                     <div class="dict-picker-section-title">已禁用 · 拖入启用</div>
                                     <div class="dict-picker-list" id="settingsDictDisabled"></div>
                                 </div>
+                                <div class="dict-picker-section" data-zone="downloadable" id="settingsDictDownloadSection">
+                                    <div class="dict-picker-section-title">可下载词典 · 悬浮点击下载</div>
+                                    <div class="dict-picker-list" id="settingsDictDownloadable"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
+                    <div class="setting-section-title">主题样式</div>
                     <div class="setting-group">
                         <label class="setting-label">
                             <span>跟随系统主题</span>
@@ -4439,6 +4504,65 @@
                         </label>
                         <div class="setting-hint">
                             深浅色跟随系统（Obsidian 中跟随其主题），关闭后可手动切换。
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">主题颜色选择</label>
+                        <div class="setting-hint">
+                            更改全站 CEFR 六级配色：写作正文分级着色、等级柱状图、评分按钮、综合评估与散点分析等。
+                            点选即应用，保存后写入本地配置。
+                        </div>
+                        <div class="cefr-theme-list" id="cefrThemeList">
+                            <div class="cefr-theme-card" data-cefr-theme="color_1" role="button" tabindex="0">
+                                <div class="cefr-theme-preview">
+                                    <span class="cefr-theme-swatch" style="background:#57912b"></span><span class="cefr-theme-swatch" style="background:#93a418"></span><span class="cefr-theme-swatch" style="background:#b9780f"></span><span class="cefr-theme-swatch" style="background:#b6620e"></span><span class="cefr-theme-swatch" style="background:#b32e27"></span><span class="cefr-theme-swatch" style="background:#b1296d"></span>
+                                </div>
+                                <div class="cefr-theme-name">Nature</div>
+                                <i class="cefr-theme-check fi-rr-check"></i>
+                            </div>
+                            <div class="cefr-theme-card" data-cefr-theme="color_2" role="button" tabindex="0">
+                                <div class="cefr-theme-preview">
+                                    <span class="cefr-theme-swatch" style="background:#3d9599"></span><span class="cefr-theme-swatch" style="background:#4d994d"></span><span class="cefr-theme-swatch" style="background:#99852e"></span><span class="cefr-theme-swatch" style="background:#99612e"></span><span class="cefr-theme-swatch" style="background:#992e3b"></span><span class="cefr-theme-swatch" style="background:#994d8e"></span>
+                                </div>
+                                <div class="cefr-theme-name">Cityline</div>
+                                <i class="cefr-theme-check fi-rr-check"></i>
+                            </div>
+                            <div class="cefr-theme-card" data-cefr-theme="color_3" role="button" tabindex="0">
+                                <div class="cefr-theme-preview">
+                                    <span class="cefr-theme-swatch" style="background:#0070c0"></span><span class="cefr-theme-swatch" style="background:#338dc3"></span><span class="cefr-theme-swatch" style="background:#00b0f0"></span><span class="cefr-theme-swatch" style="background:#7c7cd8"></span><span class="cefr-theme-swatch" style="background:#a11599"></span><span class="cefr-theme-swatch" style="background:#b1296d"></span>
+                                </div>
+                                <div class="cefr-theme-name">Ocean</div>
+                                <i class="cefr-theme-check fi-rr-check"></i>
+                            </div>
+                            <div class="cefr-theme-card" data-cefr-theme="color_4" role="button" tabindex="0">
+                                <div class="cefr-theme-preview">
+                                    <span class="cefr-theme-swatch" style="background:#4ac805"></span><span class="cefr-theme-swatch" style="background:#aad442"></span><span class="cefr-theme-swatch" style="background:#f59f0a"></span><span class="cefr-theme-swatch" style="background:#fb6409"></span><span class="cefr-theme-swatch" style="background:#eb5a55"></span><span class="cefr-theme-swatch" style="background:#b1296d"></span>
+                                </div>
+                                <div class="cefr-theme-name">Duolingo</div>
+                                <i class="cefr-theme-check fi-rr-check"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">字体设置</label>
+                        <div class="setting-hint">
+                            分别选择中文与英文字体（均为系统自带字体），点选即预览，保存后写入本地配置。
+                        </div>
+                        <div class="font-picker" id="fontPicker">
+                            <div class="ai-picker font-picker-dd">
+                                <button type="button" class="ai-picker-trigger" id="fontCNTrigger">
+                                    <span class="ai-picker-trigger-id"></span>
+                                    <span class="font-picker-label">中文字体</span>
+                                </button>
+                                <div class="ai-picker-panel" id="fontCNPanel"></div>
+                            </div>
+                            <div class="ai-picker font-picker-dd">
+                                <button type="button" class="ai-picker-trigger" id="fontENTrigger">
+                                    <span class="ai-picker-trigger-id"></span>
+                                    <span class="font-picker-label">English Fonts</span>
+                                </button>
+                                <div class="ai-picker-panel" id="fontENPanel"></div>
+                            </div>
                         </div>
                     </div>
                     <div class="setting-section-title">Obsidian 相关设置</div>
@@ -4933,6 +5057,14 @@
             </div>
             <div class="modal-body">
                 <div class="writing-settings-form">
+                    <!-- sheet 标签栏：切换不同分组的设置（参考主设置-AI设置的 ai-provider-tabs） -->
+                    <div class="ai-provider-tabs">
+                        <div class="ai-provider-tab-list" id="wsTabList">
+                            <div class="ai-provider-tab active" data-ws-tab="basic" title="基本参数">基本参数</div>
+                            <div class="ai-provider-tab" data-ws-tab="anim" title="动画效果">动画效果</div>
+                        </div>
+                    </div>
+                    <div class="ws-sheet" data-ws-sheet="basic">
                     <div class="form-group">
                         <label class="form-label" for="writingTopic">写作主题</label>
                         <select class="form-select setting-select" id="writingTopic" title="写作主题">
@@ -4979,7 +5111,7 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="writingPrompt">额外要求</label>
-                        <input type="text" id="writingPrompt" class="form-input" placeholder="可选，例如：围绕校园生活展开...">
+                        <textarea id="writingPrompt" class="form-input" rows="2" placeholder="可选，例如：围绕校园生活展开..."></textarea>
                     </div>
                     <!-- 行为开关（自原「写作设置」面板迁入） -->
                     <div class="setting-content">
@@ -5014,6 +5146,115 @@
                             </label>
                         </div>
                     </div>
+                    </div><!-- /ws-sheet basic -->
+
+                    <!-- 动画效果 sheet：AI 校阅淡纹 -->
+                    <div class="ws-sheet hidden" data-ws-sheet="anim">
+                        
+                            <div class="ws-board-head">
+                                <div class="ws-board-title"><i class="fi-rr-waveform"></i>AI 校阅淡纹</div>
+                                <div class="ws-board-desc">AI 分析你刚写下的段落时，文字下方浮现的动态淡纹，表示「正在校阅」。</div>
+                            </div>
+                            <div class="ws-wave-preview" id="wsWavePreview">
+                                <span id="wsWavePreviewText">The quick brown fox jumps over the lazy dog.</span>
+                                <canvas class="ws-wave-canvas" id="wsWaveCanvas" aria-hidden="true"></canvas>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">淡纹颜色</label>
+                                <div class="ws-colors" id="wsWaveColors">
+                                    <button type="button" class="ws-swatch" data-ws-color="var(--text-secondary)" style="background: var(--text-secondary)" title="主题次要色（默认）"></button>
+                                    <button type="button" class="ws-swatch" data-ws-color="#c2410c" style="background: #c2410c" title="胭脂推敲"></button>
+                                    <button type="button" class="ws-swatch" data-ws-color="#0f766e" style="background: #0f766e" title="松针青灰"></button>
+                                    <button type="button" class="ws-swatch" data-ws-color="#6366f1" style="background: #6366f1" title="紫藤薄雾"></button>
+                                    <button type="button" class="ws-swatch" data-ws-color="#b45309" style="background: #b45309" title="琥珀秋阳"></button>
+                                    <span class="ws-color-sep" aria-hidden="true"></span>
+                                    <label class="ws-swatch ws-swatch-custom" id="wsWaveColorCustomBox" title="自定义颜色">
+                                        <input type="color" id="wsWaveColorCustom" value="#6b7280">
+                                        <i class="fi-rr-paint-brush ws-swatch-brush"></i>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">淡纹类型</label>
+                                <div class="ws-chips" id="wsWaveTypes">
+                                    <button type="button" class="ws-chip" data-ws-type="dot" data-dash="2" data-width="1.5">
+                                        <span class="ws-chip-name">圆点型</span>
+                                        <span class="ws-chip-desc">段长 2px · 粗细 1.5px</span>
+                                    </button>
+                                    <button type="button" class="ws-chip" data-ws-type="line" data-dash="4.5" data-width="1">
+                                        <span class="ws-chip-name">线条型</span>
+                                        <span class="ws-chip-desc">段长 4.5px · 粗细 1px</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- 高级设置：默认折叠，仅显示标题；点击后在下方展开 -->
+                            <div class="ws-adv collapsed" id="wsWaveAdvanced">
+                                <button type="button" class="ws-adv-head" id="wsAdvToggle" aria-expanded="false">
+                                    <span>高级设置</span>
+                                    <svg class="ws-adv-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+                                </button>
+                                <div class="ws-adv-body">
+                            <div class="form-group">
+                               
+                                <select class="form-select setting-select" id="wsWaveMode" title="漂浮算法">
+                                    <option value="ocean_swell" data-icon="fi-rr-water" data-desc="多频叠加，如海面涌浪般起伏">海面涌浪</option>
+                                    <option value="independent_drift" selected data-icon="fi-rr-flame" data-desc="每条线段各自的频率与相位，最自然">独立浮游（离散异步）</option>
+                                    <option value="gentle_breeze" data-icon="fi-rr-wind" data-desc="频率更高、波峰更密，轻快涟漪">微风涟漪</option>
+                                    <option value="deep_breath" data-icon="fi-rr-moon" data-desc="极缓慢、有节律的呼吸感">深呼吸</option>
+                                </select>
+                            </div>
+                            <div class="setting-content ws-toggles">
+                                <div class="setting-item">
+                                    <div class="setting-item-info">
+                                        <div class="setting-item-title">随波倾斜</div>
+                                        <div class="setting-item-desc">线段随起伏微微转向</div>
+                                    </div>
+                                    <label class="switch-wrap">
+                                        <input type="checkbox" id="wsWaveTilt" checked>
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="setting-item">
+                                    <div class="setting-item-info">
+                                        <div class="setting-item-title">明暗呼吸</div>
+                                        <div class="setting-item-desc">透明度随时间轻微起伏</div>
+                                    </div>
+                                    <label class="switch-wrap">
+                                        <input type="checkbox" id="wsWaveAlpha" checked>
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="ws-params">
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>漂浮幅度</span><span class="ws-param-val" id="wsWaveAmpVal">1px</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveAmp" min="0.4" max="4" step="0.1" value="1">
+                                </div>
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>漂浮速率</span><span class="ws-param-val" id="wsWaveSpeedVal">1x</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveSpeed" min="0.1" max="2" step="0.05" value="1">
+                                </div>
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>虚线段长</span><span class="ws-param-val" id="wsWaveDashVal">2px</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveDash" min="1" max="12" step="0.5" value="2">
+                                </div>
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>虚线间距</span><span class="ws-param-val" id="wsWaveGapVal">7px</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveGap" min="2" max="10" step="0.5" value="7">
+                                </div>
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>笔画粗细</span><span class="ws-param-val" id="wsWaveWidthVal">1.5px</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveWidth" min="0.75" max="2.5" step="0.25" value="1.5">
+                                </div>
+                                <div class="ws-param">
+                                    <div class="ws-param-head"><span>与文字基准间距</span><span class="ws-param-val" id="wsWaveOffsetVal">2px</span></div>
+                                    <input type="range" class="setting-slider" id="wsWaveOffset" min="1" max="8" step="0.5" value="2">
+                                </div>
+                            </div>
+                                </div><!-- /ws-adv-body -->
+                            </div><!-- /ws-adv -->
+                        
+                    </div><!-- /ws-sheet anim -->
                     
                 </div>
             </div>
@@ -5354,6 +5595,32 @@
     <script src="data/dict-manifest.js"></script>
     <script src="data/dict-catalog.js"></script>
     <script src="lib/uicons-icons.js"></script>
+    <!-- CEFR 六级色库（与 CEFR Shadow_uni/utils/colorConfig.js 共有的 4 套同名色库保持一致）：
+         实际生效值由 app.js applyCefrTheme() 写入 documentElement 上的 --cefr-* 变量，
+         此处提供色库数据与读取工具，供 nebula/dandelion 等独立脚本复用 -->
+    <script>
+    (function () {
+        window.CEFR_THEME_SETS = {
+            color_1: { A1: '#57912b', A2: '#93a418', B1: '#b9780f', B2: '#b6620e', C1: '#b32e27', C2: '#b1296d' },
+            color_2: { A1: '#3d9599', A2: '#4d994d', B1: '#99852e', B2: '#99612e', C1: '#992e3b', C2: '#994d8e' },
+            color_3: { A1: '#0070c0', A2: '#338dc3', B1: '#00b0f0', B2: '#7c7cd8', C1: '#a11599', C2: '#b1296d' },
+            color_4: { A1: '#4ac805', A2: '#aad442', B1: '#f59f0a', B2: '#fb6409', C1: '#eb5a55', C2: '#b1296d' }
+        };
+        window.CEFR_THEME_NAMES = { color_1: 'Nature', color_2: 'Cityline', color_3: 'Ocean', color_4: 'Duolingo' };
+        window.CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+        // 读取当前生效的等级色：优先取 documentElement 上的 --cefr-* 变量，未就绪时回落到当前色库
+        window.getCefrColor = function (level) {
+            var lv = String(level || '').toUpperCase();
+            var v = '';
+            try {
+                v = getComputedStyle(document.documentElement).getPropertyValue('--cefr-' + lv.toLowerCase());
+            } catch (e) { v = ''; }
+            if (v && v.trim()) return v.trim();
+            var set = window.CEFR_THEME_SETS[document.documentElement.dataset.cefrTheme || 'color_1'] || window.CEFR_THEME_SETS.color_1;
+            return set[lv] || '#666666';
+        };
+    })();
+    </script>
     <script src="js/storage.js"></script>
     <script src="js/dictionary-api.js"></script>
     <script src="js/ai-service.js"></script>
@@ -5444,6 +5711,7 @@
         let pendingEnter = null; // Enter 直达：检索结果返回后要自动打开的查询词（null 表示无待打开）
         let pendingDetail = false; // 详情过渡中：清单保持显示，等引擎渲染完成（opened）再切换到详情，避免闪烁
         let altDividerAdded = false; // 是否已在主（精准）与次（近似/形近）分界处画过分隔线
+        let wordSourceMap = null; // 词书来源索引（词→词书/收藏词单名称），每次下拉重渲染时重建
 
         // 词典键与引擎回传的 q 均为小写：统一归一化。
         // 否则首字母大写的词（如 Design）会与 lastQuery / pendingEnter 比对不一致，
@@ -5560,6 +5828,45 @@
             d.className = 'dl-alt-divider';
             return d;
         }
+        // 构建「词→来源名称」索引：用户导入的全部词书 + 全部收藏词单（含默认收藏）。
+        // 每次下拉重渲染时重建（wordSourceMap 置空），词书/收藏增删后即时反映。
+        function buildWordSourceMap() {
+            const map = new Map();
+            const add = function (w, name) {
+                const k = normWord(w);
+                if (!k || !name) return;
+                let arr = map.get(k);
+                if (!arr) { arr = []; map.set(k, arr); }
+                if (arr.indexOf(name) < 0) arr.push(name);
+            };
+            try {
+                const books = (typeof Storage !== 'undefined' && Storage.loadBooks) ? (Storage.loadBooks() || []) : [];
+                books.forEach(function (book) {
+                    if (!book || !book.name || !Array.isArray(book.words)) return;
+                    book.words.forEach(function (x) { add((x && (x.word || x.name)) || x, book.name); });
+                });
+            } catch (e) { /* 忽略 */ }
+            try {
+                const app = window.app;
+                const lists = (app && typeof app.getFavoriteLists === 'function') ? (app.getFavoriteLists() || []) : [];
+                const globalFavs = (typeof Storage !== 'undefined' && Storage.loadFavoriteItems) ? (Storage.loadFavoriteItems() || []) : [];
+                lists.forEach(function (l) {
+                    if (!l || !l.id || !l.name) return;
+                    if (l.id === 'favorites') {
+                        globalFavs.forEach(function (f) { add((f && (f.word || f.name)) || f, l.name); });
+                    } else {
+                        const ws = (app && typeof app.getFavoriteListWords === 'function') ? app.getFavoriteListWords(l.id) : (l.words || []);
+                        (ws || []).forEach(function (x) { add((x && (x.word || x.name)) || x, l.name); });
+                    }
+                });
+            } catch (e) { /* 忽略 */ }
+            return map;
+        }
+        // 查该词在用户词书 / 收藏词单中的来源名称列表（无则返回空数组）
+        function wordSourceNames(w) {
+            if (!wordSourceMap) wordSourceMap = buildWordSourceMap();
+            return wordSourceMap.get(normWord(w)) || [];
+        }
         // 构建单个结果项（词典词/近似词/形近词共用）
         function createItem(it) {
             const div = document.createElement('div');
@@ -5605,6 +5912,18 @@
                 dictEl.style.background = 'var(--dl-bg' + pi + ')';
             }
             div.appendChild(dictEl);
+            // 词书来源 tag：精确命中的词出现在用户词书 / 收藏词单时，额外标出来源名称
+            // （近似/形近/中→英等补充结果不算，避免噪声）
+            if (!it.fuzzy && !it.similar && !it.reverse) {
+                const srcNames = wordSourceNames(it.w);
+                if (srcNames.length) {
+                    const srcEl = document.createElement('span');
+                    srcEl.className = 'dl-dict dl-dict-sim';
+                    srcEl.textContent = srcNames.join('、');
+                    srcEl.title = '已收录于：' + srcNames.join('、');
+                    div.appendChild(srcEl);
+                }
+            }
             // 场景类别 tag（仅基础词典兜底时显示）
             if (it.catTags) {
                 const catEl = document.createElement('span');
@@ -5674,7 +5993,9 @@
             }
             return false;
         }
-        // 未配置 API 时的温和提示：灰色可点击，点击打开设置界面的 AI 设置
+        // 未配置 API 时的温和提示：左右分栏——左侧「AI设置」、右侧「下载词典」
+        // 网页端：左 → 设置弹窗的 AI 设置；右 → AI 工坊「词典」区
+        // 侧栏端（ob 右侧 bar）：无独立页面，两栏均在本栏内唤起设置弹窗（AI设置 / 页面设置）
         function renderAiConfigHint(container, text) {
             const host = container || results;
             const scope = host === results ? results : host;
@@ -5682,9 +6003,32 @@
             const empty = scope.querySelector ? scope.querySelector('.dl-empty') : null;
             if (empty) empty.remove();
             if (scope.querySelector && scope.querySelector('.dl-ai-config-hint')) return;
+            const sidebar = document.documentElement.classList.contains('wm-sidebar-mode');
             const tip = document.createElement('div');
             tip.className = 'dl-ai-config-hint';
-            tip.textContent = text || '本地词典未查到当前单词，是否配置API进行在线翻译 →';
+            const caption = document.createElement('div');
+            caption.className = 'dl-config-caption';
+            caption.textContent = text || '本地词典未查到当前单词，可配置 API 在线翻译，或先下载词典';
+            tip.appendChild(caption);
+            const actions = document.createElement('div');
+            actions.className = 'dl-config-actions';
+            // 左栏：AI 设置（无本地释义时正需在此配置 API 密钥）
+            const aiBtn = document.createElement('button');
+            aiBtn.type = 'button';
+            aiBtn.className = 'dl-config-action';
+            aiBtn.dataset.act = 'ai';
+            aiBtn.innerHTML = '<i class="fi-rr-settings-sliders"></i><span>AI设置</span>';
+            // 右栏：侧栏端换成「页面设置」（导入词典、首选查词词典都在此选项卡内）
+            const dictBtn = document.createElement('button');
+            dictBtn.type = 'button';
+            dictBtn.className = 'dl-config-action';
+            dictBtn.dataset.act = sidebar ? 'page' : 'dict';
+            dictBtn.innerHTML = sidebar
+                ? '<i class="fi-rr-settings"></i><span>页面设置</span>'
+                : '<i class="fi-rr-download"></i><span>下载词典</span>';
+            actions.appendChild(aiBtn);
+            actions.appendChild(dictBtn);
+            tip.appendChild(actions);
             // 阻止输入框失焦与冒泡（避免触发外层「点击查词区外关闭」等逻辑）
             tip.addEventListener('mousedown', function (e) {
                 e.preventDefault();
@@ -5693,15 +6037,23 @@
             tip.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
+                const btn = e.target.closest ? e.target.closest('.dl-config-action') : null;
+                if (!btn) return;
+                const act = btn.dataset.act;
                 closeDropdown();
                 // 延迟到本次点击事件派发结束后再打开设置弹窗：若在 mousedown 阶段即弹出，
                 // 弹窗会出现在光标下方，随后的 click 命中弹窗遮罩触发「点击遮罩关闭」，
                 // 表现为设置弹窗一闪即关（侧栏与主页均受影响）
                 setTimeout(function () {
-                    if (window.app && typeof window.app.openSettings === 'function') {
+                    if (!window.app) return;
+                    // 右栏（网页端）：跳转 AI 工坊「词典」区下载并启用词典
+                    if (act === 'dict') {
+                        if (typeof window.app.gotoBaseDictDownload === 'function') window.app.gotoBaseDictDownload();
+                        return;
+                    }
+                    if (typeof window.app.openSettings === 'function') {
                         window.app.openSettings();
-                        // 定位到 AI 设置：无本地释义时正需配置 API 密钥
-                        if (typeof window.app.switchSettingsTab === 'function') window.app.switchSettingsTab('ai');
+                        if (typeof window.app.switchSettingsTab === 'function') window.app.switchSettingsTab(act);
                     }
                 }, 0);
             });
@@ -5755,6 +6107,7 @@
             results.innerHTML = '';
             results.scrollTop = 0; // 新查询结果重置滚动到顶部
             altDividerAdded = false;
+            wordSourceMap = null; // 词书来源索引随本次重渲染重建（词书/收藏增删后即时反映）
             // 历史查询视图：顶部居中灰字标题 + 分隔线，与下方历史词条列表区分
             if (isHistory && words && words.length) {
                 const title = document.createElement('div');
@@ -6094,7 +6447,7 @@
             if (!hasAiApiKey()) {
                 const body = aiDetail.querySelector('.dl-ai-detail-body');
                 body.innerHTML = '';
-                renderAiConfigHint(body, '尚未配置 API 密钥，无法在线翻译 →');
+                renderAiConfigHint(body, '尚未配置 API 密钥，无法在线翻译');
                 input.blur();
                 setDictStatus(false);
                 return;
@@ -6560,7 +6913,10 @@
         const panel = cfg.panel;
         const enabledBox = cfg.enabledBox;
         const disabledBox = cfg.disabledBox;
+        const downloadBox = cfg.downloadBox || null;       // 「可下载词典」列表容器
+        const downloadSection = cfg.downloadSection || null; // 「可下载词典」整块（无内容时整块隐藏）
         let dragState = null; // { varName, startX, startY, moved, ghost }
+        const hiddenVars = new Set(); // 本次会话内已删除的词典：从引擎快照中滤除，防止状态回灌后又出现
 
         function lsGet(key, def) {
             try { const v = JSON.parse(localStorage.getItem(key) || 'null'); return v == null ? def : v; } catch (e) { return def; }
@@ -6570,16 +6926,27 @@
         let pickerData = { preferred: null, list: [] };
         // 引擎未就绪前的只读回退（同源 localStorage 缓存，由引擎写入）
         function getDicts() {
-            const metas = lsGet('dictMetas', []).filter(m => m.varName && m.file);
+            const metas = lsGet('dictMetas', []).filter(m => m.varName && m.file && !hiddenVars.has(m.varName));
             const enabled = lsGet('enabledDicts', []);
             return metas.map(m => ({ varName: m.varName, name: m.name || m.varName, enabled: enabled.indexOf(m.varName) >= 0 }));
         }
         function getPreferred() { try { return localStorage.getItem('browseDictCur') || null; } catch (e) { return null; } }
+        // 词典安装清单（data/dict-catalog.js，与 AI 工坊「词典」区同源）：可下载词典的数据来源
+        function getCatalog() {
+            const c = window.DICT_CATALOG;
+            return (c && Array.isArray(c.dicts)) ? c.dicts : [];
+        }
+        // 已安装词典的落盘信息（含 file），用于删除时定位要删除的数据文件
+        function getDictMeta(varName) {
+            return lsGet('dictMetas', []).find(m => m && m.varName === varName) || null;
+        }
         // 应用引擎广播的状态快照
         function applyPickerState(state) {
             if (!state) return;
             pickerData.preferred = state.preferred || null;
-            pickerData.list = (state.list || []).map(x => ({ varName: x.varName, name: x.name, enabled: !!x.enabled }));
+            pickerData.list = (state.list || [])
+                .map(x => ({ varName: x.varName, name: x.name, enabled: !!x.enabled }))
+                .filter(x => !hiddenVars.has(x.varName));
             renderPicker();
         }
         // 监听引擎广播的词库状态（首次就绪、启用/禁用、设首选、重命名后都会推送）
@@ -6640,6 +7007,17 @@
                     startRename(item, d);
                 });
                 item.appendChild(renameBtn);
+                // 删除垃圾桶按钮：悬浮显示，重命名按钮右侧；确认后删除本地词典数据并移入「可下载词典」
+                const delBtn = document.createElement('button');
+                delBtn.className = 'dict-picker-item-delete';
+                delBtn.title = '删除该词典';
+                delBtn.innerHTML = '<i class="fi-rr-trash"></i>';
+                delBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteInstalledDict(d.varName, d.name);
+                });
+                item.appendChild(delBtn);
                 const tag = document.createElement('span');
                 tag.className = 'dict-picker-item-tag';
                 tag.textContent = d.varName === preferred ? '★ 首选' : (isEnabled ? '已启用' : '已禁用');
@@ -6659,6 +7037,98 @@
             disabledList.forEach(d => buildItem(d, false));
             if (!enabledList.length) enabledBox.innerHTML = '<div class="dict-picker-empty">无启用词库</div>';
             if (!disabledList.length) disabledBox.innerHTML = '<div class="dict-picker-empty">无禁用词库</div>';
+            renderDownloadable(dicts);
+        }
+
+        // 「可下载词典」区：列出 catalog 中尚未安装的词典（与 AI 工坊「词典」区同源）。
+        // 悬浮条目右侧浮出云下载按钮，点击下载 → 写入 data/ → 登记并启用（同「可下载」链路）
+        function renderDownloadable(dicts) {
+            if (!downloadBox) return;
+            const installed = new Set((dicts || []).map(d => d.varName));
+            const avail = getCatalog().filter(d => d.varName && d.file && !installed.has(d.varName));
+            downloadBox.innerHTML = '';
+            if (downloadSection) downloadSection.style.display = avail.length ? '' : 'none';
+            avail.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'dict-picker-item dict-picker-item-dl';
+                const idSpan = document.createElement('span');
+                idSpan.className = 'dict-picker-item-id';
+                idSpan.textContent = entry.label || entry.file;
+                idSpan.title = entry.desc || '';
+                item.appendChild(idSpan);
+                const sizeTag = document.createElement('span');
+                sizeTag.className = 'dict-picker-item-dl-tag';
+                sizeTag.textContent = (window.app && window.app.formatDictSize) ? window.app.formatDictSize(entry.size) : '';
+                item.appendChild(sizeTag);
+                const dlBtn = document.createElement('button');
+                dlBtn.type = 'button';
+                dlBtn.className = 'dict-picker-item-dl-btn';
+                dlBtn.title = '下载并启用';
+                dlBtn.innerHTML = '<i class="fi-rr-cloud-download-alt"></i>';
+                dlBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+                dlBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    downloadCatalogDict(entry, dlBtn);
+                });
+                item.appendChild(dlBtn);
+                downloadBox.appendChild(item);
+            });
+        }
+
+        // 下载并安装一本可下载词典：流式下载 → 写入 data/ → 登记引擎清单并启用 → 刷新生效
+        async function downloadCatalogDict(entry, btn) {
+            const app = window.app;
+            if (!app) return;
+            const label = entry.label || entry.file;
+            btn.disabled = true;
+            btn.classList.add('is-downloading');
+            btn.title = '下载中…';
+            try {
+                const jsText = await app.downloadDictData(entry.url, entry.size, (ratio) => {
+                    btn.title = ratio == null ? '下载中…' : '下载中 ' + Math.round(ratio * 100) + '%';
+                });
+                const saved = await app.saveDictToData(jsText, entry.varName, entry.file);
+                app.registerDictMeta({
+                    name: label,
+                    varName: entry.varName,
+                    file: saved.file,
+                    format: entry.format,
+                    size: entry.size
+                });
+                app.toggleDictApplied(entry.varName, true);
+                btn.title = '安装完成';
+                if (app.showToast) app.showToast('词典「' + label + '」已下载并启用', 'success');
+                // 词典数据需重新加载后生效，刷新页面（与 AI 工坊下载一致）
+                setTimeout(() => window.location.reload(), 700);
+            } catch (e) {
+                btn.disabled = false;
+                btn.classList.remove('is-downloading');
+                btn.title = '重新下载';
+                if (app.showToast) app.showToast('下载失败：' + ((e && e.message) || e), 'error');
+            }
+        }
+
+        // 删除已安装词典：确认 → 删除本地数据文件 + 注销引擎清单 → 本地即时移入「可下载词典」
+        async function deleteInstalledDict(varName, name) {
+            const app = window.app;
+            if (!app) return;
+            const meta = getDictMeta(varName) || {};
+            const entry = getCatalog().find(d => d.varName === varName) || {};
+            const file = meta.file || entry.file || '';
+            const sizeTxt = entry.size && app.formatDictSize ? '(' + app.formatDictSize(entry.size) + ')' : '';
+            if (!confirm('确认删除「' + name + '」' + sizeTxt + '词典吗？\n\n将删除本地词典数据文件，之后可在下方「可下载词典」中重新下载。')) return;
+            try {
+                if (file) await app.deleteDictData(file);
+                app.unregisterDict(varName);
+            } catch (e) {
+                if (app.showToast) app.showToast('删除失败：' + ((e && e.message) || e), 'error');
+                return;
+            }
+            // 本地即时移除并记忆，防止引擎状态回灌又出现；随之在「可下载词典」中补位
+            hiddenVars.add(varName);
+            pickerData.list = pickerData.list.filter(x => x.varName !== varName);
+            renderPicker();
+            if (app.showToast) app.showToast('词典「' + name + '」已删除，可在「可下载词典」中重新下载', 'success');
         }
 
         // 重命名词库：委托引擎持久化（引擎写入共享缓存 dictMetas 并广播最新状态）
@@ -6703,6 +7173,8 @@
             });
             const renameBtn = item.querySelector('.dict-picker-item-rename');
             if (renameBtn) renameBtn.style.display = 'none';
+            const delBtn = item.querySelector('.dict-picker-item-delete');
+            if (delBtn) delBtn.style.display = 'none';
             edit.appendChild(input);
             edit.appendChild(ok);
             item.replaceChild(edit, idSpan);
@@ -6744,8 +7216,7 @@
                     if (st.ghost) st.ghost.remove();
                     if (st.moved) {
                         ev.preventDefault(); // 抑制随后的 click
-                        const target = document.elementFromPoint(ev.clientX, ev.clientY);
-                        const section = target ? target.closest('.dict-picker-section') : null;
+                        const section = dropZoneAt(ev.clientX, ev.clientY);
                         if (section) {
                             const enable = section.getAttribute('data-zone') === 'enabled';
                             const list = pickerData.list.length ? pickerData.list : getDicts();
@@ -6759,11 +7230,18 @@
             });
         }
 
+        // 仅「已启用 / 已禁用」两栏是合法拖放目标，避免误拖到「可下载词典」栏
+        function dropZoneAt(x, y) {
+            const target = document.elementFromPoint(x, y);
+            const section = target ? target.closest('.dict-picker-section') : null;
+            const zone = section ? section.getAttribute('data-zone') : null;
+            return (section && (zone === 'enabled' || zone === 'disabled')) ? section : null;
+        }
+
         // 拖拽过程中高亮鼠标所在栏
         function highlightDropZone(ev) {
             document.querySelectorAll('.dict-picker-section.drag-over').forEach(el => el.classList.remove('drag-over'));
-            const target = document.elementFromPoint(ev.clientX, ev.clientY);
-            const section = target ? target.closest('.dict-picker-section') : null;
+            const section = dropZoneAt(ev.clientX, ev.clientY);
             if (section) section.classList.add('drag-over');
         }
 
@@ -6807,6 +7285,8 @@
             panel: panel,
             enabledBox: document.getElementById('settingsDictEnabled'),
             disabledBox: document.getElementById('settingsDictDisabled'),
+            downloadBox: document.getElementById('settingsDictDownloadable'),
+            downloadSection: document.getElementById('settingsDictDownloadSection'),
             positionPanel: function () {
                 const r = trigger.getBoundingClientRect();
                 panel.style.left = r.left + 'px';

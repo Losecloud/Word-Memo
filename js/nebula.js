@@ -1807,9 +1807,8 @@
             var lvls = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
             var lvIdx = getWordLevel(w.word);
             if (lvIdx !== -1) {
-                // 与 app.js 的 CEFR_THEME_COLORS 保持一致；WordMemoryApp 为 class 全局声明（不挂 window），故内置兜底色
-                var NEBULA_LEVEL_COLORS = { A1: '#57912b', A2: '#93a418', B1: '#b9780f', B2: '#b6620e', C1: '#b32e27', C2: '#b1296d' };
-                var lvColor = NEBULA_LEVEL_COLORS[lvls[lvIdx]] || '#99a7ff';
+                // 与 app.js 的 CEFR_THEME_COLORS 同源：经 window.getCefrColor() 实时读取用户所选色库
+                var lvColor = (window.getCefrColor && window.getCefrColor(lvls[lvIdx])) || '#99a7ff';
                 lvlEl.textContent = lvls[lvIdx];
                 lvlEl.style.color = lvColor;
                 lvlEl.style.display = '';

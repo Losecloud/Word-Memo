@@ -239,6 +239,252 @@ const EDGE_TTS_GATEWAY = 'http://127.0.0.1:8890';
 // 「看单词选释义」长按激活 Pro 的时长：JS 计时与 CSS 扫入动画共用此常量（通过 --pro-hold-ms 注入）
 const PRO_HOLD_MS = 1000;
 
+// ============================================
+// 「校阅淡纹」引擎
+// 移植自 tools/文字纠错浮波淡纹---subtle-proofreading-wavy-underline：
+// 在目标文本每一行下方绘制等距的圆角小线段，每条线段独立浮游（离散异步），
+// 可选随波倾斜（tilt）与透明度呼吸（alpha）。默认参数由「写作AI设置 → 动画效果」配置。
+// ============================================
+const DEFAULT_PROOFREAD_WAVE = {
+    amplitude: 1,        // 漂浮幅度 px
+    speed: 1,            // 漂浮速率（倍率）
+    dashLength: 2,       // 虚线段长 px
+    dashGap: 7,          // 虚线间距 px
+    strokeWidth: 1.5,    // 笔画粗细 px
+    verticalOffset: 2,   // 与文字基准间距（Offset）px
+    strokeColor: 'var(--text-secondary)', // 校阅淡纹颜色
+    opacity: 1,          // 基础透明度（不额外设置）
+    capStyle: 'round',   // 端点样式：圆角
+    waveMode: 'independent_drift',        // 算法：独立浮游（离散异步）
+    tiltEnabled: true,   // 物理特征增强：倾斜
+    opacityBreathEnabled: true            // 物理特征增强：透明度呼吸
+};
+
+// 创建「校阅淡纹」绘制器：canvas 由调用方创建并控制尺寸/位置
+function createProofreadWave(canvas) {
+    const ctx = canvas.getContext('2d');
+    let cfg = Object.assign({}, DEFAULT_PROOFREAD_WAVE);
+    let targets = [];
+    let lines = [];
+    let running = false;
+    let raf = null;
+    let fadeRaf = null;
+    let t0 = 0;
+    let alphaMul = 1;
+    let color = '#888888';
+    let lw = 0, lh = 0, dpr = 1;
+
+    // CSS 变量色（如 var(--text-secondary)）需解析为具体颜色值后再交给 canvas
+    function resolveColor(c) {
+        const m = /^var\((--[\w-]+)\)$/.exec(String(c == null ? '' : c).trim());
+        if (m) {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim();
+            return v || '#888888';
+        }
+        return c || '#888888';
+    }
+
+    // 逐目标元素用 Range 测量视觉行，合并同一行的碎片矩形；坐标相对 canvas 左上角
+    function measure() {
+        const cr = canvas.getBoundingClientRect();
+        const out = [];
+        targets.forEach(function (el) {
+            if (!el || !el.isConnected) return;
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const rects = Array.prototype.slice.call(range.getClientRects());
+            rects.sort(function (a, b) { return a.top - b.top || a.left - b.left; });
+            const merged = [];
+            rects.forEach(function (r) {
+                if (r.width <= 1 || r.height <= 1) return;
+                const last = merged[merged.length - 1];
+                if (last && Math.abs(r.bottom - last.bottom) < 4 && r.left <= last.right + 12) {
+                    last.right = Math.max(last.right, r.right);
+                    last.bottom = Math.max(last.bottom, r.bottom);
+                } else {
+                    merged.push({ left: r.left, right: r.right, bottom: r.bottom });
+                }
+            });
+            merged.forEach(function (m) {
+                out.push({
+                    left: m.left - cr.left,
+                    bottom: m.bottom - cr.top,
+                    width: m.right - m.left,
+                    lineIndex: out.length + 1
+                });
+            });
+        });
+        lines = out;
+    }
+
+    function resize() {
+        dpr = Math.min(2, window.devicePixelRatio || 1);
+        lw = canvas.clientWidth;
+        lh = canvas.clientHeight;
+        canvas.width = Math.max(1, Math.round(lw * dpr));
+        canvas.height = Math.max(1, Math.round(lh * dpr));
+    }
+
+    function draw(now) {
+        if (!running) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, lw, lh);
+        const t = ((now - t0) / 1000) * cfg.speed;
+        const pitch = cfg.dashLength + cfg.dashGap;
+        const mode = cfg.waveMode;
+        const capRound = cfg.capStyle !== 'butt';
+        const w = Math.max(1, cfg.dashLength);
+        const h = Math.max(1, cfg.strokeWidth);
+
+        lines.forEach(function (line) {
+            if (line.width <= cfg.dashLength) return;
+            const count = Math.max(1, Math.floor((line.width - cfg.dashGap) / pitch));
+            const actualWidth = count * cfg.dashLength + (count - 1) * cfg.dashGap;
+            const startX = line.left + Math.max(0, (line.width - actualWidth) / 2);
+            const cy = line.bottom + cfg.verticalOffset;
+
+            for (let j = 0; j < count; j++) {
+                const cx = startX + j * pitch + cfg.dashLength / 2;
+                // 每条线段一个确定性伪随机种子，保证「各浮各的」又稳定可复现
+                const h1 = Math.sin(line.lineIndex * 127.1 + j * 311.7) * 43758.5453;
+                const seed1 = Math.abs(h1 - Math.floor(h1));
+                const h2 = Math.cos(line.lineIndex * 269.5 + j * 183.3) * 28461.3411;
+                const seed2 = Math.abs(h2 - Math.floor(h2));
+
+                let dy = 0, theta = 0;
+                if (mode === 'ocean_swell') {
+                    const w1 = Math.sin(t * 1.3 - cx * 0.028 + cy * 0.015);
+                    const w2 = Math.sin(t * 1.85 + cx * 0.042 - 1.4);
+                    const wi = Math.sin(t * (0.85 + 0.35 * seed1) + seed2 * Math.PI * 2);
+                    dy = cfg.amplitude * (0.48 * w1 + 0.28 * w2 + 0.24 * wi);
+                    if (cfg.tiltEnabled) {
+                        const slope = -0.028 * 0.48 * Math.cos(t * 1.3 - cx * 0.028) + 0.042 * 0.28 * Math.cos(t * 1.85 + cx * 0.042);
+                        theta = Math.atan(slope * 12);
+                    }
+                } else if (mode === 'gentle_breeze') {
+                    const w1 = Math.sin(t * 2.6 - cx * 0.065);
+                    const wi = Math.sin(t * 2.2 + seed1 * Math.PI * 2);
+                    dy = cfg.amplitude * (0.65 * w1 + 0.35 * wi);
+                    if (cfg.tiltEnabled) theta = -0.065 * 0.65 * Math.cos(t * 2.6 - cx * 0.065) * 6;
+                } else if (mode === 'deep_breath') {
+                    const w1 = Math.sin(t * 0.65 - cx * 0.016);
+                    const wi = Math.sin(t * 0.75 + seed1 * Math.PI);
+                    dy = cfg.amplitude * (0.75 * w1 + 0.25 * wi);
+                    if (cfg.tiltEnabled) theta = -0.016 * Math.cos(t * 0.65 - cx * 0.016) * 8;
+                } else { // independent_drift —— 独立浮游（离散异步）：每条线段各自的频率与相位
+                    const freq = 0.75 + 0.65 * seed1;
+                    const phase = seed2 * Math.PI * 2;
+                    const wi = Math.sin(t * freq + phase);
+                    const ws = Math.cos(t * 0.48 * (1.1 - seed2) + phase * 1.3);
+                    dy = cfg.amplitude * (0.72 * wi + 0.28 * ws);
+                    if (cfg.tiltEnabled) theta = (seed1 - 0.5) * 0.08 * Math.cos(t * freq);
+                }
+
+                let alpha = cfg.opacity;
+                if (cfg.opacityBreathEnabled) {
+                    alpha = Math.max(0.12, Math.min(0.9, alpha * (1 + 0.22 * Math.sin(t * 1.1 + seed1 * 4.0))));
+                }
+                alpha *= alphaMul;
+                if (alpha <= 0.002) continue;
+
+                ctx.save();
+                ctx.translate(cx, cy + dy);
+                if (cfg.tiltEnabled && Math.abs(theta) > 0.0001 && cfg.dashLength > 1.2) ctx.rotate(theta);
+                ctx.beginPath();
+                if (capRound) {
+                    const r = Math.min(w, h) / 2;
+                    if (typeof ctx.roundRect === 'function') {
+                        ctx.roundRect(-w / 2, -h / 2, w, h, r);
+                    } else {
+                        const x = -w / 2, y = -h / 2;
+                        ctx.moveTo(x + r, y);
+                        ctx.arcTo(x + w, y, x + w, y + h, r);
+                        ctx.arcTo(x + w, y + h, x, y + h, r);
+                        ctx.arcTo(x, y + h, x, y, r);
+                        ctx.arcTo(x, y, x + w, y, r);
+                        ctx.closePath();
+                    }
+                } else {
+                    ctx.rect(-w / 2, -h / 2, w, h);
+                }
+                ctx.fillStyle = color;
+                ctx.globalAlpha = alpha;
+                ctx.fill();
+                ctx.restore();
+            }
+        });
+
+        raf = requestAnimationFrame(draw);
+    }
+
+    function start() {
+        if (running) return;
+        resize();
+        color = resolveColor(cfg.strokeColor);
+        measure();
+        if (!lines.length) return;   // 目标尚未布局出高度时不空转
+        running = true;
+        t0 = performance.now();
+        raf = requestAnimationFrame(draw);
+    }
+
+    function stop() {
+        running = false;
+        if (raf) { cancelAnimationFrame(raf); raf = null; }
+        if (fadeRaf) { cancelAnimationFrame(fadeRaf); fadeRaf = null; }
+        alphaMul = 1;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+    }
+
+    // 目标尺寸/位置变化后重测（保持运行状态）
+    function refresh() {
+        if (!running) return;
+        resize();
+        color = resolveColor(cfg.strokeColor);
+        measure();
+    }
+
+    function setTargets(els) {
+        targets = Array.prototype.slice.call(els || []);
+        if (!targets.length) { stop(); return; }
+        if (running) { refresh(); if (!lines.length) stop(); }
+        else start();
+    }
+
+    function setConfig(partial) {
+        cfg = Object.assign({}, cfg, partial || {});
+        color = resolveColor(cfg.strokeColor);
+    }
+
+    function resetFade() { alphaMul = 1; }
+
+    // 结果返回后淡出（配合 CSS 的 420ms 淡出节奏）
+    function fadeOut(ms) {
+        if (!running) return;
+        const from = alphaMul;
+        const begin = performance.now();
+        if (fadeRaf) cancelAnimationFrame(fadeRaf);
+        (function step() {
+            const k = Math.min(1, (performance.now() - begin) / (ms || 400));
+            alphaMul = from * (1 - k);
+            if (k < 1) fadeRaf = requestAnimationFrame(step);
+            else stop();
+        })();
+    }
+
+    return {
+        setTargets: setTargets,
+        setConfig: setConfig,
+        getConfig: function () { return Object.assign({}, cfg); },
+        refresh: refresh,
+        resetFade: resetFade,
+        fadeOut: fadeOut,
+        stop: stop,
+        isRunning: function () { return running; }
+    };
+}
+
 class WordMemoryApp {
     constructor() {
         this.books = []; // 所有词书
@@ -945,6 +1191,8 @@ class WordMemoryApp {
                 const id = el.dataset.closeModal;
                 const m = document.getElementById(id);
                 if (m) m.classList.add('hidden');
+                // 写作AI设置关闭时停掉「校阅淡纹」预览动画
+                if (id === 'writingSettingsModal') this._stopWavePreview();
             });
         });
 
@@ -1095,6 +1343,7 @@ class WordMemoryApp {
         this.initSoundEffects();
         
         this.initTheme();
+        this.initCefrTheme(); // 应用用户所选 CEFR 色库（默认 color_1 Nature）
         this.initEventListeners();
         this.initAiModelSelects(); // 初始化AI模型选择器
         this.initSettingSelects(); // 初始化设置下拉（自绘现代UI，与AI模型下拉一致）
@@ -1347,6 +1596,39 @@ class WordMemoryApp {
         document.getElementById('settingsBtn').addEventListener('click', () => {
             this.openSettings();
         });
+
+        // 页面设置-主题样式：点选色库即时应用全局 CEFR 配色，保存时写入用户配置
+        const cefrThemeList = document.getElementById('cefrThemeList');
+        if (cefrThemeList) {
+            const pickCefrTheme = (card) => {
+                if (!card) return;
+                const key = card.dataset.cefrTheme;
+                // 先只做「待保存」标记：点选即预览生效，真正落盘交给「保存」（未保存关闭则回到原色库）
+                this._pendingCefrTheme = key;
+                this.applyCefrTheme(key);
+                this.syncCefrThemeCards(key);
+            };
+            cefrThemeList.addEventListener('click', (e) => {
+                pickCefrTheme(e.target.closest('.cefr-theme-card'));
+            });
+            cefrThemeList.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                pickCefrTheme(e.target.closest('.cefr-theme-card'));
+            });
+        }
+
+        // 页面设置-主题样式：字体设置（左中文 / 右英文）点选即预览，保存时写入用户配置
+        const fontPicker = document.getElementById('fontPicker');
+        if (fontPicker) {
+            this.renderFontPicker();
+            this.applyFontSettings(this.settings.fontCN, this.settings.fontEN); // 启动/重开时套用已保存字体
+            this.syncFontPicker(this.settings.fontCN, this.settings.fontEN);
+            this.initFontPickers();
+        }
+
+        // 页面设置：各板块标题折叠（默认均为折叠状态）
+        this.initSettingSectionCollapse();
 
         // 设置页：添加自定义模型（行内 ID + 名称 + 「+」）
         this.initCustomModelAddRow();
@@ -2280,7 +2562,13 @@ class WordMemoryApp {
         if (writingSettingsBtn) {
             writingSettingsBtn.addEventListener('click', () => {
                 const m = document.getElementById('writingSettingsModal');
-                if (m) m.classList.remove('hidden');
+                if (!m) return;
+                this.initWritingSettingsSheets();
+                m.classList.remove('hidden');   // 先显示，预览 canvas 才有实际尺寸
+                this._matchWritingSheetsHeight();   // 量出「基本参数」高度并锁定 sheet 区高度
+                // 沿用上次停留的 sheet（默认「基本参数」）
+                const active = document.querySelector('#wsTabList .ai-provider-tab.active');
+                this.switchWritingSettingsSheet(active ? active.dataset.wsTab : 'basic');
             });
         }
         // 等级筛选按钮 Beg./Int./Adv.
@@ -8977,10 +9265,10 @@ ${example ? `- 例句：${example}` : ''}
         };
         const yFrac = acc => (100 - Math.min(100, Math.max(0, acc))) / 100;
 
-        // 点色：沿用应用内置的 CEFR 六色（与 .cefr-level-badge 同源）
+        // 点色：沿用应用内置的 CEFR 六色（随用户所选色库实时取值）
         const CEFR_COLORS = {
-            a1: '#57912b', a2: '#93a418', b1: '#b9780f',
-            b2: '#b6620e', c1: '#b32e27', c2: '#b1296d'
+            a1: getCefrColor('A1'), a2: getCefrColor('A2'), b1: getCefrColor('B1'),
+            b2: getCefrColor('B2'), c1: getCefrColor('C1'), c2: getCefrColor('C2')
         };
 
         // 点半径：EF 1.3（最难，最需关注）→ 9px；EF 3.0（最易）→ 3.2px
@@ -10649,6 +10937,12 @@ ${example ? `- 例句：${example}` : ''}
         // 跟随系统/Obsidian 主题（默认开启：未设置过时勾选）
         document.getElementById('followSystemTheme').checked = this.settings.followSystemTheme !== false;
 
+        // 主题样式：回填当前 CEFR 色库选中态
+        this.syncCefrThemeCards(this.settings.cefrTheme || 'color_1');
+
+        // 字体设置：回填当前中/英文字体选中态
+        this.syncFontPicker(this.settings.fontCN, this.settings.fontEN);
+
         // 右侧窗口查词（Obsidian）：未设置过时默认开启，保持既有行为
         document.getElementById('dictLookupInSidebar').checked = this.settings.dictLookupInSidebar !== false;
 
@@ -10826,6 +11120,22 @@ ${example ? `- 例句：${example}` : ''}
     // 关闭设置
     closeSettings() {
         document.getElementById('settingsModal').classList.add('hidden');
+        // 主题样式的点选为即时预览：未点「保存」就关闭时回退到已保存色库
+        if (this._pendingCefrTheme) {
+            const saved = (this.settings && this.settings.cefrTheme) || 'color_1';
+            if (this._pendingCefrTheme !== saved) this.applyCefrTheme(saved);
+            this._pendingCefrTheme = null;
+        }
+        // 字体设置同为即时预览：未点「保存」就关闭时回退到已保存字体
+        if (this._pendingFontCN !== undefined || this._pendingFontEN !== undefined) {
+            const s = this.settings || {};
+            this.applyFontSettings(s.fontCN, s.fontEN);
+            this.syncFontPicker(s.fontCN, s.fontEN);
+            this._pendingFontCN = undefined;
+            this._pendingFontEN = undefined;
+        }
+        // 关闭时收起字体下拉浮层，避免重开设置时仍处于展开态
+        document.querySelectorAll('#fontPicker .ai-picker-panel').forEach(p => { p.style.display = 'none'; });
         this.renderBookList(); // 同步侧栏「模式」标签（全局背诵模式可能已变更）
     }
 
@@ -10940,6 +11250,9 @@ ${example ? `- 例句：${example}` : ''}
             },
             defaultCover: this._getSavedDefaultCover(),
             followSystemTheme: document.getElementById('followSystemTheme').checked, // 跟随系统/Obsidian 主题
+            cefrTheme: this._pendingCefrTheme || this.settings.cefrTheme || 'color_1', // CEFR 六级色库（页面设置-主题样式，点选即已预览，此处落盘）
+            fontCN: this._pendingFontCN !== undefined ? this._pendingFontCN : (this.settings.fontCN || ''), // 中文字体（页面设置-主题样式）
+            fontEN: this._pendingFontEN !== undefined ? this._pendingFontEN : (this.settings.fontEN || ''), // 英文字体（页面设置-主题样式）
             dictLookupInSidebar: document.getElementById('dictLookupInSidebar').checked, // Obsidian 查词跳转交由右侧栏承接
             hoverLookup: document.getElementById('hoverLookup').checked, // Obsidian 悬浮取词
             selectionTranslate: document.getElementById('selectionTranslate').checked, // Obsidian 划词右键「翻译」
@@ -11170,6 +11483,9 @@ ${example ? `- 例句：${example}` : ''}
                 },
                 defaultCover: 'import',
                 followSystemTheme: true, // 是否跟随系统/Obsidian 主题（默认开启）
+                cefrTheme: 'color_1', // CEFR 六级色库（默认 Nature）
+                fontCN: '', // 中文字体（'' = 系统默认，页面设置-主题样式）
+                fontEN: '', // 英文字体（'' = 系统默认，页面设置-主题样式）
                 dictLookupInSidebar: true, // Obsidian：查词跳转是否交由右侧栏承接（默认开启）
                 hoverLookup: true, // Obsidian：悬浮取词（默认开启）
                 selectionTranslate: true, // Obsidian：划词右键「翻译」（默认开启）
@@ -11180,6 +11496,8 @@ ${example ? `- 例句：${example}` : ''}
                 wreKeyConfirmed: false // 是否已确认沿用原著榜的 Key（避免每次进入重复询问）
             };
             Storage.saveSettings(this.settings);
+            this.applyCefrTheme(this.settings.cefrTheme); // 恢复默认色库后立即生效
+            this.applyFontSettings(this.settings.fontCN, this.settings.fontEN); // 恢复默认字体后立即生效
             this.closeSettings();
             this.openSettings(); // 重新打开以显示更新后的值
         }
@@ -13360,17 +13678,66 @@ ${example ? `- 例句：${example}` : ''}
         const r = await this.eudicAutoSync();
         this.setFavSyncBtnState('idle');
         if (!r) this.showToast('欧路词典同步失败：请检查授权码是否有效', 'error');
-        else if (!r.added && !r.removed) this.showToast('已是最新，无需同步', 'info');
+        else if (!r.added && !r.removed && !r.pulled) this.showToast('已与欧路词典核对，无变化', 'info');
+        else {
+            const parts = [];
+            if (r.pulled) parts.push(`拉取 ${r.pulled}`);
+            if (r.added) parts.push(`推送 ${r.added}`);
+            if (r.removed) parts.push(`移除 ${r.removed}`);
+            this.showToast('已同步欧路词典：' + parts.join('、'), 'success');
+        }
         return r;
     }
 
+    // 把从欧路拉回的单词补进本地收藏词单（默认词单写全局收藏，自建词单写自身 words）
+    eudicApplyPulledWords(id, items) {
+        if (!items || !items.length) return 0;
+        const mk = (r) => ({
+            word: String((r && r.word) || '').trim(),
+            phonetic: (r && r.phon) || '',
+            definitions: [{ meaning: this.eudicCleanExp(r && r.exp) }],
+            favorite: true,
+            createdAt: new Date().toISOString()
+        });
+        let added = 0;
+        if (id === 'favorites') {
+            const existing = Storage.loadFavoriteItems() || [];
+            const seen = new Set(existing.map(i => (i.word || '').trim().toLowerCase()));
+            items.forEach(r => {
+                const o = mk(r);
+                if (!o.word || seen.has(o.word.toLowerCase())) return;
+                seen.add(o.word.toLowerCase());
+                delete o.favorite; // 全局收藏项以「存在于该数组」表示，无需 favorite 标记
+                existing.push(o);
+                added++;
+            });
+            if (added) Storage.saveFavoriteItems(existing);
+        } else {
+            const lists = this.getFavoriteLists();
+            const d = lists.find(x => x.id === id);
+            if (d) {
+                if (!Array.isArray(d.words)) d.words = [];
+                const seen = new Set(d.words.map(i => (i.word || '').trim().toLowerCase()));
+                items.forEach(r => {
+                    const o = mk(r);
+                    if (!o.word || seen.has(o.word.toLowerCase())) return;
+                    seen.add(o.word.toLowerCase());
+                    d.words.push(o);
+                    added++;
+                });
+                if (added) this.saveFavoriteLists(lists);
+            }
+        }
+        return added;
+    }
+
     async eudicAutoSync() {
-        if (this._eudicSyncing) return { added: 0, removed: 0 };
+        if (this._eudicSyncing) return { added: 0, removed: 0, pulled: 0 };
         if (!this.getEudicToken()) return null;
         const links = this.getFavoriteLists().filter(l => l.eudic && l.eudic.categoryId);
-        if (!links.length) return { added: 0, removed: 0 };
+        if (!links.length) return { added: 0, removed: 0, pulled: 0 };
         this._eudicSyncing = true;
-        let totalAdd = 0, totalDel = 0;
+        let totalAdd = 0, totalDel = 0, totalPull = 0;
         try {
             const base = this.getEudicSyncedMap();
             for (const l of links) {
@@ -13379,23 +13746,65 @@ ${example ? `- 例句：${example}` : ''}
                 const curMap = new Map();
                 cur.forEach(w => { if (!curMap.has(w.toLowerCase())) curMap.set(w.toLowerCase(), w); });
                 const baseSet = new Set(base[l.id] || []);
+
+                // 先拉取云端当前生词本，做三方对账（base = 上次同步基线，代表两端一致过）：
+                //   本地新增（本地有、基线无）→ 推送欧路
+                //   本地删除（基线有、本地无）→ 从欧路删除
+                //   云端新增（欧路有、基线无、本地也无）→ 拉回本地
+                // 这样「已是最新」才是与云端真实核对的结果，而非仅比对本地基线。
+                const remoteArr = await this.eudicFetchWords(l.eudic.categoryId);
+                const remoteMap = new Map();
+                remoteArr.forEach(r => {
+                    const k = String((r && r.word) || '').trim().toLowerCase();
+                    if (k && !remoteMap.has(k)) remoteMap.set(k, r);
+                });
+
                 const toAdd = [];
                 curMap.forEach((orig, k) => { if (!baseSet.has(k)) toAdd.push(orig); });
                 const toDel = Array.from(baseSet).filter(k => !curMap.has(k));
-                if (!toAdd.length && !toDel.length) continue;
+                const toPull = [];
+                remoteMap.forEach((item, k) => {
+                    if (!baseSet.has(k) && !curMap.has(k)) toPull.push(item);
+                });
+
                 if (toAdd.length) await this.eudicAddWords(l.eudic.categoryId, toAdd);
                 if (toDel.length) await this.eudicDeleteWords(l.eudic.categoryId, toDel);
+                const pulled = this.eudicApplyPulledWords(l.id, toPull);
+
                 totalAdd += toAdd.length;
                 totalDel += toDel.length;
-                base[l.id] = Array.from(curMap.keys());
+                totalPull += pulled;
+
+                // 新基线 = 合并后两端都存在的集合（本地含拉回项，云端含推入项）
+                const localPost = new Set(curMap.keys());
+                toPull.forEach(r => {
+                    const k = String((r && r.word) || '').trim().toLowerCase();
+                    if (k) localPost.add(k);
+                });
+                const remotePost = new Set(remoteMap.keys());
+                toAdd.forEach(w => remotePost.add(String(w).toLowerCase()));
+                toDel.forEach(k => { remotePost.delete(k); localPost.delete(k); });
+                base[l.id] = Array.from(localPost).filter(k => remotePost.has(k));
                 this.saveEudicSyncedMap(base);
-                const name = l.eudic.categoryName || '欧路生词本';
-                const parts = [];
-                if (toAdd.length) parts.push(`新增 ${toAdd.length}`);
-                if (toDel.length) parts.push(`移除 ${toDel.length}`);
-                this.showToast(`已同步到欧路「${name}」：${parts.join('、')}`, 'success');
+
+                if (toAdd.length || toDel.length || pulled) {
+                    const name = l.eudic.categoryName || '欧路生词本';
+                    const parts = [];
+                    if (toAdd.length) parts.push(`推送 ${toAdd.length}`);
+                    if (toDel.length) parts.push(`移除 ${toDel.length}`);
+                    if (pulled) parts.push(`拉取 ${pulled}`);
+                    this.showToast(`已同步欧路「${name}」：${parts.join('、')}`, 'success');
+                }
             }
-            return { added: totalAdd, removed: totalDel };
+            // 有从云端拉回的单词：刷新侧栏词单计数与当前浏览的收藏列表
+            if (totalPull) {
+                this.renderBookList();
+                try { this.renderFavListPicker(); } catch (e) { /* 忽略 */ }
+                if (this.currentWordListBookId === 'favorites') {
+                    this.openFavoritesWordList(this.getCurrentFavoriteListId());
+                }
+            }
+            return { added: totalAdd, removed: totalDel, pulled: totalPull };
         } catch (e) {
             console.warn('欧路词典同步失败:', e);
             this.showToast('欧路词典同步失败：' + (e && e.message || e), 'error');
@@ -13811,8 +14220,14 @@ ${example ? `- 例句：${example}` : ''}
                     try {
                         const r = await this.eudicAutoSync();
                         if (!r) setHint('同步失败：请检查授权码是否有效。', 'error');
-                        else if (!r.added && !r.removed) setHint('已是最新，无需同步。', 'ok');
-                        else setHint('同步完成：' + (r.added ? '新增 ' + r.added + ' 词' : '') + (r.added && r.removed ? '、' : '') + (r.removed ? '移除 ' + r.removed + ' 词' : ''), 'ok');
+                        else if (!r.added && !r.removed && !r.pulled) setHint('已与欧路词典核对，无变化。', 'ok');
+                        else {
+                            const parts = [];
+                            if (r.pulled) parts.push('拉取 ' + r.pulled + ' 词');
+                            if (r.added) parts.push('推送 ' + r.added + ' 词');
+                            if (r.removed) parts.push('移除 ' + r.removed + ' 词');
+                            setHint('同步完成：' + parts.join('、'), 'ok');
+                        }
                     } catch (e) {
                         setHint('同步失败：' + ((e && e.message) || e), 'error');
                     } finally {
@@ -21720,8 +22135,8 @@ ${head}
 
     // 微信读书 Agent Gateway 调用（划线数据通道）
     // 官方网关 https://i.weread.qq.com/api/agent/gateway 的 CORS 仅放行 weread.qq.com，浏览器无法直连，
-    // 故需经转发层：默认用同源转发（web 端为 tools/serve.js，Obsidian 端为插件内置服务）；
-    // 若在设置里填了自定义转发地址则优先使用它。
+    // 故需经转发层：优先用设置里的自定义转发地址，否则按候选地址依次探测（同源 → 本机常见端口）；
+    // 首个成功的通道会被记住，后续调用直连，免得每次加载书目都重探一遍。
     async _obWereadCall(apiName, params, keyOverride) {
         const key = String(keyOverride || this._obWereadKey() || '').trim();
         if (!key) throw new Error('未配置微信读书 API Key（在应用设置中填写）');
@@ -21729,12 +22144,18 @@ ${head}
         const body = JSON.stringify(Object.assign({ api_name: apiName, skill_version: '1.0.5' }, params || {}));
         const custom = (this.settings && this.settings.obWereadProxy || '').trim().replace(/\/+$/, '');
         const targets = [];
-        if (custom) targets.push(custom);
-        targets.push(this._obGateway() + '/weread');
+        if (custom) targets.push(custom); // 自定义项按完整转发地址使用（可含 /weread）
+        this._obGatewayCandidates().forEach(base => {
+            const url = base + '/weread';
+            if (targets.indexOf(url) < 0) targets.push(url);
+        });
         let lastErr = null;
         for (const target of targets) {
             try {
-                return await this._obPostJson(target, body, key);
+                const data = await this._obPostJson(target, body, key);
+                // 记住可用的转发通道（自定义地址除外，它本就优先）
+                if (target !== custom) this._obWereadBase = target.slice(0, -'/weread'.length);
+                return data;
             } catch (e) { lastErr = e; }
         }
         // 排查建议随宿主而异：Obsidian 端有内置转发通道，不该再让用户去手动跑 serve.js
@@ -21742,7 +22163,7 @@ ${head}
         throw new Error('划线转发通道不可用：' + (lastErr ? lastErr.message : '未知错误')
             + (custom ? '' : (inObsidian
                 ? '。请重载插件以启动内置转发服务后重试'
-                : '。可运行 node tools/serve.js，或在设置中填写「划线转发地址」')));
+                : '。可运行 node tools/serve.js（8377），或在设置中填写「划线转发地址」')));
     }
 
     // POST JSON 到转发层，返回业务数据（兼容 {code,data} / 裸业务字段两种回包）
@@ -21833,6 +22254,23 @@ ${head}
     _obGateway() {
         if (/^https?:$/.test(location.protocol)) return location.origin;
         return 'http://127.0.0.1:8377';
+    }
+
+    // 转发层候选地址（按优先级）：
+    //   1. 上次探测成功的通道（_obWereadBase）；
+    //   2. 同源（页面经 http(s) 服务打开时，如 tools/serve.js 的 8377）；
+    //   3. 本机常见转发端口：Obsidian 插件内置服务 39217~39226（/weread 带 Access-Control-Allow-Origin: *，
+    //      故只要 Obsidian 开着，file:// 直开的 web 端也能借用它）与 tools/serve.js 默认 8377。
+    //      https 页面（如线上版）访问本机端口会被混合内容/私有网络策略拦截，故不添加。
+    _obGatewayCandidates() {
+        const out = [];
+        if (this._obWereadBase) out.push(this._obWereadBase);
+        if (/^https?:$/.test(location.protocol) && out.indexOf(location.origin) < 0) out.push(location.origin);
+        if (location.protocol !== 'https:') {
+            for (let i = 0; i < 10; i++) out.push('http://127.0.0.1:' + (39217 + i));
+            out.push('http://127.0.0.1:8377');
+        }
+        return out;
     }
 
     // 榜单缓存（localStorage，键为「榜单ID_条数」）
@@ -25553,16 +25991,268 @@ ${head}
     // AI写作模块（CEFR实时渲染）
     // ============================================
 
-    // CEFR主题色（与小程序colorConfig.js的color_1 Nature主题一致）
+    // CEFR主题色（六级→色值）。用户可在「页面设置-主题样式」切换 4 套色库，
+    // 因此每次读取都从 documentElement 的 --cefr-* 变量实时取值，保证 canvas/行内样式与主题同步。
     static get CEFR_THEME_COLORS() {
         return {
-            A1: '#57912b',
-            A2: '#93a418',
-            B1: '#b9780f',
-            B2: '#b6620e',
-            C1: '#b32e27',
-            C2: '#b1296d'
+            A1: getCefrColor('A1'),
+            A2: getCefrColor('A2'),
+            B1: getCefrColor('B1'),
+            B2: getCefrColor('B2'),
+            C1: getCefrColor('C1'),
+            C2: getCefrColor('C2')
         };
+    }
+
+    // 应用 CEFR 色库：把选中色库的六色写到 documentElement，全局 CSS 变量与 JS 取色随即生效
+    applyCefrTheme(key) {
+        const sets = window.CEFR_THEME_SETS || {};
+        const set = sets[key] || sets.color_1;
+        if (!set) return;
+        const root = document.documentElement;
+        root.dataset.cefrTheme = (sets[key] ? key : 'color_1');
+        Object.keys(set).forEach(lv => {
+            root.style.setProperty('--cefr-' + lv.toLowerCase(), set[lv]);
+        });
+        // CEFR 着色也用于 canvas 绘制（散点图等），主题变更后需重绘
+        if (typeof this.renderCompletionScatter === 'function') this.renderCompletionScatter();
+        // 写作区正文的分级着色写在行内 style 上，需重渲染才会换色（抑制分析以免误触发 AI 请求）
+        const editor = document.getElementById('writingEditor');
+        if (editor && typeof this._getWritingText === 'function') {
+            const text = this._getWritingText(editor);
+            if (text) {
+                const prevSuppress = this._suppressWritingAnalysis;
+                this._suppressWritingAnalysis = true;
+                try { this.handleWritingInput(text); } finally { this._suppressWritingAnalysis = prevSuppress; }
+            }
+        }
+    }
+
+    // 初始化：按用户配置（默认 color_1 Nature）应用色库
+    initCefrTheme() {
+        const key = (this.settings && this.settings.cefrTheme) || 'color_1';
+        this.applyCefrTheme(key);
+        this.syncCefrThemeCards(key);
+    }
+
+    // 同步设置面板中主题卡片的选中态
+    syncCefrThemeCards(key) {
+        const list = document.getElementById('cefrThemeList');
+        if (!list) return;
+        const cur = key || this._pendingCefrTheme || (this.settings && this.settings.cefrTheme) || 'color_1';
+        list.querySelectorAll('.cefr-theme-card').forEach(card => {
+            card.classList.toggle('active', card.dataset.cefrTheme === cur);
+        });
+    }
+
+    // ============================================
+    // 页面设置-主题样式：字体设置（左中文 / 右英文，均为系统自带字体）
+    // ============================================
+
+    // 字体候选：value 为 CSS font-family 片段（'' 表示系统默认）。中文一栏 / 英文一栏独立选择。
+    static get FONT_OPTIONS() {
+        return {
+            cn: [
+                { label: '系统默认', value: '' },
+                { label: '微软雅黑', value: "'Microsoft YaHei'" },
+                { label: '微软正黑体', value: "'Microsoft JhengHei'" },
+                { label: '宋体', value: 'SimSun' },
+                { label: '新宋体', value: 'NSimSun' },
+                { label: '仿宋', value: 'FangSong' },
+                { label: '仿宋_GB2312', value: 'FangSong_GB2312' },
+                { label: '楷体', value: 'KaiTi' },
+                { label: '楷体_GB2312', value: 'KaiTi_GB2312' },
+                { label: '黑体', value: 'SimHei' },
+                { label: '幼圆', value: 'YouYuan' },
+                { label: '隶书', value: 'LiSu' },
+                { label: '等线', value: 'DengXian' },
+                { label: '华文细黑', value: 'STXihei' },
+                { label: '华文楷体', value: 'STKaiti' },
+                { label: '华文宋体', value: 'STSong' },
+                { label: '华文中宋', value: 'STZhongsong' },
+                { label: '华文仿宋', value: 'STFangsong' },
+                { label: '华文行楷', value: 'STXingkai' },
+                { label: '华文新魏', value: 'STXinwei' },
+                { label: '华文隶书', value: 'STLiti' },
+                { label: '华文琥珀', value: 'STHupo' },
+                { label: '方正舒体', value: 'FZShuTi' },
+                { label: '方正姚体', value: 'FZYaoti' },
+                { label: '苹方', value: "'PingFang SC'" }
+            ],
+            en: [
+                { label: '系统默认', value: '' },
+                { label: 'Times New Roman', value: "'Times New Roman'" },
+                { label: 'Georgia', value: 'Georgia' },
+                { label: 'Garamond', value: 'Garamond' },
+                { label: 'Cambria', value: 'Cambria' },
+                { label: 'Palatino Linotype', value: "'Palatino Linotype'" },
+                { label: 'Book Antiqua', value: "'Book Antiqua'" },
+                { label: 'Bookman Old Style', value: "'Bookman Old Style'" },
+                { label: 'Arial', value: 'Arial' },
+                { label: 'Arial Black', value: "'Arial Black'" },
+                { label: 'Helvetica', value: 'Helvetica' },
+                { label: 'Verdana', value: 'Verdana' },
+                { label: 'Tahoma', value: 'Tahoma' },
+                { label: 'Segoe UI', value: "'Segoe UI'" },
+                { label: 'Calibri', value: 'Calibri' },
+                { label: 'Candara', value: 'Candara' },
+                { label: 'Corbel', value: 'Corbel' },
+                { label: 'Century Gothic', value: "'Century Gothic'" },
+                { label: 'Trebuchet MS', value: "'Trebuchet MS'" },
+                { label: 'Franklin Gothic Medium', value: "'Franklin Gothic Medium'" },
+                { label: 'Comic Sans MS', value: "'Comic Sans MS'" },
+                { label: 'Ink Free', value: "'Ink Free'" },
+                { label: 'Consolas', value: 'Consolas' },
+                { label: 'Courier New', value: "'Courier New'" },
+                { label: 'Lucida Console', value: "'Lucida Console'" },
+                { label: 'SimSun', value: 'SimSun' }
+            ]
+        };
+    }
+
+    // 内置默认字体（与 styles.css :root 中 --ui-font-* 一致），用于「系统默认」选项
+    static get DEFAULT_FONTS() {
+        return { cn: "'Microsoft YaHei'", en: "'Inter'" };
+    }
+
+    // 应用字体设置：把中文/英文字体写到 documentElement 的 CSS 变量，全局立即生效
+    applyFontSettings(cn, en) {
+        const root = document.documentElement;
+        const d = WordMemoryApp.DEFAULT_FONTS;
+        root.style.setProperty('--ui-font-cn', cn || d.cn);
+        root.style.setProperty('--ui-font-en', en || d.en);
+    }
+
+    // 渲染字体下拉：选项用其自身字体渲染名称，便于直观预览（复用 ai-picker 浮层）
+    renderFontPicker() {
+        const opts = WordMemoryApp.FONT_OPTIONS;
+        const build = (panelEl, items) => {
+            if (!panelEl) return;
+            panelEl.innerHTML = '';
+            items.forEach(opt => {
+                const item = document.createElement('div');
+                item.className = 'ai-picker-item font-picker-item';
+                item.dataset.fontValue = opt.value;
+                const name = document.createElement('span');
+                name.className = 'font-picker-name';
+                name.textContent = opt.label;
+                // 覆盖项用所选字体渲染自身名称（uicon/标注由 class 控制，不受影响）
+                if (opt.value) name.style.fontFamily = opt.value;
+                item.appendChild(name);
+                // 栏目标注（中文字体 / English Fonts）：仅由 CSS 在选中项显示
+                const label = document.createElement('span');
+                label.className = 'font-picker-label';
+                label.textContent = panelEl.id === 'fontCNPanel' ? '中文字体' : 'English Fonts';
+                item.appendChild(label);
+                const check = document.createElement('i');
+                check.className = 'ai-picker-item-check fi-rr-check';
+                item.appendChild(check);
+                panelEl.appendChild(item);
+            });
+        };
+        build(document.getElementById('fontCNPanel'), opts.cn);
+        build(document.getElementById('fontENPanel'), opts.en);
+    }
+
+    // 同步字体下拉选中态：面板高亮 + 触发器显示当前字体名（用该字体渲染）
+    syncFontPicker(cn, en) {
+        const apply = (panelId, triggerId, value) => {
+            const panel = document.getElementById(panelId);
+            const trigger = document.getElementById(triggerId);
+            if (!panel || !trigger) return;
+            const v = value || '';
+            const labelEl = trigger.querySelector('.ai-picker-trigger-id');
+            panel.querySelectorAll('.font-picker-item').forEach(item => {
+                const on = (item.dataset.fontValue || '') === v;
+                item.classList.toggle('ai-picker-item-active', on);
+                if (on && labelEl) {
+                    const nameEl = item.querySelector('.font-picker-name');
+                    labelEl.textContent = nameEl ? nameEl.textContent : '';
+                    labelEl.style.fontFamily = v;
+                }
+            });
+        };
+        apply('fontCNPanel', 'fontCNTrigger', cn);
+        apply('fontENPanel', 'fontENTrigger', en);
+    }
+
+    // 绑定字体下拉的展开/选择/收起（点选即预览，落盘交给「保存」）
+    initFontPickers() {
+        const wrap = document.getElementById('fontPicker');
+        if (!wrap || wrap._fontPickerBound) return;
+        wrap._fontPickerBound = true;
+        const panels = wrap.querySelectorAll('.ai-picker-panel');
+        const closeAll = () => panels.forEach(p => { p.style.display = 'none'; });
+
+        wrap.querySelectorAll('.ai-picker-trigger').forEach(trigger => {
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const panel = trigger.parentNode.querySelector('.ai-picker-panel');
+                if (!panel) return;
+                const isOpen = panel.style.display === 'block';
+                closeAll();
+                panel.style.display = isOpen ? 'none' : 'block';
+            });
+        });
+
+        panels.forEach(panel => {
+            panel.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = e.target.closest('.font-picker-item');
+                if (!item) return;
+                const value = item.dataset.fontValue || '';
+                if (panel.id === 'fontCNPanel') this._pendingFontCN = value;
+                else this._pendingFontEN = value;
+                const cn = this._pendingFontCN !== undefined ? this._pendingFontCN : (this.settings.fontCN || '');
+                const en = this._pendingFontEN !== undefined ? this._pendingFontEN : (this.settings.fontEN || '');
+                this.applyFontSettings(cn, en);
+                this.syncFontPicker(cn, en);
+                panel.style.display = 'none';
+            });
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!wrap.contains(e.target)) closeAll();
+        });
+    }
+
+    // 页面设置：把每个 setting-section-title 变成可折叠头，其后的内容（至下一个标题）收进可折叠体，
+    // 默认全部折叠；点击标题行（或回车/空格）展开收起
+    initSettingSectionCollapse() {
+        const root = document.getElementById('pageSettings');
+        if (!root || root._sectionCollapseReady) return;
+        root._sectionCollapseReady = true;
+        root.querySelectorAll('.setting-section-title').forEach(title => {
+            const body = document.createElement('div');
+            body.className = 'setting-section-body collapsed';
+            let node = title.nextElementSibling;
+            while (node && !node.classList.contains('setting-section-title')) {
+                const next = node.nextElementSibling;
+                body.appendChild(node);
+                node = next;
+            }
+            title.after(body);
+
+            title.classList.add('collapsible');
+            title.setAttribute('role', 'button');
+            title.setAttribute('tabindex', '0');
+            title.setAttribute('aria-expanded', 'false');
+            const caret = document.createElement('i');
+            caret.className = 'setting-section-caret fi-rr-angle-small-right';
+            title.appendChild(caret);
+
+            const toggle = () => {
+                const collapsed = body.classList.toggle('collapsed');
+                title.classList.toggle('collapsed', collapsed);
+                title.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            };
+            title.addEventListener('click', toggle);
+            title.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                toggle();
+            });
+        });
     }
 
     // 累计平均速度（总速度）的起算门槛：输入词数不足此值时不计入总速度
@@ -26802,6 +27492,7 @@ ${head}
             this.updateWritingStats({ tokenCount: 0, typeCount: 0, mlSentence: 0, slSentence: 0, levelCounts: { A1:0, A2:0, B1:0, B2:0, C1:0, C2:0 }, totalWords: 0 });
             this.clearWritingErrorState();
             this._syncWritingFavoriteState();
+            this._syncWritingWave();
             return;
         }
         const result = this.processWritingText(text);
@@ -26809,6 +27500,7 @@ ${head}
         this.updateWritingStats(result);
         // 应用当前筛选状态
         this.applyLevelFilter();
+        this._syncWritingWave();
     }
 
     // 核心：文本处理（移植自小程序writing.vue的processText + 错误渲染）
@@ -26871,27 +27563,14 @@ ${head}
 
         let currentPosition = 0;
         let currentErrorSpan = null;
-        // AI 分析中的呼吸虚线下划线：包裹本批被分析的文本区间（[start, end)）
+        // AI 分析中的「校阅淡纹」下划线：包裹本批被分析的文本区间（[start, end)），
+        // 由 canvas 引擎（createProofreadWave）在这些元素下方绘制浮游线段
         const region = this._writingAnalyzingRegion;
         const inRegion = (region && region.end > region.start)
             ? (pos => pos >= region.start && pos < region.end)
             : null;
         const regionCls = this._writingUnderlineClass();
         let regionOpen = false;
-        // 虚线条纹：按片段长度估算条纹数量，逐个生成独立元素（越多则越密、越重，过长时降密）
-        const regionLen = (region && region.end > region.start) ? (region.end - region.start) : 0;
-        const dotFactor = regionLen > 320 ? 0.42 : (regionLen > 160 ? 0.55 : 0.7);
-        let dotIdx = 0;
-        const dotsFor = (piece) => {
-            const letters = piece.replace(/[^a-zA-Z']/g, '').length;
-            const n = Math.max(1, Math.min(14, Math.round(letters * dotFactor) || 1));
-            let h = '';
-            for (let k = 0; k < n; k++) {
-                h += `<i class="ai-dot" contenteditable="false" style="left:${k * 7}px;--i:${(dotIdx + k) % 23}"></i>`;
-            }
-            dotIdx += n;
-            return h;
-        };
 
         for (let pi = 0; pi < parts.length; pi++) {
             const part = parts[pi];
@@ -26928,10 +27607,10 @@ ${head}
                 coloredText += this.escapeHtml(part);
             } else if (/^[.,!?;]+$/.test(part)) {
                 const c = this._cefrMarkEnabled ? 'var(--text-tertiary)' : 'inherit';
-                coloredText += `<span class="${inside ? 'ai-u' : ''}" style="color:${c}">${this.escapeHtml(part)}${inside ? dotsFor(part) : ''}</span>`;
+                coloredText += `<span style="color:${c}">${this.escapeHtml(part)}</span>`;
             } else if (/^\d+$/.test(part) || /[^a-zA-Z\s.,!?;\n']+/.test(part)) {
                 const c = this._cefrMarkEnabled ? 'var(--text-tertiary)' : 'inherit';
-                coloredText += `<span class="${inside ? 'ai-u' : ''}" style="color:${c}">${this.escapeHtml(part)}${inside ? dotsFor(part) : ''}</span>`;
+                coloredText += `<span style="color:${c}">${this.escapeHtml(part)}</span>`;
             } else {
                 tokenCount++;
                 const originalWord = part.toLowerCase();
@@ -26951,7 +27630,7 @@ ${head}
                 } else {
                     color = 'inherit';
                 }
-                coloredText += `<span class="cefr-word${inside ? ' ai-u' : ''}" style="color:${color};" data-level="${wordLevel || ''}" data-word="${this.escapeAttr(originalWord)}">${this.escapeHtml(part)}${inside ? dotsFor(part) : ''}</span>`;
+                coloredText += `<span class="cefr-word" style="color:${color};" data-level="${wordLevel || ''}" data-word="${this.escapeAttr(originalWord)}">${this.escapeHtml(part)}</span>`;
 
                 uniqueWords.add(baseWord);
                 if (wordLevel) {
@@ -27284,6 +27963,7 @@ ${head}
             editor.innerHTML = '';
             this.updateWritingStats({ tokenCount: 0, typeCount: 0, mlSentence: 0, slSentence: 0, levelCounts: { A1:0, A2:0, B1:0, B2:0, C1:0, C2:0 }, totalWords: 0 });
             this.clearWritingErrorState();
+            this._syncWritingWave();
             return;
         }
 
@@ -27308,6 +27988,7 @@ ${head}
 
         // 应用当前筛选状态
         this.applyLevelFilter();
+        this._syncWritingWave();
 
         // 输入停顿后触发 AI 纠正分析（AI纠正开启时）
         this._scheduleWritingErrorAnalysis(text);
@@ -27406,7 +28087,7 @@ ${head}
         // 估算等级 + 同步到 score-btn + 颜色
         const level = result.estimatedLevel || 'A1';
         set('writingEstimatedLevel', level);
-        const color = WordMemoryApp.CEFR_THEME_COLORS[level] || '#57912b';
+        const color = WordMemoryApp.CEFR_THEME_COLORS[level] || getCefrColor('A1');
         const scoreBtn = document.getElementById('scoreBtn');
         if (scoreBtn) {
             scoreBtn.style.background = color;
@@ -27845,6 +28526,9 @@ ${head}
         if (existing) existing.remove();
         const el = document.createElement('div');
         el.className = 'writing-toast';
+        // 「我的收藏」弹窗打开时，提示改到视窗顶部，避免压住弹窗内的阅读/练习视窗
+        const mc = document.getElementById('myCollectionModal');
+        if (mc && !mc.classList.contains('hidden')) el.classList.add('writing-toast-top');
         el.textContent = message;
         document.body.appendChild(el);
         setTimeout(() => { if (el.parentNode) el.remove(); }, 1600);
@@ -28384,6 +29068,273 @@ ${head}
         if (r.state === 'wait') return 'is-wait';
         if (r.state === 'done') return 'is-run out';
         return 'is-run';
+    }
+
+    // 校阅淡纹配置：默认值叠加用户保存项（缓存在内存，避免每次重渲染都读存储）
+    _getWritingWaveConfig() {
+        if (this._writingWaveCfg) return this._writingWaveCfg;
+        let saved = null;
+        try {
+            const ws = Storage.loadSection('aiWorkspace') || {};
+            saved = ws.writingWaveConfig || null;
+        } catch (e) { saved = null; }
+        this._writingWaveCfg = Object.assign({}, DEFAULT_PROOFREAD_WAVE, saved || {});
+        return this._writingWaveCfg;
+    }
+
+    // 应用校阅淡纹配置（增量）：更新缓存并同步到编辑器与预览两处引擎，不落库
+    _applyWritingWaveConfig(partial) {
+        this._writingWaveCfg = Object.assign({}, this._getWritingWaveConfig(), partial || {});
+        if (this._writingWave) this._writingWave.setConfig(this._writingWaveCfg);
+        if (this._wavePreview) this._wavePreview.setConfig(this._writingWaveCfg);
+        this._syncWritingWave();
+    }
+
+    // 保存校阅淡纹配置（增量）：应用后写入用户配置
+    _saveWritingWaveConfig(partial) {
+        this._applyWritingWaveConfig(partial);
+        try { Storage.saveSection('aiWorkspace', { writingWaveConfig: this._writingWaveCfg }); } catch (e) { }
+    }
+
+    // 创建/复用编辑器上的校阅淡纹 canvas 与引擎
+    _ensureWritingWaveEngine() {
+        if (this._writingWave) return this._writingWave;
+        const editor = document.getElementById('writingEditor');
+        const wrapper = editor && editor.closest('.writing-input-wrapper');
+        if (!wrapper || !editor) return null;
+        let canvas = wrapper.querySelector('.writing-ai-canvas');
+        if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.className = 'writing-ai-canvas';
+            canvas.setAttribute('aria-hidden', 'true');
+            wrapper.appendChild(canvas);
+        }
+        this._writingWaveCanvas = canvas;
+        this._writingWave = createProofreadWave(canvas);
+        this._writingWave.setConfig(this._getWritingWaveConfig());
+        return this._writingWave;
+    }
+
+    // 每次编辑区重渲染后：把 canvas 对齐编辑区，并把「校阅淡纹」目标切到本批分析区间
+    _syncWritingWave() {
+        const editor = document.getElementById('writingEditor');
+        if (!editor || !editor.isConnected) return;
+        const region = this._writingAnalyzingRegion;
+        const spans = editor.querySelectorAll('.writing-ai-underline');
+        if (!region || !spans.length) {
+            if (this._writingWave) this._writingWave.setTargets([]);
+            return;
+        }
+        const engine = this._ensureWritingWaveEngine();
+        if (!engine) return;
+        const canvas = this._writingWaveCanvas;
+        // canvas 放在滚动容器（.writing-input-wrapper）内并与之对齐，滚动时随内容一起移动
+        canvas.style.left = editor.offsetLeft + 'px';
+        canvas.style.top = editor.offsetTop + 'px';
+        canvas.style.width = editor.offsetWidth + 'px';
+        canvas.style.height = editor.offsetHeight + 'px';
+        engine.setConfig(this._getWritingWaveConfig());
+        engine.setTargets(spans);
+        if (region.state === 'done') engine.fadeOut(420);
+        else engine.resetFade();
+    }
+
+    /* ===== 写作AI设置：sheet 切换 + 「AI 校阅淡纹」控件与实时预览 ===== */
+
+    // 绑定 sheet 标签与所有参数控件（幂等，只在首次打开时绑事件）
+    initWritingSettingsSheets() {
+        const tabList = document.getElementById('wsTabList');
+        if (tabList && !tabList.dataset.wsBound) {
+            tabList.dataset.wsBound = '1';
+            tabList.addEventListener('click', (e) => {
+                const tab = e.target.closest('[data-ws-tab]');
+                if (tab) this.switchWritingSettingsSheet(tab.dataset.wsTab);
+            });
+        }
+        const form = document.querySelector('.writing-settings-form');
+        if (form && !form.dataset.wsBound) {
+            form.dataset.wsBound = '1';
+            const modeEl = document.getElementById('wsWaveMode');
+            if (modeEl) modeEl.addEventListener('change', () => this._saveWritingWaveConfig({ waveMode: modeEl.value }));
+            // 淡纹颜色：点选预置色块 + 自定义取色器
+            const colorsWrap = document.getElementById('wsWaveColors');
+            if (colorsWrap) {
+                colorsWrap.addEventListener('click', (e) => {
+                    const sw = e.target.closest('[data-ws-color]');
+                    if (!sw) return;
+                    this._saveWritingWaveConfig({ strokeColor: sw.dataset.wsColor });
+                    this._loadWritingWaveControls();
+                });
+            }
+            const customColor = document.getElementById('wsWaveColorCustom');
+            if (customColor) {
+                // 点击自定义色块：先把色块当前颜色应用下去，再弹出系统取色界面
+                customColor.addEventListener('click', () => {
+                    const v = customColor.value;
+                    if (String(this._getWritingWaveConfig().strokeColor).toLowerCase() !== v.toLowerCase()) {
+                        this._saveWritingWaveConfig({ strokeColor: v, customColor: v });
+                        this._loadWritingWaveControls();
+                    }
+                });
+                customColor.addEventListener('change', () => {
+                    // 取色完成：既是当前墨色，也记下最近一次的自定义值供色块预览
+                    this._saveWritingWaveConfig({ strokeColor: customColor.value, customColor: customColor.value });
+                    this._loadWritingWaveControls();
+                });
+            }
+            // 高级设置折叠：默认收起，点击标题行在下方展开
+            const advToggle = document.getElementById('wsAdvToggle');
+            const advWrap = document.getElementById('wsWaveAdvanced');
+            if (advToggle && advWrap) {
+                advToggle.addEventListener('click', () => {
+                    const collapsed = advWrap.classList.toggle('collapsed');
+                    advToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                });
+            }
+            // 淡纹类型：一次套用「虚线段长 + 笔画粗细」两个参数
+            const typesWrap = document.getElementById('wsWaveTypes');
+            if (typesWrap) {
+                typesWrap.addEventListener('click', (e) => {
+                    const chip = e.target.closest('[data-ws-type]');
+                    if (!chip) return;
+                    this._saveWritingWaveConfig({
+                        dashLength: Number(chip.dataset.dash),
+                        strokeWidth: Number(chip.dataset.width)
+                    });
+                    this._loadWritingWaveControls();
+                });
+            }
+            const tiltEl = document.getElementById('wsWaveTilt');
+            if (tiltEl) tiltEl.addEventListener('change', () => this._saveWritingWaveConfig({ tiltEnabled: tiltEl.checked }));
+            const alphaEl = document.getElementById('wsWaveAlpha');
+            if (alphaEl) alphaEl.addEventListener('change', () => this._saveWritingWaveConfig({ opacityBreathEnabled: alphaEl.checked }));
+            // 数值滑块：拖动即时生效并刷新读数
+            const sliders = [
+                ['wsWaveAmp', 'amplitude', 'wsWaveAmpVal', v => v + 'px'],
+                ['wsWaveSpeed', 'speed', 'wsWaveSpeedVal', v => v + 'x'],
+                ['wsWaveDash', 'dashLength', 'wsWaveDashVal', v => v + 'px'],
+                ['wsWaveGap', 'dashGap', 'wsWaveGapVal', v => v + 'px'],
+                ['wsWaveWidth', 'strokeWidth', 'wsWaveWidthVal', v => v + 'px'],
+                ['wsWaveOffset', 'verticalOffset', 'wsWaveOffsetVal', v => v + 'px']
+            ];
+            sliders.forEach(item => {
+                const el = document.getElementById(item[0]);
+                if (!el) return;
+                // 拖动时实时生效（不落库），松手才写入用户配置
+                el.addEventListener('input', () => {
+                    const v = Number(el.value);
+                    const out = document.getElementById(item[2]);
+                    if (out) out.textContent = item[3](String(v));
+                    this._applyWritingWaveConfig({ [item[1]]: v });
+                });
+                el.addEventListener('change', () => {
+                    this._saveWritingWaveConfig({ [item[1]]: Number(el.value) });
+                });
+            });
+        }
+        // 窗口尺寸变化会改变「基本参数」的自然高度，弹窗打开时重新锁定
+        if (!this._wsSheetsResizeBound) {
+            this._wsSheetsResizeBound = true;
+            window.addEventListener('resize', () => {
+                const m = document.getElementById('writingSettingsModal');
+                if (m && !m.classList.contains('hidden')) this._matchWritingSheetsHeight();
+            });
+        }
+        this._loadWritingWaveControls();
+    }
+
+    // 切换 sheet（基本参数 / 动画效果）：预览动画只在动画 sheet 打开时运行
+    switchWritingSettingsSheet(name) {
+        document.querySelectorAll('#wsTabList [data-ws-tab]').forEach(t => {
+            t.classList.toggle('active', t.dataset.wsTab === name);
+        });
+        document.querySelectorAll('.ws-sheet[data-ws-sheet]').forEach(s => {
+            s.classList.toggle('hidden', s.dataset.wsSheet !== name);
+        });
+        if (name === 'anim') this._startWavePreview();
+        else this._stopWavePreview();
+    }
+
+    // 让 sheet 区高度锁定为「基本参数」的实测高度，切换 sheet 时弹窗高度不变
+    _matchWritingSheetsHeight() {
+        const form = document.querySelector('.writing-settings-form');
+        const basic = document.querySelector('.ws-sheet[data-ws-sheet="basic"]');
+        if (!form || !basic) return;
+        const prev = form.style.getPropertyValue('--ws-sheet-h');
+        form.style.removeProperty('--ws-sheet-h');   // 先还原 auto，才能量到自然高度
+        const wasHidden = basic.classList.contains('hidden');
+        if (wasHidden) basic.classList.remove('hidden');
+        const h = basic.offsetHeight;
+        if (wasHidden) basic.classList.add('hidden');
+        if (prev) form.style.setProperty('--ws-sheet-h', prev);
+        if (h > 0) form.style.setProperty('--ws-sheet-h', h + 'px');
+    }
+
+    // 把配置回填到各控件（打开弹窗 / 切换 sheet 时调用）
+    _loadWritingWaveControls() {
+        const cfg = this._getWritingWaveConfig();
+        const setSel = (id, val) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.value = val;
+            if (el._settingPickerBuilt) this._refreshSettingPicker(el);
+        };
+        setSel('wsWaveMode', cfg.waveMode);
+        // 淡纹颜色：点亮与当前值一致的预置色块
+        const stroke = String(cfg.strokeColor || '').toLowerCase();
+        let presetHit = false;
+        document.querySelectorAll('#wsWaveColors [data-ws-color]').forEach(sw => {
+            const hit = sw.dataset.wsColor.toLowerCase() === stroke;
+            sw.classList.toggle('active', hit);
+            if (hit) presetHit = true;
+        });
+        // 自定义色块：预览最近一次的自定义墨色，且当前墨色即该色时点亮
+        const customColor = document.getElementById('wsWaveColorCustom');
+        const customBox = document.getElementById('wsWaveColorCustomBox');
+        const custom = cfg.customColor || (presetHit ? '#6b7280' : (cfg.strokeColor || '#6b7280'));
+        if (customColor) customColor.value = custom;
+        if (customBox) {
+            customBox.style.background = custom;
+            customBox.classList.toggle('active', !presetHit);
+        }
+        // 淡纹类型：按当前「段长 + 粗细」回推命中的预设并点亮
+        document.querySelectorAll('#wsWaveTypes [data-ws-type]').forEach(chip => {
+            const hit = Math.abs(cfg.dashLength - Number(chip.dataset.dash)) < 0.01 &&
+                Math.abs(cfg.strokeWidth - Number(chip.dataset.width)) < 0.01;
+            chip.classList.toggle('active', hit);
+        });
+        const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+        setChk('wsWaveTilt', cfg.tiltEnabled);
+        setChk('wsWaveAlpha', cfg.opacityBreathEnabled);
+        const setRange = (id, valId, val, fmt) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+            const out = document.getElementById(valId);
+            if (out) out.textContent = fmt(String(val));
+        };
+        setRange('wsWaveAmp', 'wsWaveAmpVal', cfg.amplitude, v => v + 'px');
+        setRange('wsWaveSpeed', 'wsWaveSpeedVal', cfg.speed, v => v + 'x');
+        setRange('wsWaveDash', 'wsWaveDashVal', cfg.dashLength, v => v + 'px');
+        setRange('wsWaveGap', 'wsWaveGapVal', cfg.dashGap, v => v + 'px');
+        setRange('wsWaveWidth', 'wsWaveWidthVal', cfg.strokeWidth, v => v + 'px');
+        setRange('wsWaveOffset', 'wsWaveOffsetVal', cfg.verticalOffset, v => v + 'px');
+    }
+
+    // 「校阅淡纹」实时预览：以示例句为测量目标，用与编辑器相同的引擎绘制
+    _startWavePreview() {
+        const container = document.getElementById('wsWavePreview');
+        const canvas = document.getElementById('wsWaveCanvas');
+        const text = document.getElementById('wsWavePreviewText');
+        if (!container || !canvas || !text) return;
+        if (!this._wavePreview) this._wavePreview = createProofreadWave(canvas);
+        canvas.style.width = container.clientWidth + 'px';
+        canvas.style.height = container.clientHeight + 'px';
+        this._wavePreview.setConfig(this._getWritingWaveConfig());
+        this._wavePreview.setTargets([text]);
+    }
+
+    _stopWavePreview() {
+        if (this._wavePreview) this._wavePreview.stop();
     }
 
     // 标记「已捕获、等待分析」：输入后立刻给本批文本加上呼吸虚线（程控重渲染或分析中不改动）

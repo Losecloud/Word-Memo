@@ -55,19 +55,26 @@
 
     // 三档 AI：词汇视野（CEFR 档位）× 选牌策略 × 失误率。
     // 「愚蠢度」不靠单一维度：限词 + 只会贪心 + 会看走眼，三样叠加才像人菜。
+    // icon / tag / desc 供设置页的富文本典雅下拉（.ai-picker）取用
     var LEVELS = {
         easy: {
             label: '简单', cefr: ['A1', 'A2'],
+            icon: 'fi-rr-leaf', tag: 'A1–A2',
+            desc: '词汇视野 A1–A2 · 常看走眼，失误率高',
             maxLead: 3,
             passChance: 0.28, blunder: 0.25, bombChance: 0.35
         },
         normal: {
             label: '普通', cefr: ['A1', 'A2', 'B1', 'B2'],
+            icon: 'fi-rr-star', tag: 'A1–B2',
+            desc: '词汇视野 A1–B2 · 会打配合，偶有失误',
             maxLead: 6,
             passChance: 0.08, blunder: 0.08, bombChance: 0.65
         },
         hard: {
             label: '困难', cefr: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
+            icon: 'fi-rr-flame', tag: 'A1–C2',
+            desc: '词汇视野 A1–C2 · 零失误，首墩随机先出',
             maxLead: 10,
             passChance: 0, blunder: 0, bombChance: 1
         }
@@ -83,7 +90,7 @@
         hard:   { 1: 0.2, 2: 0.8, 3: 1.0, 4: 0.9, 5: 0.6, 6: 0.4 }
     };
 
-    var DEFAULT_CFG = { bookIds: [], level: 'normal', bombMin: 4, hints: false };
+    var DEFAULT_CFG = { bookIds: [], level: 'normal', bombMin: 4, hints: false, sound: true };
 
     /* ============================ 词库数据 ============================ */
 
@@ -816,6 +823,7 @@
         if (S.cfg.level === 'hard') firstLeader = 1 + Math.floor(Math.random() * 3);
         logLine('发牌完毕，每人 ' + HAND_SIZE + ' 张。');
         beginRound(firstLeader);
+        announceSfx();   // 音效已就绪则闪 3 秒提示；未就绪则显示「正在加载音效包…」
         render();
         // 领出者是人机时要主动推动对局（beginRound 只摆状态，不排 AI 行动）
         if (S.game.turn !== 0) scheduleAi();
@@ -957,6 +965,34 @@
                 : '本墩是单牌局，只能跟单牌';
         }
         return '本墩要跟 ' + g.level + ' 个字母的单词';
+    }
+
+    // 空闲引导语：轮到玩家却没选牌时，先看他手里到底有没有能压台面的牌。
+    // 台面已封顶（王炸 / 更大的单牌 / 更长的炸弹）时直接点明「没有更大的牌了」，
+    // 免得玩家对着「只有王炸能压」这类干巴巴的门槛反复空选、找不到出路。
+    function idleHintText(me, g) {
+        var hand = me.hand || [];
+        var bombMin = S.cfg.bombMin || 4;
+        var jb = jokerBombOf(hand);
+
+        if (g.bombLevel === JOKER_BOMB) {
+            return jb ? '台面上是王炸，你目前只有王炸能压' : '台面上是王炸，手牌里没有更大的牌了';
+        }
+        if (g.bombLevel > 0) {
+            var holdBomb = !!jb || findBombs(hand, bombMin, g.usedWords, g.bombLevel, null).length > 0;
+            return holdBomb ? needText() + '，或点「不出」' : '手牌里没有更大的牌了';
+        }
+        if (g.level <= 1) {
+            var topR = g.singleTop ? singleRank(g.singleTop) : -1;
+            var up = false;
+            for (var i = 0; i < hand.length; i++) {
+                if (singleRank(hand[i].code) > topR) { up = true; break; }
+            }
+            if (!up && !jb && !findBombs(hand, bombMin, g.usedWords, 0, null).length) {
+                return '手牌里没有更大的牌了';
+            }
+        }
+        return needText() + '，或点「不出」';
     }
 
     // 出牌门槛：普通词必须同字数；炸弹能压任何普通牌，且炸弹之间「同长或更长」即可压；
@@ -1315,8 +1351,8 @@
 
     // 「思考时长」区间（毫秒）：难度越高想得越久，像真人一样掂量
     var AI_PACE = {
-        easy: [450, 900],
-        normal: [1000, 1800],
+        easy: [1500, 2200],
+        normal: [1650, 2600],
         hard: [1800, 3000]
     };
 
@@ -1556,8 +1592,9 @@
             var b = bombs[0];
             return { action: 'play', cards: makeCards(hand, b), asBomb: true, word: b };
         }
-        // 词炸弹也压不动（或没辙了）：恐慌 / 全无出路时动用王炸夺权
-        if (jokerBomb && (panic || !canPlay)) {
+        // 词炸弹也压不动、手里又没别的牌：平时宁可过牌把王炸留着，
+        // 只有「有人快出完了」时才动用王炸夺权 —— 免得为了压一张单牌就烧掉最高优先级。
+        if (jokerBomb && panic) {
             return { action: 'play', cards: jokerBomb.cards, asBomb: true, isJokerBomb: true };
         }
         return { action: 'pass' };
@@ -1704,6 +1741,8 @@
             if (LEVELS[cfg.level]) out.level = cfg.level;
             if (cfg.bombMin === 4 || cfg.bombMin === 5 || cfg.bombMin === 6) out.bombMin = cfg.bombMin;
             out.hints = !!cfg.hints;
+            // 音效开关只由牌桌自己的音量按钮控制，不再跟随「主设置 · 音效提示」
+            out.sound = cfg.sound !== false;
         }
         return out;
     }
@@ -1739,13 +1778,19 @@
         if (opts.sel) cls += ' ep-card-sel';
         if (opts.cls) cls += ' ' + opts.cls;
         var label = code === JOKER_C ? '大' : (code === JOKER_V ? '小' : code.toUpperCase());
-        // 字母牌：大写居中 + 下方一行不起眼的小写（认牌更顺手）；
-        // 王没有小写，改标它的「万能范围」。
-        var sub = code === JOKER_C ? '辅音' : (code === JOKER_V ? '元音' : code);
+        // 字母牌：大写 + 下方一行不起眼的小写（认牌顺手）；王没有小写，改标它的「万能范围」。
+        // 小牌只在「打到牌桌上」（opts.table）时与手牌一致 —— 竖排 辅/元 音 + 花牌图标；
+        // 拼牌条、编组等词面小牌则保持横排、不摆花牌图标，免得挤在一起。
+        var isJoker = (code === JOKER_C || code === JOKER_V);
+        var decked = !opts.small || !!opts.table;
+        var sub = code === JOKER_C ? (decked ? '辅\n音' : '辅音')
+            : (code === JOKER_V ? (decked ? '元\n音' : '元音') : code);
+        var subCls = 'ep-card-sub' + ((isJoker && decked) ? ' ep-card-sub-v' : '');
         var attrs = opts.attrs || '';
         return '<div class="' + cls + '" ' + attrs + '>' +
             '<span class="ep-card-letter">' + label + '</span>' +
-            '<span class="ep-card-sub">' + sub + '</span>' +
+            '<span class="' + subCls + '">' + sub + '</span>' +
+            (decked ? '<i class="fi-rr-playing-cards ep-card-suit" aria-hidden="true"></i>' : '') +
             '</div>';
     }
 
@@ -1756,7 +1801,7 @@
             : (play.word ? play.word.split('') : []);
         if (!codes.length) return '<span class="ep-none">—</span>';
         var tiles = '<span class="ep-word-tiles">' + codes.map(function (c) {
-            return cardHTML({ code: c }, { small: true });
+            return cardHTML({ code: c }, { small: true, table: true });
         }).join('') + '</span>';
         if (play.isJokerBomb) {
             return '<span class="ep-word ep-word-bomb ep-word-jokerbomb">' + tiles +
@@ -1821,12 +1866,103 @@
     function render() {
         var root = document.getElementById('epBody');
         if (!root || !S.cfg) return;
-        if (S.view === 'config') { root.innerHTML = renderConfig(); paintSfxButton(); return; }
+        if (S.view === 'config') { root.innerHTML = renderConfig(); autoLoadSfx(); return; }
         if (S.view === 'result') { root.innerHTML = renderResult(); return; }
         root.innerHTML = renderGame();
         markOverlaps();
+        paintSfxStatus();   // 音效状态提示（音量按钮左侧）
         // 锦囊拼写题打开时，重画后把焦点还回输入框（避免误丢输入）
         if (S.charm && S.charm.phase === 'quiz') focusCharmInput();
+    }
+
+    // 词书图标：与主应用的 bookIconHtml 同款 —— 极简图标（fi-rr/sr/br/tr）输出 <i>，
+    // emoji 直接输出字符。词书没自带图标时，按序号回退到一组封面 emoji。
+    var BOOK_ICON_FALLBACK = ['📕', '📗', '📘', '📙', '📔', '📓', '📒', '📖', '📚', '📑'];
+    function bookIconHtml(icon, fallback) {
+        var ic = icon || fallback || '📖';
+        return /^fi-(rr|sr|br|tr)-/.test(ic) ? '<i class="' + ic + '"></i>' : ic;
+    }
+
+    // 词书选项：参考阅读联想记忆应用的 .book-selector 选择器（胶囊按钮，选中=实底强调色）
+    function bookPill(id, iconHTML, name, count, on, title) {
+        return '<button type="button" class="ep-book-pill' + (on ? ' selected' : '') + '"' +
+            ' data-ep-book="' + esc(id) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+            (title ? ' title="' + esc(title) + '"' : '') + '>' +
+            '<span class="ep-book-pill-icon">' + iconHTML + '</span>' +
+            '<span class="ep-book-pill-name">' + name + '</span>' +
+            '<span class="ep-book-pill-count">' + count + ' 词</span></button>';
+    }
+
+    // 点词书胶囊切换是否纳入（选中集存进用户配置）
+    function toggleBookId(id) {
+        var list = S.cfg.bookIds.slice();
+        var at = list.indexOf(id);
+        if (at < 0) list.push(id); else list.splice(at, 1);
+        S.cfg.bookIds = list;
+        saveCfg(S.cfg);
+        refreshBookPool();
+        render();
+    }
+
+    // 富文本典雅下拉：复用网页既有 .ai-picker 样式（trigger / panel / item / lead /
+    // icon-box / badge / desc / item-check），参考阅读联想记忆的难度选择器 ——
+    // 左侧图标方块 + 徽标 + 名称 + 浅色说明。english-poker 独立渲染、不走 app.js 的
+    // initSettingSelects，故在此自建（结构与之保持一致）。
+    function pickerFaceHtml(variant, o) {
+        var idCls = variant === 'trigger' ? 'ai-picker-trigger-id' : 'ai-picker-item-id';
+        var icon = '';
+        if (o.icon) {
+            icon = '<span class="ai-picker-icon-box">' +
+                (/^fi-(rr|sr|br|tr)-/.test(o.icon) ? '<i class="' + o.icon + '"></i>' : esc(o.icon)) +
+                '</span>';
+        }
+        return '<span class="ai-picker-lead">' + icon +
+            '<span class="ai-picker-text">' +
+            //移除badge
+            '<span class="' + idCls + '">' + esc(o.name) + '</span>' +
+            (o.desc ? '<span class="ai-picker-desc">' + esc(o.desc) + '</span>' : '') +
+            '</span></span>';
+    }
+
+    // id: 落库字段（epLevel / epBombMin）；opts: [{value,icon,tag,name,desc}]；current: 当前值
+    function pickerHtml(id, opts, current) {
+        var cur = opts[0];
+        opts.forEach(function (o) { if (o.value === current) cur = o; });
+        var items = '';
+        opts.forEach(function (o) {
+            var on = o.value === current;
+            items += '<div class="ai-picker-item' + (on ? ' ai-picker-item-active' : '') +
+                '" role="option" aria-selected="' + (on ? 'true' : 'false') +
+                '" data-ep-opt="' + esc(id) + '" data-ep-val="' + esc(String(o.value)) + '">' +
+                pickerFaceHtml('item', o) +
+                (on ? '<i class="ai-picker-item-check fi-rr-check"></i>' : '') +
+                '</div>';
+        });
+        return '<div class="ai-picker ep-picker" data-ep-picker="' + esc(id) + '">' +
+            '<button type="button" class="ai-picker-trigger" data-ep-trigger="' + esc(id) + '">' +
+            pickerFaceHtml('trigger', cur) +
+            '</button>' +
+            '<div class="ai-picker-panel" style="display:none" role="listbox">' + items + '</div>' +
+            '</div>';
+    }
+
+    // 选中落库（等价于原先 <select> 的 change → saveCfg + render）
+    function pickPickerOption(id, val) {
+        if (id === 'epLevel') {
+            if (S.cfg.level !== val) { S.cfg.level = val; saveCfg(S.cfg); }
+        } else if (id === 'epBombMin') {
+            var v = Number(val) || 4;
+            if (S.cfg.bombMin !== v) { S.cfg.bombMin = v; saveCfg(S.cfg); refreshBookPool(); }
+        }
+        render();
+    }
+
+    // 收起全部典雅下拉面板
+    function closePickers() {
+        var ps = document.querySelectorAll('.ep-picker .ai-picker-panel');
+        for (var i = 0; i < ps.length; i++) ps[i].style.display = 'none';
+        var os = document.querySelectorAll('.ep-picker.open');
+        for (var j = 0; j < os.length; j++) os[j].classList.remove('open');
     }
 
     function renderConfig() {
@@ -1837,17 +1973,14 @@
 
         var rows = '';
         if (favs.length) {
-            rows += '<label class="ep-book"><input type="checkbox" data-ep-book="favorites"' +
-                (ids.indexOf('favorites') >= 0 ? ' checked' : '') + '>' +
-                '<span class="ep-book-name"><i class="fi-rr-star"></i>收藏单词</span>' +
-                '<span class="ep-book-count">' + favs.length + ' 词</span></label>';
+            rows += bookPill('favorites', '<i class="fi-rr-star"></i>', '收藏单词', favs.length,
+                ids.indexOf('favorites') >= 0, '收藏单词');
         }
-        books.forEach(function (b) {
+        books.forEach(function (b, i) {
             var n = (b.words || []).length;
-            rows += '<label class="ep-book"><input type="checkbox" data-ep-book="' + esc(b.id) + '"' +
-                (ids.indexOf(String(b.id)) >= 0 ? ' checked' : '') + '>' +
-                '<span class="ep-book-name">' + esc(b.name || '未命名词书') + '</span>' +
-                '<span class="ep-book-count">' + n + ' 词</span></label>';
+            var nm = b.name || '未命名词书';
+            rows += bookPill(String(b.id), bookIconHtml(b.icon, BOOK_ICON_FALLBACK[i % BOOK_ICON_FALLBACK.length]),
+                esc(nm), n, ids.indexOf(String(b.id)) >= 0, nm);
         });
         if (!rows) {
             rows = '<div class="ep-empty">还没有词书。请先在主界面导入词书，再来开局——' +
@@ -1856,20 +1989,18 @@
 
         var bombCount = BOOK_WORDS.filter(function (w) { return w.length >= S.cfg.bombMin; }).length;
 
-        var lvOpts = '';
+        var lvOpts = [];
         for (var k in LEVELS) {
-            lvOpts += '<option value="' + k + '"' + (S.cfg.level === k ? ' selected' : '') + '>' +
-                LEVELS[k].label + '</option>';
+            lvOpts.push({ value: k, icon: LEVELS[k].icon, tag: LEVELS[k].tag,
+                name: LEVELS[k].label, desc: LEVELS[k].desc });
         }
-        var bombOpts = '';
-        [4, 5, 6].forEach(function (v) {
-            bombOpts += '<option value="' + v + '"' + (S.cfg.bombMin === v ? ' selected' : '') + '>' +
-                v + ' 个字母起</option>';
-        });
+        var bombOpts = [
+            { value: 4, icon: 'fi-rr-bomb', tag: '4+', name: '4 个字母起', desc: '容易凑成，炸弹频出，节奏快' },
+            { value: 5, icon: 'fi-rr-bomb', tag: '5+', name: '5 个字母起', desc: '攻守均衡，长词才有压制力' },
+            { value: 6, icon: 'fi-rr-bomb', tag: '6+', name: '6 个字母起', desc: '极难凑成，炸弹稀少，更拼手法' }
+        ];
 
         return '<div class="ep-config">' +
-            '<div class="ep-config-head"><h3>开桌设置</h3>' +
-            '<span>选好词书与难度，坐庄开局</span></div>' +
             '<div class="ep-rule-brief">' +
             '<b>玩法</b>：领出者拼一个单词（或甩单牌），其余人必须跟「字数相同」的单词，跟不动就过。' +
             '一圈下来（其余人都过）本墩才收，有人跟得上就继续循环跟下去。' +
@@ -1880,28 +2011,26 @@
             '先出完手牌者胜，血战到底排完 4 名；长牌、B2 以上高级词、炸弹各有赋分，结算按总分评选 MVP。' +
             '</div>' +
             '<div class="ep-field">' +
-            '<div class="ep-field-label">词书（决定 AI 与提示的词库，也决定哪些长词算炸弹）</div>' +
+            '<div class="ep-field-label">词书</div>' +
             '<div class="ep-books" id="epBooks">' + rows + '</div>' +
-            '<div class="ep-books-foot" id="epBombCount">词书里够门槛的炸弹词：<b>' + bombCount + '</b> 个（≥' +
+            '<div class="ep-books-foot" id="epBombCount">词书炸弹词：<b>' + bombCount + '</b> 个（≥' +
             S.cfg.bombMin + ' 字母）；词书外的长词只能当普通牌出</div>' +
             '</div>' +
             '<div class="form-row">' +
             '<div class="form-group"><label class="form-label">AI 难度</label>' +
-            '<select class="form-select setting-select" id="epLevel">' + lvOpts + '</select>' +
+            pickerHtml('epLevel', lvOpts, S.cfg.level) +
             '<div class="ep-hint-text">难度 = 词汇视野 × 选牌策略 × 失误率，越简单越容易看走眼；困难模式下首墩由随机一位人机先出。</div></div>' +
             '<div class="form-group"><label class="form-label">炸弹门槛</label>' +
-            '<select class="form-select setting-select" id="epBombMin">' + bombOpts + '</select>' +
+            pickerHtml('epBombMin', bombOpts, S.cfg.bombMin) +
             '<div class="ep-hint-text">越长越难凑，也越难被压。</div></div>' +
             '</div>' +
-            '<label class="ep-book ep-inline"><input type="checkbox" id="epHints"' +
-            (S.cfg.hints ? ' checked' : '') + '><span class="ep-book-name">开启提示（列出可出的词、点了自动选牌）；关闭时按「选牌顺序」拼词，更考验手法</span></label>' +
-            '<div class="ep-field ep-sfx-field">' +
-            '<div class="ep-field-label">音效包（出牌 / 炸弹 / 牌权切换 / 胜负）</div>' +
-            '<button type="button" class="dict-apply-btn" id="epSfxBtn">加载音效包</button>' +
-            '<div class="ep-books-foot" id="epSfxHint">正在检查本地音频…</div>' +
-            '</div>' +
+            '<label class="ep-switch-row">' +
+            '<span class="ep-switch-text"><i class="fi-rr-bulb"></i>开启提示' +
+            '<em class="ep-switch-note">选中牌后自动提示可编组的牌组，点了即编组；关闭时按「选牌顺序」拼词，更考验手法</em></span>' +
+            '<span class="switch-wrap"><input type="checkbox" id="epHints"' +
+            (S.cfg.hints ? ' checked' : '') + '><span class="switch-slider"></span></span></label>' +
             (S.dataReady ? '' : '<div class="ep-loading">词库加载中，请稍候…</div>') +
-            '<div class="ep-actions"><button class="ep-btn ep-btn-gold ep-btn-big" id="epStartBtn"' +
+            '<div class="ep-actions ep-actions-center"><button class="ep-btn ep-btn-gold ep-btn-big" id="epStartBtn"' +
             (S.dataReady ? '' : ' disabled') + '>' +
             '<i class="fi-rr-play"></i>开始对局</button></div>' +
             '</div>';
@@ -1988,13 +2117,13 @@
                 charmHTML = '<div class="ep-reveal ep-charm"><div class="ep-reveal-box ep-charm-box">' +
                     '<div class="ep-reveal-who"><i class="fi-rr-gift"></i>炸弹锦囊 · 拼出例句里的单词</div>' +
                     '<div class="ep-charm-sent">' + ch.sentence + '</div>' +
+                    
                     '<div class="ep-charm-row">' +
                     '<input id="epCharmInput" class="ep-charm-input" type="text" autocomplete="off" ' +
                     'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="' + ch.word.length + '" ' +
                     'placeholder="' + esc(ch.placeholder || '输入单词') + '" value="' + esc(ch.input) + '">' +
                     '</div>' +
-                    '<div class="ep-charm-note' + (ch.err ? ' ep-charm-err' : '') + '">' +
-                    (ch.err ? esc(ch.err) : '拼对即得锦囊 · 手牌会自动组好这组炸弹') + '</div>' +
+                    (ch.hint ? '<div class="ep-charm-hint">' + esc(ch.hint) + '</div>' : '') +
                     '<div class="ep-charm-btns">' +
                     '<button class="ep-btn ep-btn-ghost" data-ep-charm="reroll">' +
                     '<i class="fi-rr-dice" id="epCharmDice"></i>换一个</button>' +
@@ -2133,12 +2262,23 @@
             }
         } else {
             check = '<span class="ep-check ep-check-idle">' + (g.turn === 0
-                ? (g.phase === 'lead' ? '选牌后点「出牌」领出这一墩' : needText() + '，或点「不出」')
+                ? (g.phase === 'lead' ? '选牌后点「出牌」领出这一墩' : idleHintText(me, g))
                 : esc(seatName(g.turn)) + ' 出牌中…可先把你的牌备好') + '</span>';
         }
 
+        // 提示模式：拼牌条右侧列一行「这手牌能拼出的词」供点选重排（见 previewOrderOptions）；
+        // 与校验结论同款 pill 样式，非提示模式不产出。
+        var orderOptions = dealt ? [] : previewOrderOptions(picked, g);
+        var orderHTML = orderOptions.length
+            ? '<div class="ep-order-opts">' + orderOptions.map(function (o) {
+                return '<button class="ep-check ep-order-opt' + (o.bomb ? ' ep-order-bomb' : '') +
+                    '" data-ep-hint="' + esc(o.word) + '">' +
+                    '<b>' + esc(o.word.toUpperCase()) + '</b><em>' + o.word.length + '</em></button>';
+            }).join('') + '</div>'
+            : '';
+
         var preview = '<div class="ep-preview"><span class="ep-word-tiles ep-pickzone" id="epPickZone">' +
-            pickTiles + '</span>' + check + '</div>';
+            pickTiles + '</span>' + check + orderHTML + '</div>';
 
         // 编组好的牌组：堆在操作区最右侧，点它选中、再点「跟牌」放出。
         // 炸弹组金色高亮；词书外的普通词组保持素色 —— 它只能按普通牌的门槛打出。
@@ -2177,9 +2317,6 @@
             if (canPack) {
                 actions += '<button class="ep-btn ep-btn-pack" id="epPackBtn"><i class="fi-rr-layers"></i>编组</button>';
             }
-            if (S.cfg.hints) {
-                actions += '<button class="ep-btn ep-btn-hint" id="epHintBtn"><i class="fi-rr-bulb"></i>提示</button>';
-            }
         } else {
             actions = '<div class="ep-wait">' + esc(seatName(g.turn)) + ' 正在思考…</div>';
             if (canPack) {
@@ -2187,17 +2324,6 @@
             }
         }
         if (packsHTML) actions += '<div class="ep-packs" id="epPacks">' + packsHTML + '</div>';
-
-        var hints = '';
-        if (S.hintWords && S.hintWords.length) {
-            hints = '<div class="ep-hints">' + S.hintWords.map(function (h) {
-                return '<button class="ep-hint-chip' + (h.bomb ? ' ep-hint-bomb' : '') +
-                    '" data-ep-hint="' + esc(h.token) + '">' + esc(h.label) +
-                    (h.len ? '<em>' + h.len + '</em>' : '') + '</button>';
-            }).join('') + '</div>';
-        } else if (S.hintWords && !S.hintWords.length) {
-            hints = '<div class="ep-hints ep-hints-empty">没有能跟上的词，只能不出或用炸弹。</div>';
-        }
 
         // 对局记录按发生顺序自上而下排（最新一条在最下面）：和牌河的左→右同向，
         // 免得把「谁最后出牌、牌权归谁」看反。
@@ -2216,6 +2342,14 @@
 
             '<div class="ep-stage">' +
             '<div class="ep-surface"></div>' +
+            // 音量按钮左侧的音效状态：仅在加载/刚就绪时闪现，随后淡出
+            '<span class="ep-vol-hint" id="epVolHint" aria-live="polite"></span>' +
+            // 桌面右上角的音量按钮：控制对局音效（独立于主设置的「音效提示」）
+            '<button class="ep-vol" id="epVolBtn" type="button" title="' +
+            (S.cfg.sound === false ? '音效已静音，点击开启' : '音效开启，点击静音') + '"' +
+            ' aria-label="对局音效开关" aria-pressed="' + (S.cfg.sound === false ? 'true' : 'false') + '">' +
+            '<i class="' + (S.cfg.sound === false ? 'fi-rr-volume-slash' : 'fi-rr-volume') + '"></i>' +
+            '</button>' +
             revealHTML +
             jokerHTML +
             charmHTML +
@@ -2238,7 +2372,6 @@
             '<div class="ep-hand" id="epHand">' + handHTML + '</div>' +
             '<div class="ep-under">' + preview + '</div>' +
             '<div class="ep-actions">' + actions + '</div>' +
-            hints +
             '</div>' +
 
             '<div class="ep-logs"><div class="ep-log-h">对局记录</div>' +
@@ -2403,13 +2536,31 @@
             }
             var hint = e.target.closest('[data-ep-hint]');
             if (hint) {
-                applyHint(hint.dataset.epHint);
+                if (canPick) orderSelectedAs(hint.dataset.epHint);
+                return;
+            }
+            // 典雅下拉：点选项落库重画；点触发器开合面板（浮层覆盖，不撑开下方内容）
+            var optEl = e.target.closest('[data-ep-opt]');
+            if (optEl) {
+                e.stopPropagation();
+                pickPickerOption(optEl.dataset.epOpt, optEl.dataset.epVal);
+                return;
+            }
+            var trigEl = e.target.closest('[data-ep-trigger]');
+            if (trigEl) {
+                e.stopPropagation();
+                var pkHost = trigEl.closest('.ai-picker');
+                var pkPanel = pkHost && pkHost.querySelector('.ai-picker-panel');
+                var wasOpen = pkPanel && pkPanel.style.display !== 'none';
+                closePickers();
+                if (pkPanel && !wasOpen && pkHost) { pkPanel.style.display = 'block'; pkHost.classList.add('open'); }
                 return;
             }
             var t = e.target.closest('button');
             if (!t) return;
+            if (t.dataset && t.dataset.epBook !== undefined) { toggleBookId(t.dataset.epBook); return; }
+            if (t.id === 'epVolBtn') { toggleSound(); return; }
             if (t.id === 'epStartBtn') { startMatch(); return; }
-            if (t.id === 'epSfxBtn') { handleSfxClick(t); return; }
             if (t.id === 'epPlayBtn') {
                 if (S.packPick !== null && S.packs[S.packPick]) humanPlayPack();
                 else humanPlay();
@@ -2417,7 +2568,6 @@
             }
             if (t.id === 'epPackBtn') { packBomb(); return; }
             if (t.id === 'epPassBtn') { humanPass(); return; }
-            if (t.id === 'epHintBtn') { showHints(); return; }
             if (t.id === 'epCharmBtn') { openCharm(); return; }
             if (t.id === 'epQuitBtn') { settle(); return; }
             if (t.id === 'epAgainBtn') { startMatch(); return; }
@@ -2515,28 +2665,17 @@
 
         root.addEventListener('change', function (e) {
             var t = e.target;
-            if (t.dataset && t.dataset.epBook !== undefined) {
-                var id = t.dataset.epBook;
-                var list = S.cfg.bookIds.slice();
-                var at = list.indexOf(id);
-                if (t.checked && at < 0) list.push(id);
-                if (!t.checked && at >= 0) list.splice(at, 1);
-                S.cfg.bookIds = list;
-                saveCfg(S.cfg);
-                refreshBookPool();
-                render();
-                return;
-            }
-            if (t.id === 'epLevel') { S.cfg.level = t.value; saveCfg(S.cfg); render(); return; }
-            if (t.id === 'epBombMin') {
-                S.cfg.bombMin = Number(t.value) || 4;
-                saveCfg(S.cfg);
-                refreshBookPool();
-                render();
-                return;
-            }
             if (t.id === 'epHints') { S.cfg.hints = !!t.checked; saveCfg(S.cfg); render(); return; }
         });
+
+        // 点击任意下拉之外的区域 → 收起所有典雅下拉面板（触发器/选项自身的点击已 stopPropagation）
+        if (!bind._pickerOutside) {
+            bind._pickerOutside = true;
+            document.addEventListener('click', function (e) {
+                if (e.target && e.target.closest && e.target.closest('.ep-picker')) return;
+                closePickers();
+            });
+        }
 
         // 键盘拼牌：页面获得焦点时直接打字组词（Esc 不出 / Backspace 退一张 / Enter 出牌）。
         // 挂在 document 上，因为手牌牌面本身不可聚焦；用 view + 容器可见 + hasFocus 三重门控，
@@ -2603,91 +2742,53 @@
         setBookWords(loadBookWords(S.cfg.bookIds));
     }
 
-    function showHints() {
-        var g = S.game;
-        if (!g || g.turn !== 0) return;
-        var known = DATA.known && DATA.known[S.cfg.level];
-        var hand = g.players[0].hand;
-        var bombMin = S.cfg.bombMin || 4;
-        var out = [];
-
-        function addBombs(minLen) {
-            findBombs(hand, bombMin, g.usedWords, minLen, known)
-                .sort(function (a, b) { return a.length - b.length; })
-                .slice(0, 4).forEach(function (w) {
-                    out.push({ token: '__bomb__' + w, label: w.toUpperCase(), len: w.length, bomb: true });
-                });
-        }
-
-        // 王炸（大王+小王）：能压任何牌，所以只要手里有就始终列出来（len 0 → 不显示字数字）
-        function addJokerBomb() {
-            if (jokerBombOf(hand)) out.push({ token: '__jokerbomb__', label: '王炸', len: 2, bomb: true });
-        }
-
-        if (g.bombLevel > 0) {
-            // 台面是炸弹：只能拿同样长或更长的炸弹压；台面是王炸时，只有王炸能压
-            if (g.bombLevel === JOKER_BOMB) {
-                if (jokerBombOf(hand)) {
-                    out.push({ token: '__jokerbomb__', label: '王炸', len: 0, bomb: true });
-                }
-            } else {
-                addBombs(g.bombLevel);
-                addJokerBomb();
-            }
-        } else if (g.level >= 2) {
-            // 台面是 N 字母普通词：只能跟同字数，或拿炸弹压
-            freshWords(findAll(hand, g.level, g.level, known)).sort(function (a, b) { return a.length - b.length; })
-                .slice(0, 8).forEach(function (w) {
-                    out.push({ token: w, label: w.toUpperCase(), len: w.length });
-                });
-            addBombs(0);
-            addJokerBomb();
-        } else {
-            // 领出（level 0）或台面是单牌（level 1）：能甩更大的单牌
-            var top = g.singleTop ? singleRank(g.singleTop) : -1;
-            if (g.level === 0 ? !!worstSingle(hand) : !!singleAbove(hand, top)) {
-                out.push({ token: '__single__', label: '甩单牌', len: 1 });
-            }
-            if (g.level === 0) {
-                // 提示与 AI 同口径：不只列门槛以下的短词，词书外的长词（普通牌）也能领出
-                var cap = Math.min(MAX_WORD_LEN, Math.max(3, bombMin + 1));
-                normalLeads(hand, 2, cap, known, g, bombMin)
-                    .sort(function (a, b) { return a.length - b.length; })
-                    .slice(0, 8).forEach(function (w) {
-                        out.push({ token: w, label: w.toUpperCase(), len: w.length });
-                    });
-            }
-            addBombs(0);
-            addJokerBomb();
-        }
-        S.hintWords = out;
-        render();
+    // 提示模式：拼牌条右侧的可点选项 —— 把当前选中的牌能拼出的词列出来，点一下即按该词重排选牌。
+    // 当前选牌顺序拼出的那个词（cur）已由结论牌给出，不再重复列出；其余按「炸弹优先、词越长越靠前」
+    // 排序；当前台面出不了的词（用过的 / 压不过的）直接略过 —— 没价值的就不占位置。
+    function previewOrderOptions(cards, g) {
+        if (!S.cfg.hints || !g) return [];
+        cards = cards || [];
+        if (cards.length < 2) return [];
+        var min = S.cfg.bombMin || 4;
+        var isLead = g.phase === 'lead';
+        var cur = resolveOrdered(cards);
+        var list = wordChoices(cards).filter(function (w) {
+            return w !== cur && !g.usedWords[w] && !levelCheck(w, isBombWord(w, min), { isLead: isLead });
+        });
+        list.sort(function (a, b) {
+            var ab = isBombWord(a, min), bb = isBombWord(b, min);
+            if (ab !== bb) return ab ? -1 : 1;
+            return b.length - a.length;
+        });
+        return list.slice(0, 6).map(function (w) {
+            return { word: w, bomb: isBombWord(w, min) };
+        });
     }
 
-    function applyHint(token) {
-        var g = S.game;
-        if (!g) return;
-        var hand = g.players[0].hand;
-        if (token === '__single__') {
-            var s = g.phase === 'lead' || !g.singleTop
-                ? worstSingle(hand)
-                : singleAbove(hand, singleRank(g.singleTop));
-            S.selected = s ? [s.id] : [];
-            render();
-            return;
+    // 点某个选项：把当前选中的牌按该词重排（同一副牌换个拼法），只改顺序、不动选牌集合。
+    // 缺的字母由「王」顶上：元音配小王、辅音配大王，与 pickCards 的用牌规则一致。
+    function orderSelectedAs(word) {
+        var cards = selectedCards();
+        if (!cards.length || !word) return;
+        var pool = cards.slice();
+        var out = [];
+        for (var i = 0; i < word.length; i++) {
+            var ch = word.charAt(i);
+            var at = -1, j;
+            for (j = 0; j < pool.length; j++) {
+                if (pool[j].code === ch) { at = j; break; }
+            }
+            if (at < 0) {
+                var want = isVowel(ch) ? JOKER_V : JOKER_C;
+                for (j = 0; j < pool.length; j++) {
+                    if (pool[j].code === want) { at = j; break; }
+                }
+            }
+            if (at < 0) { toast('这几张牌拼不出这个词', 'info'); return; }
+            out.push(pool.splice(at, 1)[0]);
         }
-        if (token === '__jokerbomb__') {
-            var jb = jokerBombOf(hand);
-            if (!jb) { toast('手里没有王炸了', 'info'); return; }
-            S.selected = jb.ids.slice();   // 大王 + 小王，validate 会自动认作王炸
-            render();
-            return;
-        }
-        var isBomb = token.indexOf('__bomb__') === 0;
-        var word = isBomb ? token.slice(8) : token;
-        var picked = pickCards(hand, word);
-        if (!picked) { toast('手牌凑不出这个词了', 'info'); return; }
-        S.selected = picked.ids.slice();
+        pool.forEach(function (c) { out.push(c); });
+        S.selected = out.map(function (c) { return c.id; });
         render();
     }
 
@@ -2814,6 +2915,37 @@
         return '输入 ' + out.join(' ') + ' 单词';
     }
 
+    // 锦囊里附带的「最近练习时间」提示：翻出用户配置里该单词的记忆记录，
+    // 取最近一次练习日期，按距今间隔生成一句话（今天/昨天/前天，或具体日期）。
+    function charmPracticeHint(word) {
+        var S_ = window.Storage;
+        var mem = (S_ && S_.loadAllMemory) ? S_.loadAllMemory() : null;
+        if (!mem) return '多积累练习哦，不然锦囊也帮不上你';
+        var target = String(word || '').toLowerCase();
+        var latest = '';
+        Object.keys(mem).forEach(function (k) {
+            var idx = k.indexOf(':');
+            if (idx < 0) return;
+            // 记忆键为「词书id:单词」，词书 id 不含冒号，故从首个冒号后取单词比对（忽略大小写）
+            if (k.slice(idx + 1).toLowerCase() !== target) return;
+            var m = mem[k] || {};
+            var days = [];
+            (m.history || []).forEach(function (h) { if (h && h.date) days.push(String(h.date)); });
+            if (m.lastReviewDate) days.push(String(m.lastReviewDate));
+            days.forEach(function (d) { if (d > latest) latest = d; });
+        });
+        if (!latest) return '多积累练习哦，不然锦囊也帮不上你';
+        var parts = latest.slice(0, 10).split('-');
+        var dt = new Date(+parts[0], (+parts[1]) - 1, +parts[2]);
+        if (isNaN(dt.getTime())) return '多积累练习哦，不然锦囊也帮不上你';
+        var now = new Date();
+        var diff = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - dt) / 86400000);
+        if (diff <= 0) return '你今天才刚练过';
+        if (diff === 1) return '你昨天才刚练过';
+        if (diff === 2) return '你前天才刚练过';
+        return '你在' + (dt.getMonth() + 1) + '月' + dt.getDate() + '号练过这个单词';
+    }
+
     function openCharm() {
         var g = S.game;
         if (!g || g.over || frozen()) return;
@@ -2826,6 +2958,7 @@
             jokerFor: pick.jokerFor,
             example: pick.example,
             sentence: charmSentence(pick.example, pick.word),
+            hint: charmPracticeHint(pick.word),
             placeholder: charmPlaceholder(pick.word),
             phase: 'quiz',
             input: '',
@@ -2863,6 +2996,7 @@
         c.jokerFor = pick.jokerFor;
         c.example = pick.example;
         c.sentence = charmSentence(pick.example, pick.word);
+        c.hint = charmPracticeHint(pick.word);
         c.placeholder = charmPlaceholder(pick.word);
         c.input = '';
         c.err = '';
@@ -3040,10 +3174,24 @@
         if (p && p.catch) p.catch(function () { /* 自动播放策略：忽略 */ });
     }
 
-    // 播放一个音效。未开启音效开关、或所有候选地址都不可用时静默跳过，绝不干扰对局。
+    // 牌桌右上角音量按钮：只切对局音效，写进用户配置的 sound 字段（存哪都跟着走）。
+    function toggleSound() {
+        S.cfg.sound = (S.cfg.sound === false);
+        saveCfg(S.cfg);
+        var icon = document.querySelector('#epVolBtn i');
+        var btn = document.getElementById('epVolBtn');
+        if (icon) icon.className = (S.cfg.sound === false) ? 'fi-rr-volume-slash' : 'fi-rr-volume';
+        if (btn) {
+            btn.title = (S.cfg.sound === false) ? '音效已静音，点击开启' : '音效开启，点击静音';
+            btn.setAttribute('aria-pressed', (S.cfg.sound === false) ? 'true' : 'false');
+        }
+        if (S.cfg.sound !== false) sfx('play');   // 开声时给一声，确认已生效
+    }
+
+    // 播放一个音效。牌桌自己的音效开关关掉、或所有候选地址都不可用时静默跳过，绝不干扰对局。
+    // 注意：这里**不看**主设置的「音效提示」——英文扑克有自己的音量按钮（状态存在用户配置的 sound 字段）。
     function sfx(name) {
-        var app = window.app;
-        if (app && app.settings && app.settings.enableSoundEffects === false) return;
+        if (S.cfg && S.cfg.sound === false) return;
         var slot = S.audio[name];
         if (!slot) {
             var list = audioSources(name);
@@ -3063,80 +3211,72 @@
         tryPlay(slot);
     }
 
-    // 开桌设置页的「音效包」按钮状态：本地有文件就直接读（web 端 / OB 开发态），
-    // 只有 OB 发行包（不含 static/audio）才需要从 GitHub 下载并缓存。
-    function paintSfxButton() {
-        var btn = document.getElementById('epSfxBtn');
-        var hint = document.getElementById('epSfxHint');
-        if (!btn) return;
-        btn.classList.remove('dict-dl-btn', 'dict-dl-unknown');
-        btn.style.removeProperty('--dl-progress');
-        btn.disabled = false;
-        btn.dataset.mode = '';
+    // 音效包：进入英文扑克即**自动缓存**，无需用户操作，也不占用设置页文字。
+    // 本地有文件就直接读（web 端 / OB 开发态），OB 发行包才从 GitHub 拉取并缓存到本机。
+    // 状态只在对局中、音量按钮左侧闪现一下：加载中 → 已加载 3 秒 → 淡出。
+    var SFX_HOLD_MS = 3000;
+    var sfxState = { phase: 'loading', sizeKb: 0, doneAt: 0, localOk: false, busy: false, failed: false, hideTimer: null };
+
+    function sfxReady() { return sfxState.localOk || loadAudioCache(); }
+
+    // 把当前音效状态画到音量按钮左侧的提示上（只有牌桌视图有这个元素）
+    function paintSfxStatus() {
+        var el = document.getElementById('epVolHint');
+        if (!el) return;
+        if (sfxState.phase === 'loading') {
+            el.textContent = '正在加载音效包' + (sfxState.sizeKb ? ' (' + sfxState.sizeKb + 'KB)' : '') + '…';
+            el.classList.add('show');
+            return;
+        }
+        if (sfxState.phase === 'done' && Date.now() < sfxState.doneAt) {
+            el.textContent = '音效包已加载';
+            el.classList.add('show');
+            return;
+        }
+        el.classList.remove('show');   // 到点或未就绪：淡出
+    }
+
+    // 就绪后亮 3 秒再淡出；计时只在牌桌视图里起（进了牌桌才提醒）
+    function holdSfxHint() {
+        sfxState.phase = 'done';
+        if (S.view === 'game') {
+            sfxState.doneAt = Date.now() + SFX_HOLD_MS;
+            if (sfxState.hideTimer) clearTimeout(sfxState.hideTimer);
+            sfxState.hideTimer = setTimeout(paintSfxStatus, SFX_HOLD_MS + 60);
+        }
+        paintSfxStatus();
+    }
+
+    // 进入对局时调用：音效若已就绪，从现在起闪 3 秒「音效包已加载」
+    function announceSfx() {
+        if (sfxReady()) holdSfxHint();
+        else paintSfxStatus();
+    }
+
+    // 打开英文扑克即自动缓存音效包；未下载完也不拦着开局，只是还没音效。
+    function autoLoadSfx() {
+        if (sfxState.busy || sfxState.failed || sfxReady()) { paintSfxStatus(); return; }
+        sfxState.busy = true;
+        sfxState.phase = 'loading';
         probeLocalAudio().then(function (local) {
-            if (!btn.isConnected) return;   // 探测期间已切走视图
-            if (local) {
-                btn.dataset.mode = 'local';
-                btn.textContent = '音效包已加载（本地内置，无需下载）';
-                if (hint) hint.textContent = '直接读取 static/audio/poker/ 下的音频，离线可用；受主设置里「音效提示」开关控制。';
-                return;
-            }
-            var ready = loadAudioCache();
-            btn.dataset.mode = 'remote';
-            btn.textContent = ready ? '音效包已下载 · 点击重新下载' : '下载音效包（约 175 KB）';
-            if (hint) hint.textContent = ready
-                ? '已缓存到本机，对局中会出声；受主设置里「音效提示」开关控制。'
-                : '音频不随插件打包，点上方按钮从 GitHub 下载并缓存到本机。';
-        });
-    }
-
-    // 字节数格式化（音效包下载进度用）
-    function sizeText(n) {
-        if (!n) return '0 B';
-        if (n < 1024) return n + ' B';
-        if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
-        return (n / 1048576).toFixed(2) + ' MB';
-    }
-
-    // 点击开桌设置页的「音效包」按钮：本地已内置则只提示；否则流式下载并显示读条。
-    function handleSfxClick(btn) {
-        if (btn.dataset.mode === 'local') { toast('音效包已内置在本地，无需下载', 'info'); return; }
-        btn.classList.add('dict-dl-btn');
-        btn.disabled = true;
-        btn.innerHTML =
-            '<span class="dict-dl-fill"></span>' +
-            '<span class="dict-dl-label dict-dl-label-base"></span>' +
-            '<span class="dict-dl-label dict-dl-label-on"></span>';
-        var base = btn.querySelector('.dict-dl-label-base');
-        var on = btn.querySelector('.dict-dl-label-on');
-        var set = function (ratio, label) {
-            btn.classList.toggle('dict-dl-unknown', ratio == null);
-            btn.style.setProperty('--dl-progress', ratio == null ? '100%' : (ratio * 100).toFixed(1) + '%');
-            base.textContent = label;
-            on.textContent = label;
-        };
-        set(0, '准备下载…');
-        var lastPaint = 0;
-        downloadPokerAudio(function (ratio, loaded, total, label) {
-            var now = performance.now();
-            if (now - lastPaint < 120) return;   // 节流，避免文字抖动
-            lastPaint = now;
-            set(ratio, ratio == null
-                ? '下载中 · ' + sizeText(loaded)
-                : Math.round(ratio * 100) + '% · ' + sizeText(loaded) + '/' + sizeText(total) +
-                  (label ? ' · ' + label : ''));
+            if (local) { sfxState.localOk = true; return; }
+            if (loadAudioCache()) return;
+            return downloadPokerAudio(function (ratio, loaded, total) {
+                if (total) sfxState.sizeKb = Math.round(total / 1024);
+                paintSfxStatus();
+            });
         }).then(function () {
-            set(1, '音效已就绪');
-            toast('英文扑克音效包已下载并缓存', 'success');
-            setTimeout(paintSfxButton, 700);
-        }).catch(function (err) {
-            paintSfxButton();
-            toast('音效下载失败：' + ((err && err.message) || err), 'error');
+            sfxState.busy = false;
+            holdSfxHint();
+        }).catch(function () {
+            sfxState.busy = false;
+            sfxState.failed = true;     // 失败就静默重试退场：无音效也不影响对局
+            sfxState.phase = 'idle';
+            paintSfxStatus();
         });
     }
 
     /* ============================ 对外接口 ============================ */
-
     var EnglishPoker = {
         open: function () {
             S.cfg = loadCfg();

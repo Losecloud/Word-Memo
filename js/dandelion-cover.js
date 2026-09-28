@@ -618,9 +618,8 @@
         return Math.max(20, Math.min(80, 92 - n * 4));
     }
 
-    // CEFR 等级（词卡等级角标用）与等级配色（与单词星云保持一致）
+    // CEFR 等级（词卡等级角标用）；等级配色改由 window.getCefrColor() 实时读取主题变量，见下方调用处
     var CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-    var CEFR_LEVEL_COLORS = { A1: '#57912b', A2: '#93a418', B1: '#b9780f', B2: '#b6620e', C1: '#b32e27', C2: '#b1296d' };
 
     function levelOf(word) {
         var cache = ensureLevelCache();
@@ -2357,7 +2356,7 @@
         if (lvlEl) {
             var lv = levelOf(w.word);
             if (lv) {
-                var lvColor = CEFR_LEVEL_COLORS[lv] || '#99a7ff';
+                var lvColor = window.getCefrColor(lv) || '#99a7ff';
                 lvlEl.textContent = lv;
                 lvlEl.style.color = lvColor;
                 lvlEl.style.borderColor = lvColor;

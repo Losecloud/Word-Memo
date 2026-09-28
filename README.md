@@ -117,7 +117,7 @@ python -m http.server 8000     # 或 Windows 用 start-server.bat / macOS、Linu
 
 | 服务 | 触发时机 | 说明 |
 | --- | --- | --- |
-| GitHub（`raw.githubusercontent.com`、`github.com/.../releases/download/...`） | 打开「关于」页，或点击词典包的**下载** | 公开只读下载说明文档与你指定的词典数据文件，不发送任何数据。 |
+| GitHub（`raw.githubusercontent.com`、`github.com/.../releases/download/...`） | 打开「关于」页、点击词典包的**下载**，或进入**英文扑克**的开桌设置 | 公开只读下载说明文档、你指定的词典数据，以及英文扑克音效包（约 160 KB，首次进入开桌设置时自动拉取并缓存到本机，之后离线可用）。不发送任何数据。 |
 | 你的 AI 服务商（OpenAI、SiliconFlow 或任意 OpenAI 兼容端点） | 请求翻译、AI 讲解或导入后补齐词条时 | 端点与密钥由你配置、存于本地；未经你操作不会发送任何内容。 |
 | 欧路词典 OpenAPI（`api.frdic.com`） | 使用欧路词典联动时 | 需要你自己的授权码。 |
 | 微信读书（`i.weread.qq.com`） | 加载英文原著榜 / 导出划线时 | 需要你自己的 Key。 |
