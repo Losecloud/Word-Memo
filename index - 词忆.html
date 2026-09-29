@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <!-- 防闪烁：同步读取 localStorage 主题，在渲染前设置 data-theme + 内联深色模式 CSS 变量，避免深色模式页面闪烁 -->
-    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); var c = u ? JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}') : {}; var p = new URLSearchParams(location.search); var v = p.get('wmView'); var t; if (v === 'cover') { t = p.get('wmTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else if (!c.basicSettings || c.basicSettings.followSystemTheme !== false) { var q = p.get('wmTheme'); t = q || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else { t = c.theme; } if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (v === 'dict') { document.documentElement.classList.add('wm-sidebar-mode'); if (!c.basicSettings || c.basicSettings.hideSidebarImport !== false) document.documentElement.classList.add('wm-hide-import'); } else if (v === 'cover') { document.documentElement.classList.add('wm-cover-mode'); var ct = localStorage.getItem('wordMemory_coverViewType_' + (u || 'guest')); if (ct !== 'nebula' && ct !== 'chaos') ct = 'dandelion'; document.documentElement.classList.add('wm-cover-boot-' + ct); } } catch(e) {}</script>
+    <script>try { var u = localStorage.getItem('wordMemory_currentUser'); var c = u ? JSON.parse(localStorage.getItem('wordMemory_user_json_' + u) || '{}') : {}; var p = new URLSearchParams(location.search); var v = p.get('wmView'); var t; if (v === 'cover') { t = p.get('wmTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else if (!c.basicSettings || c.basicSettings.followSystemTheme !== false) { var q = p.get('wmTheme'); t = q || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } else { t = c.theme; } if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (v === 'dict') { document.documentElement.classList.add('wm-sidebar-mode'); } else if (v === 'cover') { document.documentElement.classList.add('wm-cover-mode'); var ct = localStorage.getItem('wordMemory_coverViewType_' + (u || 'guest')); if (ct !== 'nebula' && ct !== 'chaos') ct = 'dandelion'; document.documentElement.classList.add('wm-cover-boot-' + ct); } } catch(e) {}</script>
     <style>
         /* 关键 CSS 变量 + 基础元素样式：同步内联，确保深色模式在外部样式表加载前即可生效，避免白屏闪烁 */
         [data-theme="dark"] {
@@ -527,41 +527,11 @@
         html.wm-sidebar-mode .dict-lookup.dict-lookup-idle .dict-lookup-ai-detail {
             display: none !important;
         }
-        /* 底部「导入词典」拖入区（参考封面 upload-area）：默认隐藏，仅侧栏模式显示。
-           与结果区为兄弟节点且固定高度，故结果/详情展开时不会覆盖它 */
-        .dict-import-area { display: none; }
-        html.wm-sidebar-mode .dict-import-area {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            flex: 0 0 auto;
-            height: 10vh;
-            min-height: 54px;
-            padding: 4px 8px;
-            margin-bottom: 25px;
-            box-sizing: border-box;
-            border: 2px dashed var(--border-color);
-            border-radius: var(--radius-lg);
-            color: var(--text-secondary);
-            cursor: pointer;
-            text-align: center;
-            transition: border-color var(--transition-normal), background var(--transition-normal);
-        }
-        html.wm-sidebar-mode .dict-import-area:hover,
-        html.wm-sidebar-mode .dict-import-area.dragover {
-            border-color: var(--primary-color);
-            background: var(--primary-light);
-            color: var(--primary-color);
-        }
-        /* 页面设置「隐藏右侧栏导入词典」开启：不显示拖入区，查单词视野更完整 */
-        html.wm-sidebar-mode.wm-hide-import .dict-import-area { display: none; }
         .dict-import-icon { width: 30px; height: 30px; stroke-width: 2; }
         .dict-import-text { font-size: 1.2rem; font-weight: 600; }
         .dict-import-hint { font-size: 1rem; color: var(--text-tertiary); }
         .dict-import-hint.is-error { color: var(--error); }
-        /* 页面设置内的「导入词典」拖入区：与侧栏拖入区功能一致，尺寸适配弹窗。
-           用 #settingsModal 提升优先级，避免侧栏模式的 10vh 规则误套到弹窗内的实例 */
+        /* 页面设置内的「导入词典」拖入区：尺寸适配弹窗，用 #settingsModal 提升优先级 */
         #settingsModal .dict-import-area.dict-import-area-settings {
             display: flex;
             flex-direction: column;
@@ -612,6 +582,8 @@
             font-size: 0.75rem;
             color: var(--text-secondary);
             user-select: none;
+            opacity: 1;
+            transition: opacity 0.35s ease;
         }
         .dict-sidebar-status.hidden { display: none; }
         .dict-status-dots { display: inline-flex; align-items: center; gap: 2px; }
@@ -738,6 +710,7 @@
             width: 100%;
             vertical-align: middle;
         }
+        /* 触发器样式对齐统一的下拉组件 .ai-picker-trigger（边框/圆角/内距/字号一致） */
         .settings-dict-picker .dict-picker-trigger {
             display: flex;
             align-items: center;
@@ -745,26 +718,36 @@
             gap: 12px;
             width: 100%;
             box-sizing: border-box;
-            padding: 0.7rem 1rem;
-            border: 2px solid var(--border-color);
-            border-radius: var(--radius-md);
+            padding: 0.55rem 0.9rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm, 8px);
             background: var(--background);
             color: var(--text-primary);
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             cursor: pointer;
             text-align: left;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            transition: border-color var(--transition-fast, 0.2s);
         }
+        /* 下拉标识：与 .ai-picker-trigger 统一的 chevron（mask + currentColor，随主题自适应） */
         .settings-dict-picker .dict-picker-trigger::after {
-            content: '▾';
+            content: '';
             flex-shrink: 0;
+            width: 1.1rem;
+            height: 1.1rem;
             color: var(--text-secondary);
-            font-size: 0.7rem;
+            background-color: currentColor;
+            -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+            transform: rotate(-90deg);
+            transition: transform var(--transition-fast, 0.2s);
+        }
+        /* 展开时箭头反向朝上（面板以 .open 展开，故用 :has() 兜住） */
+        .settings-dict-picker:has(.dict-picker-panel.open) .dict-picker-trigger::after {
+            transform: rotate(90deg);
         }
         .settings-dict-picker .dict-picker-trigger:hover,
         .settings-dict-picker .dict-picker-trigger:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(74, 157, 154, 0.15);
         }
         .settings-dict-picker .dict-picker-trigger-id {
             overflow: hidden;
@@ -792,12 +775,17 @@
             padding-top: 2px;
         }
         .settings-dict-picker .dict-picker-section-title {
-            padding: 3px 10px 2px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 0.72rem;
             font-weight: 600;
             letter-spacing: 0.04em;
             color: var(--text-secondary);
+            border-radius: 5px;
+            padding: 7px 10px;
         }
+        .settings-dict-picker .dict-picker-section-title i { font-size: 0.9rem; }
         /* 每栏 min-height = 单个词条高度（空栏也占位，方便拖入） */
         .settings-dict-picker .dict-picker-list {
             min-height: 34px;
@@ -818,7 +806,7 @@
             gap: 8px;
             width: 100%;
             box-sizing: border-box;
-            padding: 7px 10px;
+            padding: 7px 14px;
             border-radius: 6px;
             cursor: grab;
             font-size: 0.88rem;
@@ -845,6 +833,8 @@
             font-size: 0.76rem;
             color: var(--text-secondary);
         }
+        /* 「已禁用」标签：用 error 色号标示，与启用态形成对比 */
+        .settings-dict-picker .dict-picker-item-tag.is-disabled { color: var(--error, #EF4444); }
         /* 重命名笔形 icon：默认隐藏，悬浮词条项时显示在 id 右侧 */
         .settings-dict-picker .dict-picker-item .dict-picker-item-rename {
             flex-shrink: 0;
@@ -914,12 +904,21 @@
             background: var(--primary-light);
             color: var(--primary-color);
         }
+        /* 下载中：按钮常驻显示（不随悬浮消失），图标换成环形进度条 */
         .settings-dict-picker .dict-picker-item .dict-picker-item-dl-btn.is-downloading {
             display: inline-flex;
             color: var(--primary-color);
-            animation: dict-dl-spin 1s linear infinite;
         }
-        @keyframes dict-dl-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        .settings-dict-picker .dict-dl-ring { display: block; width: 15px; height: 15px; }
+        .settings-dict-picker .dict-dl-ring-track { stroke: var(--border-color); }
+        .settings-dict-picker .dict-dl-ring-bar {
+            stroke: currentColor;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.15s linear;
+        }
+        /* 总大小未知（无 Content-Length）时：环形转为不定态旋转，表示正在进行 */
+        .settings-dict-picker .dict-dl-ring.is-indeterminate { animation: dict-dl-ring-spin 0.9s linear infinite; }
+        @keyframes dict-dl-ring-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         /* 重命名编辑态：输入框 + 勾号确认 */
         .settings-dict-picker .dict-picker-item-edit {
             flex: 1;
@@ -961,6 +960,21 @@
             user-select: none;
             -webkit-user-select: none;
         }
+        /* 拖拽跟随的 ghost：套一层 .settings-dict-picker 复用被拖动条目的既有样式
+           （直接克隆到 body 会丢失作用域样式，且原先强制白底在深色模式下难看），
+           外框用词忆主题变量着色，深浅主题自适应 */
+        .settings-dict-picker.dict-drag-ghost {
+            width: auto;
+            opacity: 0.92;
+            pointer-events: none;
+            background: var(--surface);
+            border: 1px solid var(--primary-color);
+            border-radius: var(--radius-md, 8px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+        }
+        .settings-dict-picker.dict-drag-ghost .dict-picker-item { cursor: grabbing; }
+        .settings-dict-picker.dict-drag-ghost .dict-picker-item-rename,
+        .settings-dict-picker.dict-drag-ghost .dict-picker-item-delete { display: none; }
     </style>
 </head>
 <body>
@@ -1043,18 +1057,6 @@
                         <div class="dl-ai-detail-body"></div>
                     </div>
                 </div>
-            </div>
-            <!-- 底部「导入词典」拖入区：仅在 Obsidian 右侧栏模式（?wmView=dict）显示，
-                 与结果区互为兄弟节点，故结果展开时不会覆盖它；解析复用引擎 browse-dict.html -->
-            <div class="dict-import-area" id="dictImportArea" title="支持 MDX/JSON/JS等 词典文件">
-                <svg class="dict-import-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <div class="dict-import-text">导入词典</div>
-                <div class="dict-import-hint" id="dictImportHint">拖入/点选 .mdx / json / js 文件</div>
-                <input type="file" id="dictImportInput" accept=".mdx,.json,.js" hidden>
             </div>
             <div class="header-actions">
                 <button class="btn-icon" id="darkModeToggle" title="切换暗黑模式">
@@ -2540,25 +2542,28 @@
                                         <div class="cefr-intro-label intm-intro" id="intmIntro">intm</div>
                                         <div class="cefr-intro-label adv-intro" id="advIntro">adv</div>
 
-                                        <!-- 下半左：计时按钮 + 静态统计 + 总速度（纵向排列） -->
-                                        <div class="eval-side">
-                                            <button class="writing-timer-btn" id="writingTimerBtn" title="计时（长按结束）">
-                                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                                <span id="timerDisplay">00:00</span>
-                                            </button>
-                                            <div class="eval-meta"><span id="writingTypeCount">0</span> word types<br><span id="writingTokenCount">0</span> word tokens</div>
-                                            <div class="eval-rate"><span id="writingSpeedAvg">0</span><em>rate (min)</em></div>
-                                        </div>
+                                        <!-- 下半：CEFR 评估区（左=计时/统计/速度，右=score-btn），左右布局便于统一调控 -->
+                                        <div class="cefr-eval">
+                                            <!-- 左：计时按钮 + 静态统计 + 总速度（纵向排列） -->
+                                            <div class="eval-side">
+                                                <button class="writing-timer-btn" id="writingTimerBtn" title="计时（长按结束）">
+                                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                                    <span id="timerDisplay">00:00</span>
+                                                </button>
+                                                <div class="eval-meta"><span id="writingTypeCount">0</span> word types<br><span id="writingTokenCount">0</span> word tokens</div>
+                                                <div class="eval-rate"><span id="writingSpeedAvg">0</span><em>rate (min)</em></div>
+                                            </div>
 
-                                        <!-- 下半右：score-btn（正方形，颜色=等级色） -->
-                                        <div class="score-btn-wrap">
-                                            <div class="score-btn-shadow" id="scoreBtnShadow"></div>
-                                            <div class="score-btn" id="scoreBtn">
-                                                <span class="score-btn-level" id="writingEstimatedLevel">A1</span>
-                                                <span class="score-btn-sub">综合评估 &gt;</span>
-                                                <!-- AI 综合评估请求进度（点击后显示） -->
-                                                <div class="score-btn-progress" id="scoreBtnProgress">
-                                                    <div class="score-btn-progress-fill" id="scoreBtnProgressFill"></div>
+                                            <!-- 右：score-btn（正方形，颜色=等级色） -->
+                                            <div class="score-btn-wrap">
+                                                <div class="score-btn-shadow" id="scoreBtnShadow"></div>
+                                                <div class="score-btn" id="scoreBtn">
+                                                    <span class="score-btn-level" id="writingEstimatedLevel">A1</span>
+                                                    <span class="score-btn-sub">综合评估 &gt;</span>
+                                                    <!-- AI 综合评估请求进度（点击后显示） -->
+                                                    <div class="score-btn-progress" id="scoreBtnProgress">
+                                                        <div class="score-btn-progress-fill" id="scoreBtnProgressFill"></div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2938,9 +2943,7 @@
                             <!-- 模块3：操作区（开始练习） -->
                             <div class="form-actions">
                                 <button class="btn-primary" id="startSynonymBtn" disabled>
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <polygon points="5 3 19 12 5 21 5 3"/>
-                                    </svg>
+                                    <i class="fi-rr-play"></i>
                                     开始练习
                                 </button>
                             </div>
@@ -3491,9 +3494,7 @@
                             <!-- 模块3：操作区（开始练习） -->
                             <div class="form-actions">
                                 <button class="btn-primary" id="startLiyiBtn" disabled>
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <polygon points="5 3 19 12 5 21 5 3"/>
-                                    </svg>
+                                    <i class="fi-rr-play"></i>
                                     开始练习
                                 </button>
                             </div>
@@ -4095,6 +4096,13 @@
             <div class="modal-body">
                 <!-- 基本设置选项卡 -->
                 <div class="settings-tab-content active" id="basicSettings">
+                <div class="settings-section-list">
+                <!-- 学习与答题 -->
+                <section class="ld-section">
+                <div class="ld-section-header">
+                    <h3><i class="fi-rr-graduation-cap"></i>学习与答题</h3>
+                    <span class="ld-section-hint">学习模式与答题节奏</span>
+                </div>
                 <div class="setting-group">
                     <label class="setting-label">学习模式</label>
                     <div class="switch-buttons" id="learningModeButtons">
@@ -4147,6 +4155,34 @@
                     <div class="setting-hint">设置"无正确答案"作为正确选项的出现频率，0%表示永不出现</div>
                 </div>
                 <div class="setting-group">
+                    <label class="setting-label">
+                        <span>自动切换下一题</span>
+                        <input type="checkbox" class="setting-checkbox" id="autoNext" checked>
+                    </label>
+                </div>
+                <div class="setting-group" id="autoNextTimeGroup">
+                    <label class="setting-label">
+                        <span>自动切换时间</span>
+                        <span class="time-value"><span id="autoNextTimeValue">0.5</span>秒</span>
+                    </label>
+                    <input type="range" class="setting-slider" id="autoNextTime" 
+                           min="0" max="10" step="0.1" value="1">
+                    <div class="slider-marks">
+                        <span>0s</span>
+                        <span>2.5s</span>
+                        <span>5s</span>
+                        <span>7.5s</span>
+                        <span>10s</span>
+                    </div>
+                </div>
+                </section>
+                <!-- 发音与音效 -->
+                <section class="ld-section">
+                <div class="ld-section-header">
+                    <h3><i class="fi-rr-volume"></i>发音与音效</h3>
+                    <span class="ld-section-hint">发音引擎、口音与语速</span>
+                </div>
+                <div class="setting-group">
                     <label class="setting-label">发音引擎</label>
                     <select class="setting-select" id="voiceEngine">
                         <option value="system" selected>本地语音（离线优先）</option>
@@ -4197,6 +4233,13 @@
                     </label>
                     <div class="setting-hint">答对/答错时播放音效</div>
                 </div>
+                </section>
+                <!-- 动画效果 -->
+                <section class="ld-section">
+                <div class="ld-section-header">
+                    <h3><i class="fi-rr-sparkles"></i>动画效果</h3>
+                    <span class="ld-section-hint">答题反馈的动效与强度</span>
+                </div>
                 <div class="setting-group">
                     <label class="setting-label">动画效果类型</label>
                     <select class="setting-select" id="animationType">
@@ -4215,8 +4258,13 @@
                         <option value="high">强</option>
                     </select>
                 </div>
-                
-                <!-- 快捷键设置 -->
+                </section>
+                <!-- 快捷键 -->
+                <section class="ld-section">
+                <div class="ld-section-header">
+                    <h3><i class="fi-rr-keyboard"></i>快捷键</h3>
+                    <span class="ld-section-hint">键盘快速作答</span>
+                </div>
                 <div class="setting-group">
                     <label class="setting-label">选项快捷键设置</label>
                     <div class="hotkey-grid">
@@ -4247,27 +4295,7 @@
                     </div>
                     <div class="setting-hint">第一行：4-单词①、5-单词②、6-无正确答案；第二行：1-单词③、2-单词④、3-不知道</div>
                 </div>
-                
-                <div class="setting-group">
-                    <label class="setting-label">
-                        <span>自动切换下一题</span>
-                        <input type="checkbox" class="setting-checkbox" id="autoNext" checked>
-                    </label>
-                </div>
-                <div class="setting-group" id="autoNextTimeGroup">
-                    <label class="setting-label">
-                        <span>自动切换时间</span>
-                        <span class="time-value"><span id="autoNextTimeValue">0.5</span>秒</span>
-                    </label>
-                    <input type="range" class="setting-slider" id="autoNextTime" 
-                           min="0" max="10" step="0.1" value="1">
-                    <div class="slider-marks">
-                        <span>0s</span>
-                        <span>2.5s</span>
-                        <span>5s</span>
-                        <span>7.5s</span>
-                        <span>10s</span>
-                    </div>
+                </section>
                 </div>
                 </div>
                 <!-- 基本设置选项卡结束 -->
@@ -4319,7 +4347,7 @@
                                 2. 将密钥复制粘贴到上方输入框<br>
                             </div>
                             <div style="margin-top: 6px; padding: 8px; background: none; font-size: 13px;">
-                                ⚠️ <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
+                                <i class="fi-rr-shield" style="color: var(--primary-color);"></i> <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
                             </div>
                         </div>
                     </div>
@@ -4344,99 +4372,92 @@
                 
                 <!-- 缓存设置选项卡 -->
                 <div class="settings-tab-content" id="cacheSettings">
-                    <div class="setting-group">
-                        <label class="setting-label">统计数据缓存</label>
-                        <div class="setting-hint" style="margin-bottom: 1rem;">
-                            💡 系统会自动记录每日学习统计，你可以导出备份或从备份中恢复数据
-                        </div>
-                    </div>
-
-                    <!-- 当前统计数据 -->
-                    <div class="setting-group">
-                        <label class="setting-label">今日统计数据</label>
-                        <div class="stats-cache-summary">
-                            <div class="cache-stat-item">
-                                <span class="cache-stat-label">学习时长:</span>
-                                <span class="cache-stat-value" id="cacheTodayTime">--</span>
+                    <div class="cache-settings-list">
+                        <!-- 今日统计数据 -->
+                        <section class="ld-section">
+                            <div class="ld-section-header">
+                                <h3><i class="fi-rr-chart-histogram"></i>今日统计数据</h3>
+                                <span class="ld-section-hint">系统每日自动记录学习统计</span>
                             </div>
-                            <div class="cache-stat-item">
-                                <span class="cache-stat-label">学习单词:</span>
-                                <span class="cache-stat-value" id="cacheTodayWords">--</span>
+                            <div class="stats-cache-summary">
+                                <div class="cache-stat-item">
+                                    <div class="cache-stat-icon"><i class="fi-rr-clock"></i></div>
+                                    <div class="cache-stat-body">
+                                        <div class="cache-stat-value" id="cacheTodayTime">--</div>
+                                        <div class="cache-stat-label">学习时长</div>
+                                    </div>
+                                </div>
+                                <div class="cache-stat-item">
+                                    <div class="cache-stat-icon"><i class="fi-rr-book"></i></div>
+                                    <div class="cache-stat-body">
+                                        <div class="cache-stat-value" id="cacheTodayWords">--</div>
+                                        <div class="cache-stat-label">学习单词</div>
+                                    </div>
+                                </div>
+                                <div class="cache-stat-item">
+                                    <div class="cache-stat-icon"><i class="fi-rr-check-circle"></i></div>
+                                    <div class="cache-stat-body">
+                                        <div class="cache-stat-value" id="cacheTodayMastery">--</div>
+                                        <div class="cache-stat-label">正确率</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="cache-stat-item">
-                                <span class="cache-stat-label">正确率:</span>
-                                <span class="cache-stat-value" id="cacheTodayMastery">--</span>
+                        </section>
+
+                        <!-- 数据管理：导出 / 导入 -->
+                        <section class="ld-section">
+                            <div class="ld-section-header">
+                                <h3><i class="fi-rr-folder"></i>数据管理</h3>
+                                <span class="ld-section-hint">导出备份 / 导入恢复</span>
                             </div>
-                        </div>
-                    </div>
+                            <div class="cache-actions">
+                                <button class="btn-cache-action" id="exportTodayStatsBtn">
+                                    <i class="fi-rr-cloud-download"></i>导出今日数据
+                                </button>
+                                <button class="btn-cache-action" id="exportAllStatsBtn">
+                                    <i class="fi-rr-cloud-download"></i>导出所有历史
+                                </button>
+                                <button class="btn-cache-action" id="importStatsBtn">
+                                    <i class="fi-rr-cloud-upload"></i>导入数据
+                                </button>
+                            </div>
+                            <input type="file" id="importStatsFile" accept=".json" hidden>
+                        </section>
 
-                    <!-- 导出/导入操作 -->
-                    <div class="setting-group">
-                        <label class="setting-label">数据管理</label>
-                        <div class="cache-actions">
-                            <button class="btn-cache-action" id="exportTodayStatsBtn">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                </svg>
-                                导出今日数据
-                            </button>
-                            <button class="btn-cache-action" id="exportAllStatsBtn">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                </svg>
-                                导出所有历史
-                            </button>
-                            <button class="btn-cache-action" id="importStatsBtn">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="17 8 12 3 7 8"/>
-                                    <line x1="12" y1="3" x2="12" y2="15"/>
-                                </svg>
-                                导入数据
-                            </button>
-                        </div>
-                        <input type="file" id="importStatsFile" accept=".json" hidden>
-                    </div>
+                        <!-- 历史统计记录 -->
+                        <section class="ld-section">
+                            <div class="ld-section-header">
+                                <h3><i class="fi-rr-list"></i>历史统计记录</h3>
+                                <span class="ld-section-hint">最近 30 天</span>
+                            </div>
+                            <div class="stats-history-list" id="statsHistoryList">
+                                <div class="stats-history-empty">暂无历史记录</div>
+                            </div>
+                        </section>
 
-                    <!-- 历史统计记录 -->
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            历史统计记录
-                            <span class="setting-hint">（最近30天）</span>
-                        </label>
-                        <div class="stats-history-list" id="statsHistoryList">
-                            <div class="stats-history-empty">暂无历史记录</div>
-                        </div>
-                    </div>
-
-                    <!-- 自动缓存设置 -->
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <span>自动保存历史数据</span>
-                            <input type="checkbox" class="setting-checkbox" id="autoSaveStats" checked>
-                        </label>
-                        <div class="setting-hint">
-                            开启后，系统会自动保存每日的统计数据到浏览器本地存储
-                        </div>
-                    </div>
-
-                    <!-- 数据清理 -->
-                    <div class="setting-group">
-                        <label class="setting-label">数据清理</label>
-                        <button class="btn-danger" id="clearStatsHistoryBtn">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                            清空历史数据
-                        </button>
-                        <div class="setting-hint" style="color: var(--danger-color);">
-                            ⚠️ 此操作将删除所有历史统计记录（不包括今日数据），且不可恢复
-                        </div>
+                        <!-- 数据维护 -->
+                        <section class="ld-section">
+                            <div class="ld-section-header">
+                                <h3><i class="fi-rr-settings-sliders"></i>数据维护</h3>
+                            </div>
+                            <div class="setting-group" style="margin-bottom: 0;">
+                                <label class="setting-label">
+                                    <span>自动保存历史数据</span>
+                                    <input type="checkbox" class="setting-checkbox" id="autoSaveStats" checked>
+                                </label>
+                                <div class="setting-hint">
+                                    <i class="fi-rr-info"></i> 开启后，系统会自动保存每日的统计数据到浏览器本地存储
+                                </div>
+                            </div>
+                            <div class="setting-group" style="margin-bottom: 0; margin-top: var(--spacing-lg);">
+                                <button class="btn-danger" id="clearStatsHistoryBtn">
+                                    <i class="fi-rr-trash"></i>清空历史数据
+                                </button>
+                                <div class="setting-hint cache-danger-hint">
+                                    <i class="fi-rr-triangle-warning"></i> 此操作将删除所有历史统计记录（不包括今日数据），且不可恢复
+                                </div>
+                            </div>
+                        </section>
                     </div>
                 </div>
                 <!-- 缓存设置选项卡结束 -->
@@ -4472,7 +4493,7 @@
                         </div>
                     </div>
                     <div class="setting-group">
-                        <label class="setting-label">首选查词词典</label>
+                        <label class="setting-label">查词词典</label>
                         <div class="setting-hint">
                             查单词时优先使用该词典释义：点选设为首选，拖拽切换启用状态。
                         </div>
@@ -4482,15 +4503,15 @@
                             </button>
                             <div class="dict-picker-panel" id="settingsDictPickerPanel">
                                 <div class="dict-picker-section" data-zone="enabled">
-                                    <div class="dict-picker-section-title">已启用 · 点击设为首选 · 拖出禁用</div>
+                                    <div class="dict-picker-section-title"><i class="fi-rr-check-circle"></i>已启用 · 点击设为首选 · 拖出禁用</div>
                                     <div class="dict-picker-list" id="settingsDictEnabled"></div>
                                 </div>
                                 <div class="dict-picker-section" data-zone="disabled">
-                                    <div class="dict-picker-section-title">已禁用 · 拖入启用</div>
+                                    <div class="dict-picker-section-title"><i class="fi-rr-ban"></i>已禁用 · 拖入启用</div>
                                     <div class="dict-picker-list" id="settingsDictDisabled"></div>
                                 </div>
                                 <div class="dict-picker-section" data-zone="downloadable" id="settingsDictDownloadSection">
-                                    <div class="dict-picker-section-title">可下载词典 · 悬浮点击下载</div>
+                                    <div class="dict-picker-section-title"><i class="fi-rr-cloud-download"></i>可下载词典 · 悬浮点击下载</div>
                                     <div class="dict-picker-list" id="settingsDictDownloadable"></div>
                                 </div>
                             </div>
@@ -4563,43 +4584,6 @@
                                 </button>
                                 <div class="ai-picker-panel" id="fontENPanel"></div>
                             </div>
-                        </div>
-                    </div>
-                    <div class="setting-section-title">Obsidian 相关设置</div>
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <span>右侧窗口查词</span>
-                            <input type="checkbox" class="setting-checkbox" id="dictLookupInSidebar">
-                        </label>
-                        <div class="setting-hint">
-                            开启后「查看词典详情」改由右侧栏展示，主页不弹浮层。
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <span>隐藏右侧栏导入词典</span>
-                            <input type="checkbox" class="setting-checkbox" id="hideSidebarImport">
-                        </label>
-                        <div class="setting-hint">
-                            开启后右侧栏底部不再显示「导入词典」拖入区，查单词视野更完整（仍可在本页设置中导入）。
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <span>悬浮取词</span>
-                            <input type="checkbox" class="setting-checkbox" id="hoverLookup">
-                        </label>
-                        <div class="setting-hint">
-                            鼠标在笔记单词上停留 0.5 秒即推送到右侧栏查词（仅右侧栏已打开时）。
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <span>划词翻译</span>
-                            <input type="checkbox" class="setting-checkbox" id="selectionTranslate">
-                        </label>
-                        <div class="setting-hint">
-                            选中文本右键「翻译」，单词显示词典释义，句子调用 AI 翻译。
                         </div>
                     </div>
                 </div>
@@ -5649,46 +5633,18 @@
         // Obsidian 宿主（主视图带 wmHost=1，由插件附加）：右侧栏查词视图可用，
         // 页面内所有「查看词典详情」跳转改由右侧栏承接，主页不再弹结果窗口
         const HOST = !SIDEBAR && new URLSearchParams(location.search).get('wmHost') === '1';
-        // 是否把查词跳转交给右侧栏承接：需在 Obsidian 宿主中且设置页开关「右侧窗口查词」开启。
-        // 开关实时读取（设置保存后无需刷新页面即可生效），未设置过时默认开启
+        // 是否把查词跳转交给右侧栏承接：由插件设置页「右侧窗口查词」注入（默认开启）。
+        // 插件在 iframe 加载完成与开关变更时通过 wm-ob-settings 消息下发，无需刷新页面
+        let obDictLookupInSidebar = true;
         function useSidebarLookup() {
             if (!HOST) return false;
-            try {
-                const s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {};
-                return s.dictLookupInSidebar !== false;
-            } catch (e) { return false; }
+            return obDictLookupInSidebar !== false;
         }
-        // 侧栏模式：按设置「隐藏右侧栏导入词典」决定是否显示底部拖入区。
-        // 开关默认开启（隐藏）；跨 iframe 由 storage 事件实时同步，无需刷新
-        function applySidebarImportVisibility() {
-            if (!SIDEBAR) return;
-            let hide = true;
-            try {
-                const s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {};
-                hide = s.hideSidebarImport !== false;
-            } catch (e) { /* 忽略 */ }
-            document.documentElement.classList.toggle('wm-hide-import', hide);
-        }
-        applySidebarImportVisibility();
-        window.addEventListener('storage', function (ev) {
-            if (!SIDEBAR) return;
-            if (ev.key && ev.key.indexOf('wordMemory_user_json_') !== 0) return;
-            applySidebarImportVisibility();
+        // 宿主（Obsidian 插件）下发的功能开关
+        window.addEventListener('message', function (ev) {
+            const d = ev.data;
+            if (d && d.type === 'wm-ob-settings') obDictLookupInSidebar = d.dictLookupInSidebar !== false;
         });
-        // 宿主（Obsidian 插件）侧功能开关：悬浮取词 / 划词翻译。
-        // 主页设置保存后即时回传插件，插件据此决定是否启用悬浮取词、右键「翻译」菜单项
-        function hostFeatureSettings() {
-            let s = {};
-            try { s = (typeof Storage !== 'undefined' && Storage.loadSettings) ? Storage.loadSettings() : {}; } catch (e) { s = {}; }
-            return { hoverLookup: s.hoverLookup !== false, selectionTranslate: s.selectionTranslate !== false };
-        }
-        function syncHostFeatureSettings() {
-            if (!HOST) return;
-            try { window.parent.postMessage(Object.assign({ type: 'wm-ob-settings' }, hostFeatureSettings()), '*'); } catch (e) { /* 忽略 */ }
-        }
-        // 供同文档内的 app.js 保存设置后调用（非宿主环境为空操作）
-        window.__wmSyncHostSettings = syncHostFeatureSettings;
-        if (HOST) syncHostFeatureSettings();
         // 侧栏模式常驻跟随宿主（Obsidian）主题：URL 参数避免首屏闪烁，后续由插件推送
         if (SIDEBAR) {
             const wmTheme = new URLSearchParams(location.search).get('wmTheme');
@@ -5710,6 +5666,7 @@
         let deb = 0;
         let pendingEnter = null; // Enter 直达：检索结果返回后要自动打开的查询词（null 表示无待打开）
         let pendingDetail = false; // 详情过渡中：清单保持显示，等引擎渲染完成（opened）再切换到详情，避免闪烁
+        let pendingDetailAuto = false; // 本次过渡是否为自动展开（词卡/Enter 直达）：首选词典无释义时改为留在清单
         let altDividerAdded = false; // 是否已在主（精准）与次（近似/形近）分界处画过分隔线
         let wordSourceMap = null; // 词书来源索引（词→词书/收藏词单名称），每次下拉重渲染时重建
 
@@ -6219,7 +6176,7 @@
                     if (existing.has(sw)) return;
                     existing.add(sw);
                     const preview = (String(r.phonetic || '') + ' ' + String(r.meaning || '')).trim().slice(0, 110);
-                    added.push({ w: r.w, dict: '', dictName: '基础词典', preview: preview, fuzzy: false, reverse: true });
+                    added.push({ w: r.w, dict: '', dictName: '基础词典 Basic', preview: preview, fuzzy: false, reverse: true });
                 });
                 if (!added.length) {
                     // 本地词典无该中文释义 -> 清除检索提示，自动调用 AI 翻译兜底
@@ -6299,19 +6256,21 @@
                     catTags = '<span class="dl-cat-tag dl-cat-tag-last">' + parts[parts.length - 1] + '</span>';
                 }
             }
-            const item = createItem({ w: w, dict: '', dictName: '基础词典', preview: preview, catTags: catTags, fuzzy: false, baseFallback: true });
+            const item = createItem({ w: w, dict: '', dictName: '基础词典 Basic', preview: preview, catTags: catTags, fuzzy: false, baseFallback: true });
             // 放在分隔线紧挨的上方（主结果区末尾）：已有主次分隔线则插入其前，否则追加到末尾
             const divider = results.querySelector('.dl-alt-divider');
             if (divider) results.insertBefore(item, divider);
             else results.appendChild(item);
         }
         // 详情模式：下拉直接展示词条释义（iframe 铺满下拉宽度）
-        function openWord(it) {
+        // auto=true 表示自动展开（词卡点击 / Enter 直达）：若首选词典没有该词条，则不跳详情，留在清单
+        function openWord(it, auto) {
             dropdownOpen = true;
             showDropdown();
             // 过渡优化：iframe 立即渲染但视觉隐藏（悬浮于清单之上，保持布局使引擎测高准确），
             // 等引擎渲染完成（opened 消息）再撤掉隐藏、隐藏清单，实现"清单→详情"无闪烁切换
             pendingDetail = true;
+            pendingDetailAuto = !!auto;
             frame.classList.add('pre-detail');
             frame.style.display = 'block';
             frame.style.height = 'auto'; // 重置为内容自适应，待引擎渲染后按内容撑开
@@ -6365,6 +6324,7 @@
         // 退出详情模式：返回结果列表（若之前有查询/最近记录）
         function exitDetail() {
             pendingDetail = false;
+            pendingDetailAuto = false;
             frame.classList.remove('pre-detail');
             dropdown.classList.remove('detail');
             frame.style.display = 'none';
@@ -6434,9 +6394,9 @@
             input.blur();
         }
 
-        // 句子/短语 AI 翻译详情：与 openAiDetail 共用同一详情面板，仅改用整句翻译接口
-        function openSentenceDetail(text) {
-            if (!text || !window.app || typeof window.app.translateText !== 'function') return;
+        // 划词「查询」详情：与 openAiDetail 共用同一详情面板，改用 AI 查询接口（翻译 + 解读 / 概念解释）
+        function openQueryDetail(text) {
+            if (!text || !window.app || typeof window.app.queryText !== 'function') return;
             dropdownOpen = true;
             showDropdown();
             enterAiDetail();
@@ -6447,19 +6407,19 @@
             if (!hasAiApiKey()) {
                 const body = aiDetail.querySelector('.dl-ai-detail-body');
                 body.innerHTML = '';
-                renderAiConfigHint(body, '尚未配置 API 密钥，无法在线翻译');
+                renderAiConfigHint(body, '尚未配置 API 密钥，无法在线查询');
                 input.blur();
                 setDictStatus(false);
                 return;
             }
-            aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-loading">正在调用AI翻译...</div>';
-            window.app.translateText(text).then(function (result) {
-                setDictStatus(false); // 翻译结果已回，收起顶部提示
+            aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-loading">正在调用AI查询...</div>';
+            window.app.queryText(text).then(function (result) {
+                setDictStatus(false); // 结果已回，收起顶部提示
                 if (aiDetail.classList.contains('hidden')) return;
                 aiDetail.querySelector('.dl-ai-detail-body').innerHTML = renderAiMarkdown(result);
             }).catch(function (err) {
                 setDictStatus(false);
-                aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-error">AI翻译失败：' + (String(err.message || '') || '未知错误').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '<div class="dl-ai-detail-error">AI查询失败：' + (String(err.message || '') || '未知错误').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
             });
             input.blur();
         }
@@ -6498,6 +6458,7 @@
             clearTimeout(deb);
             pendingEnter = null; // 继续输入则取消 Enter 待打开
             pendingDetail = false; // 继续输入则取消详情过渡
+            pendingDetailAuto = false;
             frame.classList.remove('pre-detail');
             const q = input.value.trim();
             if (!q) { showRecent(); return; }
@@ -6525,8 +6486,8 @@
                 if (!q) return;
                 const items = dropdown.querySelectorAll('.dl-item');
                 const nq = normWord(q);
-                // 下拉结果与当前输入一致（新鲜结果）：直接打开首项
-                if (lastQuery === nq && items.length && items[0].__data) { openWord(items[0].__data); return; }
+                // 下拉结果与当前输入一致（新鲜结果）：直接打开首项（自动展开：首选词典无该词则留在清单）
+                if (lastQuery === nq && items.length && items[0].__data) { openWord(items[0].__data, true); return; }
                 // 结果未返回/已过期（防抖未触发，仍是上一个查询的旧结果）：按最新输入检索，
                 // 结果返回后由 search-res 自动打开详情，确保打开的是最新输入的词
                 pendingEnter = nq;
@@ -6546,14 +6507,25 @@
         const dictStatusEl = document.getElementById('dictSidebarStatus');
         const dictStatusTextEl = document.getElementById('dictSidebarStatusText');
         let dictStatusTimer = 0;
-        function setDictStatus(busy, label) {
+        function setDictStatus(busy, label, autoHideMs) {
             if (!dictStatusEl) return;
             clearTimeout(dictStatusTimer);
-            if (!busy) { dictStatusEl.classList.add('hidden'); return; }
+            if (!busy) {
+                // 淡出后再隐藏，避免生硬消失
+                dictStatusEl.style.opacity = '0';
+                dictStatusTimer = setTimeout(function () { dictStatusEl.classList.add('hidden'); }, 350);
+                return;
+            }
             dictStatusTextEl.textContent = label || '查询中';
+            // 终态（识别成功/失败）不显示三点「进行中」动画
+            const terminal = label === '识别成功' || label === '识别失败';
+            const dots = dictStatusEl.querySelector('.dict-status-dots');
+            if (dots) dots.style.display = terminal ? 'none' : '';
             dictStatusEl.classList.remove('hidden');
-            // 兜底：异常导致结果未回时自动收起，避免提示常驻
-            dictStatusTimer = setTimeout(function () { dictStatusEl.classList.add('hidden'); }, 20000);
+            void dictStatusEl.offsetWidth; // 触发重排，确保透明度由 0 → 1 的过渡生效
+            dictStatusEl.style.opacity = '1';
+            // autoHideMs > 0：短提示（识别成功/失败）到点自动淡出；否则用长兜底避免常驻
+            dictStatusTimer = setTimeout(function () { setDictStatus(false); }, autoHideMs > 0 ? autoHideMs : 20000);
         }
         window.setDictStatus = setDictStatus;
 
@@ -6599,7 +6571,7 @@
                         if (!target && el.__data && String(el.__data.w || '').toLowerCase() === d.q.toLowerCase()) target = el.__data;
                     });
                     if (!target && items.length && items[0].__data) target = items[0].__data;
-                    if (target) openWord(target);
+                    if (target) openWord(target, true);
                 }
                 return;
             }
@@ -6617,7 +6589,19 @@
                 // 引擎渲染完成：从清单无缝切换到详情视图（清单保持显示到此刻，避免闪烁），再按内容撑开 iframe
                 setDictStatus(false); // 查询结果已就绪，收起顶部「查询中」提示
                 if (pendingDetail) {
+                    // 自动展开（词卡点击 / Enter 直达）但首选词典没有该词条：不跳详情，留在清单展示该词条，
+                    // 避免跳进一个「查不到」的空白详情页（引擎以 prefHas 告知首选词典是否有该词）
+                    if (pendingDetailAuto && d.prefHas === false) {
+                        pendingDetail = false;
+                        pendingDetailAuto = false;
+                        frame.classList.remove('pre-detail');
+                        frame.style.display = 'none';
+                        results.style.display = '';
+                        sidebarIdle();
+                        return;
+                    }
                     pendingDetail = false;
+                    pendingDetailAuto = false;
                     frame.classList.remove('pre-detail');
                     dropdown.classList.add('detail');
                     results.style.display = 'none';
@@ -6763,7 +6747,7 @@
                 const pend = window.__dictLookupPending || (window.__dictLookupPending = []);
                 pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q) });
             }
-            openWord({ w: q, disp: disp, q: q, dict: dict });
+            openWord({ w: q, disp: disp, q: q, dict: dict }, true);
             // 同时检索该词，填充下拉结果列表（多本词典释义列表，首选词典优先）：
             // 详情模式下列表保持隐藏，点击 header 折叠返回时即可展示，无需重新输入
             if (ready) post({ cmd: 'search', q: q });
@@ -6777,6 +6761,10 @@
                 if (d.type === 'wm-dict-word' && d.word) {
                     setDictStatus(true, '查询中'); // 悬浮取词命中：提示查询进行中
                     if (typeof window.openDictLookupWord === 'function') window.openDictLookupWord(d.word);
+                } else if (d.type === 'wm-dict-status') {
+                    // 图片取词（OCR）：'识别中' 常驻；'识别成功/识别失败' 由 autoHide(ms) 后淡出
+                    if (!d.text) setDictStatus(false);
+                    else setDictStatus(true, d.text, d.autoHide || 0);
                 } else if (d.type === 'wm-dict-translate' && d.text) {
                     // Obsidian 划词右键「翻译」：单词走首选词典释义，句子/短语走 AI 翻译
                     setDictStatus(true, '查询中');
@@ -6784,8 +6772,8 @@
                 }
             });
         }
-        // 划词翻译入口：单个英文单词（允许连字符/撇号）交给查词引擎展示首选词典释义，
-        // 其余（句子、短语、中文）调用 AI 翻译
+        // 划词查询入口：单个英文单词（允许连字符/撇号）交给查词引擎展示首选词典释义，
+        // 其余（句子、短语、中文）调用 AI「查询」——翻译英文并解读，或解释中文概念帮助理解
         function translateSelection(text) {
             const t = String(text || '').replace(/\s+/g, ' ').trim();
             if (!t) return;
@@ -6793,11 +6781,10 @@
                 if (typeof window.openDictLookupWord === 'function') window.openDictLookupWord(t);
                 return;
             }
-            openSentenceDetail(t);
+            openQueryDetail(t);
         }
         // 「导入词典」拖入区（拖入或点击选择 .mdx / .json / .js）：文件转交引擎（browse-dict.html）
-        // 解析并落盘到 data/ 目录，复用其词典解析工具链。
-        // 侧栏底部与页面设置内共用本工厂，两处功能一致
+        // 解析并落盘到 data/ 目录，复用其词典解析工具链，仅页面设置内使用
         function createDictImportArea(cfg) {
             const area = document.getElementById(cfg.area);
             const fileInput = document.getElementById(cfg.input);
@@ -6849,11 +6836,6 @@
             input: 'settingsDictImportInput',
             hint: 'settingsDictImportHint'
         });
-        if (SIDEBAR) createDictImportArea({
-            area: 'dictImportArea',
-            input: 'dictImportInput',
-            hint: 'dictImportHint'
-        });
         // 背单词模式：点击主词（wordText / 记得么 rememberWordText），在查词下拉中展开首选词典的详细释义
         
         // 从词典引擎查询单词的例句（异步，返回 Promise）
@@ -6903,6 +6885,37 @@
             });
         })();
     })();
+
+    // 下载环形进度条：SVG 双圈（轨道 + 进度弧），以 stroke-dashoffset 表示进度；
+    // 总大小未知时切到不定态旋转，避免进度无从表达
+    const DICT_DL_R = 9;
+    const DICT_DL_C = 2 * Math.PI * DICT_DL_R;
+    function dictDlRingHTML() {
+        const c = DICT_DL_C.toFixed(2);
+        return '<svg class="dict-dl-ring" viewBox="0 0 24 24" aria-hidden="true">'
+            + '<circle class="dict-dl-ring-track" cx="12" cy="12" r="' + DICT_DL_R + '" fill="none" stroke-width="3"/>'
+            + '<circle class="dict-dl-ring-bar" cx="12" cy="12" r="' + DICT_DL_R + '" fill="none" stroke-width="3" '
+            + 'stroke-dasharray="' + c + '" stroke-dashoffset="' + c + '" transform="rotate(-90 12 12)"/></svg>';
+    }
+    function setDictDlProgress(btn, ratio) {
+        const svg = btn && btn.querySelector('.dict-dl-ring');
+        if (!svg) return;
+        const bar = svg.querySelector('.dict-dl-ring-bar');
+        if (ratio == null) { // 总大小未知：不定态
+            svg.classList.add('is-indeterminate');
+            if (bar) {
+                bar.setAttribute('stroke-dasharray', (DICT_DL_C * 0.25).toFixed(2) + ' ' + (DICT_DL_C * 0.75).toFixed(2));
+                bar.setAttribute('stroke-dashoffset', '0');
+            }
+            return;
+        }
+        svg.classList.remove('is-indeterminate');
+        const r = Math.max(0, Math.min(1, ratio));
+        if (bar) {
+            bar.setAttribute('stroke-dasharray', DICT_DL_C.toFixed(2));
+            bar.setAttribute('stroke-dashoffset', (DICT_DL_C * (1 - r)).toFixed(2));
+        }
+    }
 
     // ===== 词库启用状况下拉（首选查词词典）：可复用的选择器实例 =====
     // 设置页与 Obsidian 右侧栏菜单共用同一套渲染/拖拽/重命名逻辑与引擎消息协议，
@@ -6968,6 +6981,16 @@
 
         // 启用/禁用：本地乐观更新，命令委托引擎持久化并广播校正
         function setEnabled(varName, enable) {
+            // 「基础词典」由主页直接加载、始终作为查词兜底，禁用无效（引擎侧移除也仍能查到），
+            // 故拦截禁用操作并提示，避免出现「已禁用却照常可查」的误解
+            if (!enable && varName === 'ENGLISHWORDS_DICT') {
+                const base = pickerData.list.find(x => x.varName === varName) || getDicts().find(x => x.varName === varName);
+                if (window.app && window.app.showToast) {
+                    window.app.showToast('「' + ((base && base.name) || '基础词典') + '」为内置兜底词典，无法禁用', 'error');
+                }
+                renderPicker(); // 还原拖拽后的乐观 UI
+                return;
+            }
             const d = pickerData.list.find(x => x.varName === varName);
             if (d) d.enabled = !!enable;
             renderPicker();
@@ -7021,6 +7044,7 @@
                 const tag = document.createElement('span');
                 tag.className = 'dict-picker-item-tag';
                 tag.textContent = d.varName === preferred ? '★ 首选' : (isEnabled ? '已启用' : '已禁用');
+                if (!isEnabled) tag.classList.add('is-disabled');
                 item.appendChild(tag);
                 bindDrag(item, d.varName);
                 if (isEnabled) {
@@ -7082,11 +7106,15 @@
             const label = entry.label || entry.file;
             btn.disabled = true;
             btn.classList.add('is-downloading');
+            btn.innerHTML = dictDlRingHTML();
+            setDictDlProgress(btn, 0);
             btn.title = '下载中…';
             try {
                 const jsText = await app.downloadDictData(entry.url, entry.size, (ratio) => {
+                    setDictDlProgress(btn, ratio);
                     btn.title = ratio == null ? '下载中…' : '下载中 ' + Math.round(ratio * 100) + '%';
                 });
+                setDictDlProgress(btn, 1);
                 const saved = await app.saveDictToData(jsText, entry.varName, entry.file);
                 app.registerDictMeta({
                     name: label,
@@ -7103,6 +7131,7 @@
             } catch (e) {
                 btn.disabled = false;
                 btn.classList.remove('is-downloading');
+                btn.innerHTML = '<i class="fi-rr-cloud-download-alt"></i>';
                 btn.title = '重新下载';
                 if (app.showToast) app.showToast('下载失败：' + ((e && e.message) || e), 'error');
             }
@@ -7193,8 +7222,10 @@
                     const dy = ev.clientY - dragState.startY;
                     if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 4) {
                         dragState.moved = true;
-                        const ghost = item.cloneNode(true);
-                        ghost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:99999;opacity:0.85;pointer-events:none;width:' + item.offsetWidth + 'px;background:#fff;border:1px solid #667eea;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.2);margin:0;';
+                        const ghost = document.createElement('div');
+                        ghost.className = 'settings-dict-picker dict-drag-ghost';
+                        ghost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:99999;width:' + item.offsetWidth + 'px;';
+                        ghost.appendChild(item.cloneNode(true));
                         document.body.appendChild(ghost);
                         dragState.ghost = ghost;
                         document.body.classList.add('dict-dragging');

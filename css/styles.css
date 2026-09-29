@@ -2271,6 +2271,8 @@ i[class^="fi-"], i[class*=" fi-"] {
     --nc-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
     /* 词量预警的琥珀色：浅色模式用深琥珀才在浅底上看得清 */
     --nc-warn: #b45309;
+    /* 让面板内的原生表单控件（下拉、勾选框等）按主题渲染，而不是跟随系统配色 */
+    color-scheme: light;
     bottom: var(--nebula-panel-bottom);
     /* 需高于 sticky 顶部栏(.header z-index:100)，否则弹出的词单/详情下拉会被 header 遮住 */
     z-index: 120;
@@ -2302,6 +2304,8 @@ i[class^="fi-"], i[class*=" fi-"] {
     --nc-overlay-bg: rgba(20, 24, 40, 0.96);
     --nc-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     --nc-warn: #fbbf24;
+    /* 深色主题：原生控件同步走深色外观 */
+    color-scheme: dark;
 }
 
 /* 控制面板头部：标题 + 右侧V型折叠按钮 */
@@ -2613,11 +2617,71 @@ i[class^="fi-"], i[class*=" fi-"] {
     font-weight: 600;
 }
 
-/* 星云滑条（字体大小 / 旋转速度） */
+/* 星云滑条（字体大小 / 旋转速度 / 引力 / 斥力 / 微风等）
+   原生 accent-color 滑条的「未填充段」配色由浏览器按系统配色推导，浅色模式下会被
+   渲染成近黑（--nc-ink / currentColor / color-scheme 都无法覆盖它）。故完全自绘：
+   浅色轨道 + 主色填充段 + 主色滑块，填充比例由 JS 写入 --fill（0-100）。
+   轨道必须画在 ::-*-range-track 上而不是 input 本体上：input 本体只作为定位容器
+   （留出高于滑块的高度），滑块才以轨道为基准居中，不会出现圆点偏上 */
 .nebula-range {
     width: 100%;
     margin: 0;
-    accent-color: var(--primary-color);
+    -webkit-appearance: none;
+    appearance: none;
+    /* 输入框本体不画轨道，只需留够 15px 滑块的高度，避免被裁切 */
+    height: 16px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+}
+
+/* 轨道填充：浅灰槽 + 主色填充段，比例由 --fill 决定 */
+.nebula-range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--primary-color) 0%,
+        var(--primary-color) calc(var(--fill, 0) * 1%),
+        color-mix(in srgb, var(--nc-ink) 18%, transparent) calc(var(--fill, 0) * 1%),
+        color-mix(in srgb, var(--nc-ink) 18%, transparent) 100%
+    );
+}
+
+.nebula-range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--primary-color) 0%,
+        var(--primary-color) calc(var(--fill, 0) * 1%),
+        color-mix(in srgb, var(--nc-ink) 18%, transparent) calc(var(--fill, 0) * 1%),
+        color-mix(in srgb, var(--nc-ink) 18%, transparent) 100%
+    );
+}
+
+/* WebKit 滑块以轨道为基准，需手动上移居中：-(滑块 - 轨道) / 2 */
+.nebula-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    margin-top: -4.5px;
+    border: none;
+    border-radius: 50%;
+    background: var(--primary-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+}
+
+/* Firefox 滑块由浏览器自动居中在轨道上 */
+.nebula-range::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border: none;
+    border-radius: 50%;
+    background: var(--primary-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     cursor: pointer;
 }
 
@@ -11876,9 +11940,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     cursor: not-allowed;
 }
 
-.synonym-settings .btn-primary svg {
-    width: 18px;
-    height: 18px;
+.synonym-settings .btn-primary i {
+    font-size: 18px;
 }
 
 /* 文档管理器 */
@@ -14120,9 +14183,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     cursor: not-allowed;
 }
 
-.liyi-settings .btn-primary svg {
-    width: 18px;
-    height: 18px;
+.liyi-settings .btn-primary i {
+    font-size: 18px;
 }
 
 /* 例句展示框 */
@@ -15230,7 +15292,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 /* 顶部三列 */
 .writing-top-row {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.5fr);
+    /* 右栏（等级评估框）固定宽度，窗口变窄时优先压缩左栏题目卡片，保证柱状图不随之缩水 */
+    grid-template-columns: minmax(0, 1fr) 300px;
     gap: var(--spacing-md);
     align-items: stretch;
     height:350px;
@@ -15529,23 +15592,23 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     position: relative;
     flex: 1 1 auto;
     min-width: 0;
+    /* 纵向排列：上=柱状图，下=评估区（cefr-eval）；窄屏改为横向均分 */
+    display: flex;
+    flex-direction: column;
     background: transparent;
     border-radius: 15px;
     overflow: hidden;
     bottom: 0px;
 }
 
-/* 6级柱状图容器：占据图表区上半部分，空状态显示6个正方形小方块 */
+/* 6级柱状图容器：占据图表区上半部分（56%），空状态显示6个正方形小方块 */
 .cefr-bars {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 56%;
+    position: relative;
+    flex: 0 0 56%;
     display: grid;
     grid-template-columns: repeat(6, 1.1fr);
     align-items: end;
-    gap: 4px;
+    gap: 8px;
     padding: 22px 4px 4px;
     z-index: 2;
 }
@@ -15578,12 +15641,13 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 /* 柱子填充区：
-   空状态：正方形（边长 = --bar-sq，宽高同源），等级标签在正中心
+   空状态：正方形（边高 = --bar-sq，由 JS 按列宽与上半区可用高度折半取较小值写入），等级标签在正中心
    有文本：高度由 JS 覆盖为 30%+百分比，圆角保持，等级标签保持中心 */
 .bar-fill {
-    /* 宽高同源（--bar-sq，由 JS 按列宽与上半区可用高度折半取较小值写入），保证初始状态恒为正方形；
-       有文本时高度由 JS 行内样式覆盖，向上增长，宽度保持不变 */
-    width: var(--bar-sq, 26px);
+    /* 宽度直接撑满所在网格列（列宽＝容器去掉 5 个间距后均分），不再预设固定值，
+       避免窄屏下列宽缩小时柱子过度收窄、彼此间隔被拉大；高度仍由 --bar-sq 控制，
+       正常情况与列宽同值即正方形，可用高度不足时仅压低高度而不影响宽度 */
+    width: 100%;
     height: var(--bar-sq, 26px);
     background: var(--bar-color);
     border-radius: 10px;
@@ -15603,12 +15667,18 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: var(--text-tertiary);
 }
 
-/* 等级标签：始终在正中心 */
+/* 等级标签：柱子以底边为锚向上增长，故用一条「高度 = 初始正方形边长(--bar-sq)、贴底对齐」的横带
+   把文字垂直居中，其中心天然落在初始正方形正中心；柱子变高时底边不动，标签位置恒定。
+   不再硬编码 bottom 偏移，随 --bar-sq（由 JS 按列宽/可用高度算出）自适应各端 */
 .bar-label {
     position: absolute;
-    bottom: 3.5px;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--bar-sq, 26px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 0.9rem;
     font-weight: 700;
     color: #fff;
@@ -15661,8 +15731,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     align-items: center;
     justify-content: center;
     padding: 0;
-    /* 宽度 = 2 列 + 1 缝隙（列宽 =（100% - 8px 内边距 - 20px 缝隙）/ 6） */
-    width: calc((100% - 28px) / 3 + 4px);
+    /* 宽度 = 2 列 + 1 缝隙（列宽 =（100% - 8px 内边距 - 40px 缝隙）/ 6，缝隙 8px） */
+    width: calc((100% - 48px) / 3 + 8px);
     /* 底边坐在上半区初始正方形上方，并与正方形留出 --spacing-md 间隙（4px 为 cefr-bars 的下内边距） */
     bottom: calc(44% + 4px + var(--bar-sq, 26px) + var(--spacing-md));
 }
@@ -15673,29 +15743,39 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .intm-intro {
-    left: calc((100% - 28px) / 3 + 12px);
+    left: calc((100% - 48px) / 3 + 20px);
     height: calc((50% - 4px - var(--bar-sq, 26px) - var(--spacing-md)) * 0.8);
 }
 
 .adv-intro {
-    left: calc((100% - 28px) * 2 / 3 + 20px);
+    left: calc((100% - 48px) * 2 / 3 + 36px);
     height: calc(50% - 4px - var(--bar-sq, 26px) - var(--spacing-md));
 }
 
-/* 左下：静态统计 + 总速度（纵向排列），在柱状图下方的左下空间内上下左右居中。
-   top 与 .cefr-bars 的高度一致，使其恰好落在柱状图之下；宽度让开右侧的 score-btn 正方形 */
+/* 下半：CEFR 评估区（左=计时/统计/速度，右=score-btn），flex 左右布局便于统一调控。
+   与上方 .cefr-bars（56%）互补，占满其余 44% 高度 */
+.cefr-eval {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0 4px 4px;
+    z-index: 3;
+}
+
+/* 左下：计时按钮 + 静态统计 + 总速度（纵向排列），在评估区左半部分居中 */
 .eval-side {
-    position: absolute;
-    left: 0;
-    top: 60%;
-    bottom: 0;
-    width: 55%;
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
-    z-index: 3;
     pointer-events: none;
 }
 
@@ -15735,12 +15815,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--text-tertiary);
 }
 
-/* score-btn（带阴影，按钮颜色=等级色）：右下角长宽相等的正方形 */
+/* score-btn（带阴影，按钮颜色=等级色）：评估区右侧的正方形 */
 .score-btn-wrap {
-    position: absolute;
-    right: 4px;
-    bottom: 10px;
-    height: calc(42% - 20px);
+    position: relative;
+    flex: 0 0 auto;
+    height: min(82%, 124px);
     aspect-ratio: 1 / 1;
 }
 
@@ -16810,7 +16889,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 /* 移动端适配 */
 @media (max-width: 900px) {
     .writing-top-row {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        /* 与桌面一致：右栏保持固定宽度，仅压缩左栏 */
+        grid-template-columns: minmax(0, 1fr) 300px;
     }
     .ws-row {
         grid-template-columns: 1fr;
@@ -16820,36 +16900,79 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 @media (max-width: 600px) {
     .writing-top-row {
         grid-template-columns: 1fr;
+        gap:0;
+        /* 单列堆叠后不能再固定高度：否则卡片被压在 350px 内、内容溢出，
+           后续的输入区与底部导航不会随卡片增高而下移。改 auto 由内容撑开 */
+        height: auto;
     }
     .writing-level-section,
     .writing-eval-box,
     .writing-topic-card {
         min-height: auto;
     }
+    /* 移动端题目卡片用「确定高度」而非 min-height：卡片内 .topic-content 的 max-height:100%
+       只有在父级有确定高度时才有约束，否则内容（含使用教程长文）会把卡片撑到实际内容高
+       （约 411px），min-height 只是下限、无法收窄。给定高度后超出部分在卡片内滚动。
+       需要调整高度直接改这个值即可（如 150px） */
+    .writing-topic-card {
+        height: 250px;
+    }
     .writing-eval-box {
-        /* 柱状图与评分按钮均为绝对定位，需显式给高避免塌陷；
-           该高度同时需容纳左下 eval-side（计时按钮 + 统计），故比柱状图区更高 */
-        min-height: 230px;
+        /* 柱状图与评估区均为 flex 自适应，无需靠绝对定位撑高 */
+        min-height: 150px;
         padding: 0.75rem;
     }
-    /* 单列窄屏下压低柱状图区，为左下的 eval-side 让出纵向空间，避免两者重叠 */
+    /* 窄屏改为左右均分：左半 CEFR 柱状图，右半评估区（计时/统计 + score-btn 纵向排列） */
+    .eval-chart {
+        flex-direction: row;
+    }
     .cefr-bars {
-        height: 45%;
+        flex: 0 0 50%;
+        height: auto;
+        align-self: stretch;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 6px;
+        padding: 8px 3px 4px;
     }
-    /* 窄屏柱状图为 45%，左下居中区随之同步上移，保持紧贴柱状图下方 */
+    .cefr-eval {
+        flex: 1 1 50%;
+        flex-direction: row;
+        justify-content: right;
+        align-items: end;
+        gap: 0.5rem;
+        padding: 0 2px 4px;
+    }
+    /* 窄屏评估区改纵向：eval-side 不再占满（避免把 score-btn 顶到底部），整体居中对齐 */
     .eval-side {
-        top: 45%;
+        flex: 0 0 auto;
     }
-    .eval-btn {
-        width: 84px;
-        height: 84px;
+    .score-btn-wrap {
+        height: auto;
+        width: 110px;
     }
-    .eval-btn-level {
-        font-size: 1.7rem;
+    /* 三段介绍标签（空状态）收敛到左半柱状图区，并贴合初始方块顶部 */
+    .cefr-intro-label {
+        width: calc((50% - 21px) / 3 + 3px);
+        bottom: calc(4px + var(--bar-sq, 26px) + var(--spacing-sm));
+    }
+    .beg-intro {
+        left: 3px;
+        height: calc((90% - 4px - var(--bar-sq, 26px) - var(--spacing-md)) * 0.6);
+    }
+    .intm-intro {
+        left: calc((50% - 21px) / 3 + 9px);
+        height: calc((90% - 4px - var(--bar-sq, 26px) - var(--spacing-md)) * 0.8);
+    }
+    .adv-intro {
+        left: calc((50% - 21px) * 2 / 3 + 15px);
+        height: calc(90% - 4px - var(--bar-sq, 26px) - var(--spacing-md));
     }
     .writing-input-wrapper {
-        min-height: 280px;
-        padding: 1rem;
+        min-height: 380px;
+        padding: 0.75rem 1rem;
+    }
+    .writing-workspace{
+        gap: var(--spacing-sm);
     }
     .writing-editor {
         min-height: 260px;
@@ -17893,6 +18016,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* 「我就剩 N 张牌了」只喊一次：进场后保持约 4 秒，末段淡出并停在透明（forwards）。
+   时长固定 5s，JS 侧用负 animation-delay 把动画快进到已过的进度，重渲染不会重新计时。 */
+@keyframes epBubbleOnce {
+    0%          { opacity: 0; transform: translateX(-4px) scale(0.96); }
+    5%          { opacity: 1; transform: translateX(0) scale(1); }
+    80%         { opacity: 1; transform: translateX(0) scale(1); }
+    95%, 100%   { opacity: 0; transform: translateY(-3px) scale(1); }
+}
+
+.ep-seat-bubble-once {
+    animation: epBubbleOnce 5000ms linear forwards;
+}
+
 .ep-avatar {
     width: 52px;
     height: 52px;
@@ -18095,6 +18231,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .ep-card-joker-c .ep-card-suit,
 .ep-card-joker-v .ep-card-suit {
     color: #b8863b;
+}
+
+/* 打到牌桌上的小牌：牌面小，花色图标也跟着收小（手牌仍是 20px） */
+.ep-card-sm .ep-card-suit {
+    font-size: 10px;
 }
 
 .ep-card[data-ep-card] {
@@ -18557,28 +18698,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    max-height: 132px;
-    overflow: auto;
 }
 
 .ep-log-line {
     font-size: 0.78rem;
     color: #cfe3d8;
-}
-
-/* 对局记录在深色毛毡上，滚动条不能跟着浅色主题变白 */
-.ep-log::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-.ep-log::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.22);
-    border-radius: 4px;
-}
-
-.ep-log::-webkit-scrollbar-track {
-    background: transparent;
 }
 
 /* —— 结算与复盘（沿用牌桌的毛毡绿，像比赛结束后的记分牌） —— */
@@ -18763,6 +18887,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     min-width: 0;
     font-size: 0.82rem;
     color: #cfe3d8;
+}
+
+/* 锦囊复盘：金色的炸弹图标 + 换行铺满的例句（例句只有「放弃过的词」才有） */
+.ep-review-bomb .ep-review-word i {
+    color: var(--ep-gold);
+}
+
+.ep-review-eg {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    font-style: italic;
+    color: var(--ep-mut);
 }
 
 .ep-review-tag {
@@ -19016,11 +19153,31 @@ i.dropdown-item-icon {
    缓存设置样式
    ============================================ */
 
-/* 统计数据摘要 */
+/* 缓存设置 / 基本设置：板块分组容器（沿用「学习数据」页 .ld-section 观感，干净整洁） */
+.cache-settings-list,
+.settings-section-list {
+    display: flex;
+    flex-direction: column;
+}
+#cacheSettings .ld-section,
+#basicSettings .ld-section {
+    padding: 0 0 var(--spacing-xl) 0;
+    /* 弹窗基底已是 --surface，卡片改用 --background 以形成层次（浅色更浅、深色更深的内嵌面板观感） */
+}
+/* 板块内末项不再叠加外边距，避免与板块内边距重复留白 */
+#basicSettings .ld-section .setting-group:last-child {
+    margin-bottom: 0;
+}
+/* 分组标题左侧 uicon：统一主色，与「学习数据」页标题图标观感一致 */
+#cacheSettings .ld-section-header h3 i,
+#basicSettings .ld-section-header h3 i {
+    font-size: 1rem;
+    margin-right: 8px;
+    color: var(--primary-color);
+}
+
+/* 统计数据摘要：与「学习数据」页摘要卡同构（图标 + 数值 + 标签） */
 .stats-cache-summary {
-    background: var(--surface-hover);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-lg);
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: var(--spacing-md);
@@ -19028,19 +19185,45 @@ i.dropdown-item-icon {
 
 .cache-stat-item {
     display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    min-width: 0;
+}
+
+.cache-stat-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    background: var(--primary-light);
+    color: var(--primary-color);
+    font-size: 1.15rem;
+}
+
+.cache-stat-body {
+    display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    gap: 2px;
+    min-width: 0;
 }
 
 .cache-stat-label {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: var(--text-secondary);
 }
 
 .cache-stat-value {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--primary);
+    line-height: 1.1;
+    color: var(--primary-color);
 }
 
 /* 缓存操作按钮 */
@@ -19056,25 +19239,23 @@ i.dropdown-item-icon {
     justify-content: center;
     gap: var(--spacing-xs);
     padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--surface-hover);
+    background: var(--surface);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    color: var(--text);
+    color: var(--text-primary);
     font-size: 0.875rem;
     cursor: pointer;
     transition: all var(--transition-fast);
 }
 
-.btn-cache-action svg {
-    width: 18px;
-    height: 18px;
-    stroke-width: 2;
+.btn-cache-action i {
+    font-size: 1rem;
 }
 
 .btn-cache-action:hover {
     background: var(--primary-light);
-    border-color: var(--primary);
-    color: var(--primary);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
     transform: translateY(-1px);
 }
 
@@ -19088,7 +19269,7 @@ i.dropdown-item-icon {
     overflow-y: auto;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    background: var(--surface-hover);
+    background: var(--surface);
 }
 
 .stats-history-empty {
@@ -19112,12 +19293,12 @@ i.dropdown-item-icon {
 }
 
 .stats-history-item:hover {
-    background: var(--surface);
+    background: var(--hover-bg);
 }
 
 .stats-history-date {
     font-weight: 600;
-    color: var(--text);
+    color: var(--text-primary);
     font-size: 0.875rem;
 }
 
@@ -19132,6 +19313,10 @@ i.dropdown-item-icon {
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
+}
+
+.stats-history-data i {
+    color: var(--text-tertiary);
 }
 
 .stats-history-actions {
@@ -19152,8 +19337,8 @@ i.dropdown-item-icon {
 
 .btn-history-action:hover {
     background: var(--primary-light);
-    border-color: var(--primary);
-    color: var(--primary);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
 }
 
 /* 危险操作按钮 */
@@ -19172,10 +19357,8 @@ i.dropdown-item-icon {
     transition: all var(--transition-fast);
 }
 
-.btn-danger svg {
-    width: 18px;
-    height: 18px;
-    stroke-width: 2;
+.btn-danger i {
+    font-size: 1rem;
 }
 
 .btn-danger:hover {
@@ -19185,6 +19368,16 @@ i.dropdown-item-icon {
 
 .btn-danger:active {
     transform: scale(0.98);
+}
+
+/* 危险提示：图标与文字统一 error 色 */
+.cache-danger-hint {
+    color: var(--error);
+    margin-top: var(--spacing-sm);
+}
+
+.cache-danger-hint i {
+    margin-right: 2px;
 }
 
 /* 移动端响应式 */
@@ -19371,11 +19564,9 @@ i.dropdown-item-icon {
 /* 学习数据页：板块容器（历史趋势 / 艾宾浩斯 / 记忆星图） */
 .ld-section {
     background: var(--surface);
-    border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    padding: var(--spacing-lg);
+    padding: 0 0 var(--spacing-xl) 0;
     margin-bottom: 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 .ld-section-header {
     display: flex;

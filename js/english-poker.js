@@ -47,6 +47,7 @@
     var JOKER_BOMB_FINISH = 10;  // 收官奖励：最后出的一手是王炸，固定加 10 分（它没有字母数）
     var PANIC_HAND = 8;          // 有玩家手牌少于这个数，其他人就「恐慌」抢牌权
     var PANIC_BUBBLE_HAND = 5;   // 手牌 ≤ 这个数就在座位旁冒气泡「我就剩 N 张牌了」
+    var PANIC_BUBBLE_MS = 5000;  // 气泡只喊一次，持续 5 秒后淡出（记在 S.panicBubbles 里，避免每次渲染重放）
     var HAND_SIZE = 27; // 108 / 4，掼蛋原版发牌数
     var SEAT_NAMES = ['你', '下家', '对家', '上家'];
     var AI_NAMES = ['你', '阿禾', '老 K', '小满'];
@@ -370,11 +371,13 @@
         return null;
     }
 
-    // 日志 / 悬浮提示里附一段释义，复盘时不用再查（词典没收录就什么都不加）
+    // 日志 / 悬浮提示里附一段释义，复盘时不用再查（词典没收录就什么都不加）。
+    // 释义前带上该词的 CEFR 档位（如 [C1]），一眼看出这个炸弹/单词的难度。
     function meaningSuffix(w, max) {
         var de = dictEntry(w);
         if (!de || !de.meaning) return '';
-        var m = de.meaning;
+        var lv = (DATA.cefrLevel || {})[w];
+        var m = (lv ? '[' + lv + '] ' : '') + de.meaning;
         var cap = max || 42;
         if (m.length > cap) m = m.slice(0, cap) + '…';
         return ' · ' + m;
@@ -528,9 +531,13 @@
 
     /* —— 编组：把凑好的词先存起来，等时机到了再点它 + 跟牌放出 —— */
 
-    // 从一把牌里解析出词：手动模式看选牌顺序，提示模式看字母组合
+    // 从一把牌里解析出词。手动模式一律看选牌顺序；提示模式也**先**认选牌顺序拼出的词
+    // （玩家是照着提示把牌摆成 laser 的，编组/出牌就不该再自作主张改成同字母的 ARLES），
+    // 顺序拼不出词时才按字母组合兜底找词。
     function findWordFor(cards) {
-        if (isOrdered()) return resolveOrdered(cards);
+        var ordered = resolveOrdered(cards);
+        if (ordered) return ordered;
+        if (isOrdered()) return null;
         var bucket = DATA.byLen && DATA.byLen[cards.length];
         if (!bucket || !bucket.length) return null;
         var hc = handCounts(cards);
@@ -804,6 +811,7 @@
             over: false,
             humanInitial: players[0].hand.slice(),
             humanWords: [],
+            charmGaveUp: [],   // 打开炸弹锦囊却没拼出来就「放弃」的词（结算时单独复盘）
             aiBombs: [],
             roundNo: 1
         };
@@ -813,6 +821,7 @@
         S.reveal = null;
         S.jokerPick = null;
         S.charm = null;
+        S.panicBubbles = Object.create(null);   // 「我就剩 N 张牌了」气泡的首次出声时间戳，每局清空
         charmCache.key = '';
         charmCache.list = null;
         S.hintWords = null;
@@ -852,8 +861,7 @@
 
     function logLine(text) {
         if (!S.game) return;
-        S.game.logs.push(text);
-        if (S.game.logs.length > 60) S.game.logs.shift();
+        S.game.logs.push(text);   // 不再截断：结算/复盘时对局记录要能完整回看
     }
 
     /* ============================ 出牌校验 ============================ */
@@ -1072,9 +1080,14 @@
         if (normal) {
             if (!canForm(normal, hc)) return { ok: false, err: '这几张牌拼不出单词' };
         } else {
-            for (var i = 0; i < bucket.length; i++) {
-                var w = bucket[i];
-                if (canForm(w, hc)) { normal = w; break; }
+            // 提示模式（ordered=false）也不再粗暴忽略顺序：若当前「选牌顺序」本身就能拼出词，
+            // 先尊重玩家手动拼出的那个词（提示区的高亮/选项也是按这个顺序算的），
+            // 只有顺序拼不出词时才回退到「按牌面自动找词」的智能托底。
+            normal = resolveOrdered(cards);
+        }
+        if (!normal) {
+            for (var j = 0; j < bucket.length; j++) {
+                if (canForm(bucket[j], hc)) { normal = bucket[j]; break; }
             }
         }
         if (!normal) return { ok: false, err: '这几张牌拼不出单词' };
@@ -1822,16 +1835,29 @@
         var state = p.finished ? ('第 ' + p.rank + ' 名')
             : (g.turn === p.seat ? (g.phase === 'lead' ? '领出' : '跟牌') : '等待');
         var initial = String(p.name).replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').charAt(0) || '?';
-        // 手牌不多时冒个气泡「喊一嗓子」——既是心理战，也让快出完的人一眼可见
-        var bubble = (!p.finished && !g.over && p.hand.length <= PANIC_BUBBLE_HAND)
-            ? '<div class="ep-seat-bubble">我就剩 ' + p.hand.length + ' 张牌了</div>'
-            : '';
+        // 手牌不多时冒个气泡「喊一嗓子」——既是心理战，也让快出完的人一眼可见。
+        // 每位玩家只在**首次**降到阈值以下时喊一次，5 秒后自行淡出（见 panicBubbleHTML）。
+        var bubble = panicBubbleHTML(p, g);
         return '<div class="' + cls + '">' + bubble +
             '<div class="ep-avatar"><span>' + esc(initial) + '</span></div>' +
             '<div class="ep-seat-name">' + esc(p.name) + '</div>' +
             '<div class="ep-seat-meta"><span class="ep-seat-count">' + p.hand.length + ' 张</span>' +
             '<span class="ep-seat-state">' + state + '</span></div>' +
             '</div>';
+    }
+
+    // 「我就剩 N 张牌了」气泡：首次满足条件时记下时间戳，之后交给 CSS 动画自行淡出。
+    // 用 animation-delay 的负值把动画快进到当前进度，故中途重渲染也不会让气泡「重新计时」。
+    function panicBubbleHTML(p, g) {
+        if (p.finished || g.over || p.hand.length > PANIC_BUBBLE_HAND) return '';
+        if (!S.panicBubbles) S.panicBubbles = Object.create(null);
+        var shown = S.panicBubbles[p.seat];
+        var now = Date.now();
+        if (!shown) shown = S.panicBubbles[p.seat] = now;
+        var elapsed = now - shown;
+        if (elapsed >= PANIC_BUBBLE_MS) return '';
+        return '<div class="ep-seat-bubble ep-seat-bubble-once" style="animation-delay:-' +
+            Math.round(elapsed) + 'ms">我就剩 ' + p.hand.length + ' 张牌了</div>';
     }
 
     // 桌面上的四家出牌区是各自绝对的固定占位，牌多时允许互相叠在一起。
@@ -2237,13 +2263,19 @@
 
         var check;
         if (dealt) {
-            var perr = levelCheck(dealt.word, !!dealt.isBomb, { isLead: g.phase === 'lead' });
-            check = perr
-                ? '<span class="ep-check ep-check-bad"><i class="fi-rr-cross-small"></i>' + esc(perr) + '</span>'
-                : '<span class="ep-check ep-check-ok"><b>' + esc(dealt.word.toUpperCase()) + '</b>' +
-                '<em>' + dealt.codes.length + ' 字母</em>' +
-                (dealt.isBomb ? '<span class="ep-bomb-tag">炸弹</span>' : '') +
-                '<em class="ep-check-note">点「' + (g.phase === 'lead' ? '出牌' : '跟牌') + '」放出</em></span>';
+            if (dealt.isJokerBomb) {
+                // 王炸组没有 word（不能拿 null 去过 levelCheck / toUpperCase）
+                check = '<span class="ep-check ep-check-ok"><b>王炸</b>' +
+                    '<em class="ep-check-note">能压任何牌，点「' + (g.phase === 'lead' ? '出牌' : '跟牌') + '」放出</em></span>';
+            } else {
+                var perr = levelCheck(dealt.word, !!dealt.isBomb, { isLead: g.phase === 'lead' });
+                check = perr
+                    ? '<span class="ep-check ep-check-bad"><i class="fi-rr-cross-small"></i>' + esc(perr) + '</span>'
+                    : '<span class="ep-check ep-check-ok"><b>' + esc(dealt.word.toUpperCase()) + '</b>' +
+                    '<em>' + dealt.codes.length + ' 字母</em>' +
+                    (dealt.isBomb ? '<span class="ep-bomb-tag">炸弹</span>' : '') +
+                    '<em class="ep-check-note">点「' + (g.phase === 'lead' ? '出牌' : '跟牌') + '」放出</em></span>';
+            }
         } else if (picked.length) {
             var res = validate(picked, { isLead: g.phase === 'lead', ordered: ordered });
             if (res.ok) {
@@ -2326,8 +2358,8 @@
         if (packsHTML) actions += '<div class="ep-packs" id="epPacks">' + packsHTML + '</div>';
 
         // 对局记录按发生顺序自上而下排（最新一条在最下面）：和牌河的左→右同向，
-        // 免得把「谁最后出牌、牌权归谁」看反。
-        var logs = g.logs.slice(-6).map(function (t) {
+        // 免得把「谁最后出牌、牌权归谁」看反。整段完整展示，不再截取末尾几条。
+        var logs = g.logs.map(function (t) {
             return '<div class="ep-log-line">' + esc(t) + '</div>';
         }).join('');
 
@@ -2421,19 +2453,30 @@
             myWordsHTML = '<div class="ep-empty">这一局你一个单词都没出。</div>';
         }
 
-        var missedHTML = '';
-        if (g.missed && g.missed.length) {
-            missedHTML = g.missed.map(function (m) {
-                var e = dictEntry(m.word);
-                return '<div class="ep-review-item' + (m.bomb ? ' ep-review-bomb' : '') + '">' +
-                    '<span class="ep-review-word">' + esc(m.word.toUpperCase()) + '</span>' +
-                    (e && e.phonetic ? '<span class="ep-review-ph">' + esc(e.phonetic) + '</span>' : '') +
+        // 锦囊复盘：优先贴出「开了锦囊却没拼出来就放弃」的词（带例句，不显示音标）；
+        // 一局都没用过锦囊，就拿漏掉的炸弹词补位（不显示例句）。
+        var charmGiveUp = g.charmGaveUp || [];
+        var charmHTML;
+        if (charmGiveUp.length) {
+            charmHTML = charmGiveUp.map(function (x) {
+                var e = dictEntry(x.word);
+                return '<div class="ep-review-item ep-review-bomb">' +
+                    '<span class="ep-review-word"><i class="fi-rr-bomb"></i>' + esc(x.word.toUpperCase()) + '</span>' +
                     (e && e.meaning ? '<span class="ep-review-mean">' + esc(e.meaning) + '</span>' : '') +
-                    (m.bomb ? '<span class="ep-review-tag">词书炸弹</span>' : '') +
+                    (x.example ? '<span class="ep-review-eg">' + esc(x.example) + '</span>' : '') +
                     '</div>';
             }).join('');
         } else {
-            missedHTML = '<div class="ep-empty">起手牌里没漏掉什么像样的词，打得不错。</div>';
+            var filler = (g.missed || []).filter(function (m) { return m.bomb; });
+            charmHTML = filler.length
+                ? filler.map(function (m) {
+                    var e = dictEntry(m.word);
+                    return '<div class="ep-review-item ep-review-bomb">' +
+                        '<span class="ep-review-word"><i class="fi-rr-bomb"></i>' + esc(m.word.toUpperCase()) + '</span>' +
+                        (e && e.meaning ? '<span class="ep-review-mean">' + esc(e.meaning) + '</span>' : '') +
+                        '</div>';
+                }).join('')
+                : '<div class="ep-empty">这局没用上炸弹锦囊，也没漏掉什么炸弹。</div>';
         }
 
         var aiBombHTML = g.aiBombs.length
@@ -2451,7 +2494,7 @@
             mvpLine +
             '<div class="ep-review">' +
             '<h4><i class="fi-rr-star"></i>复盘 · 你拼出的词</h4>' + myWordsHTML +
-            '<h4><i class="fi-rr-bulb"></i>复盘 · 你本来还能拼出这些</h4>' + missedHTML +
+            '<h4><i class="fi-rr-bomb"></i>复盘 · 锦囊里没拼出来的炸弹</h4>' + charmHTML +
             '<div class="ep-ai-bombs">' + aiBombHTML + '</div>' +
             '</div>' +
             '<div class="ep-actions">' +
@@ -2863,7 +2906,8 @@
             var attempts = st.attempts || 0, wrong = st.wrong || 0;
             list.push({
                 word: w, ids: picked.ids, jokerFor: picked.jokerFor, example: ex,
-                // 正确率：没练过的按 0 算（最不熟，优先给锦囊）
+                // 正确率：没练过的按 0 算；练过的才进优先档（见 chooseCharmBomb）
+                attempts: attempts,
                 acc: attempts > 0 ? Math.max(0, (attempts - wrong) / attempts) : 0
             });
         });
@@ -2872,16 +2916,19 @@
         return list;
     }
 
-    // 按「正确率越低越优先」加权随机挑一个候选（低正确率权重大，但保留随机性）
+    // 锦囊优先推荐「练过的词」（有练习记录者），只有这类词组不出炸弹时才退回没练过的。
+    // 同一档内仍按「正确率越低越优先」加权随机（低正确率权重大，但保留随机性）。
     function chooseCharmBomb(list) {
+        var practiced = list.filter(function (c) { return (c.attempts || 0) > 0; });
+        var pool = practiced.length ? practiced : list;
         var total = 0;
-        list.forEach(function (c) { c.acc = c.acc || 0; total += (1 - c.acc) + 0.15; });
+        pool.forEach(function (c) { c.acc = c.acc || 0; total += (1 - c.acc) + 0.15; });
         var r = Math.random() * total;
-        for (var i = 0; i < list.length; i++) {
-            r -= (1 - list[i].acc) + 0.15;
-            if (r <= 0) return list[i];
+        for (var i = 0; i < pool.length; i++) {
+            r -= (1 - pool[i].acc) + 0.15;
+            if (r <= 0) return pool[i];
         }
-        return list[list.length - 1];
+        return pool[pool.length - 1];
     }
 
     // 把例句里的目标词（含词形变化）挖成空格，得到一道拼写题
@@ -2990,6 +3037,8 @@
         if (!c || c.phase !== 'quiz') return;
         var others = charmCandidates().filter(function (x) { return x.word !== c.word; });
         if (!others.length) { toast('手里暂时没有别的炸弹可选了', 'info'); return; }
+        // 丢开当前这题去换一个，也算锦囊未拼出：先记账，再换成新词
+        recordCharmGiveUp(c);
         var pick = chooseCharmBomb(others);
         c.word = pick.word;
         c.ids = pick.ids;
@@ -3012,7 +3061,18 @@
         focusCharmInput();
     }
 
+    // 把一道「打开了锦囊却没拼出来」的题记进本局账（结算时单独复盘）：
+    // 无论玩家是点了「放弃」，还是点了「换一个」把当前这题丢开，都算锦囊未拼出。
+    function recordCharmGiveUp(c) {
+        if (!c || c.phase !== 'quiz' || !c.word || !S.game) return;
+        if (!S.game.charmGaveUp) S.game.charmGaveUp = [];
+        var dup = S.game.charmGaveUp.some(function (x) { return x.word === c.word; });
+        if (!dup) S.game.charmGaveUp.push({ word: c.word, example: c.example || '' });
+    }
+
     function closeCharm() {
+        // 还没拼出来就「放弃」：把这道题记进本局账（拼对者走的是动画自动关闭，不会记）
+        recordCharmGiveUp(S.charm);
         S.charm = null;
         render();
     }

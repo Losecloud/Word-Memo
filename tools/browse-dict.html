@@ -313,6 +313,19 @@
     user-select: none;
     -webkit-user-select: none;
   }
+  /* 拖拽跟随的 ghost：套一层 .dict-picker-list 复用被拖动条目的既有样式
+     （直接克隆到 body 会丢失作用域样式），外框沿用引擎配色 */
+  .dict-picker-list.dict-drag-ghost {
+    min-height: 0;
+    opacity: 0.92;
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid #667eea;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  }
+  .dict-picker-list.dict-drag-ghost .dict-picker-item { cursor: grabbing; }
+  .dict-picker-list.dict-drag-ghost .dict-picker-item-rename { display: none; }
   .dict-picker-list .dict-picker-item {
     display: flex;
     align-items: center;
@@ -600,6 +613,24 @@ if (typeof window.define !== 'function') {
   // 首次进入默认启用的词典（其余默认停用，可在 AI 工坊的词典卡片右上角开关按需启用）
   const DEFAULT_ENABLED_VARS = ['OALDPE_DICT', 'COLLINS_DICT', '英语词根词缀词频_DICT'];
 
+  // 历史默认名 → 统一名（中文名 + 英文名）迁移表：仅把老用户残留的旧默认名改写为新命名，
+  // 用户自定义的重命名（不在此表内）原样保留。名称的唯一权威源仍是 tools/web2ob.py 的 DICT_CATALOG。
+  const LEGACY_DICT_NAMES = {
+    'englishwords': '基础词典 Basic',
+    '基础词典': '基础词典 Basic',
+    'youci': '优词词根 Youci Root',
+    '优词词根': '优词词根 Youci Root',
+    'collins柯林斯英语同义词字典_collins_thesaurus_darkdickens': '柯林斯同义词 Collins Thesaurus',
+    '柯林斯同义词': '柯林斯同义词 Collins Thesaurus',
+    '牛津同义词词词典': '牛津同义词 Oxford Thesaurus',
+    '牛津同义词': '牛津同义词 Oxford Thesaurus',
+    '英语词根词缀词频': '词根词缀词频 Roots & Affixes',
+    '词根词缀词频': '词根词缀词频 Roots & Affixes',
+    'collins': '柯林斯高阶 Collins COBUILD',
+    '柯林斯': '柯林斯高阶 Collins COBUILD',
+  };
+  function unifyDictName(name) { return LEGACY_DICT_NAMES[name] || name; }
+
   // ---- 词典清单持久化：进入网页直接加载已启用的词典，跳过每次清单扫描 ----
   // 仅持久化 URL 模式（text 模式词典跨会话无法复用）。统一用相对路径 ../data/，
   // file:// 与 serve（http://localhost:8377/tools/）下都能解析到 data/ 目录。
@@ -623,7 +654,7 @@ if (typeof window.define !== 'function') {
       if (!Array.isArray(list)) return [];
       return preferJson(list
         .filter(m => m.file)
-        .map(m => ({ name: m.name, varName: m.varName, mdd: m.mdd, size: m.size || 0, file: m.file, format: m.format, url: '../data/' + m.file })));
+        .map(m => ({ name: unifyDictName(m.name), varName: m.varName, mdd: m.mdd, size: m.size || 0, file: m.file, format: m.format, url: '../data/' + m.file })));
     } catch (e) { return []; }
   }
   // 将单条词典写入持久化清单 dictMetas（导入/保存后用，保证下次启动快速路径能加载到）
@@ -1327,7 +1358,7 @@ if (typeof window.define !== 'function') {
     return files.map(f => {
       const json = /-dict\.json$/i.test(f.name);
       return {
-        name: f.name.replace(/-dict\.(js|json)$/i, ''),
+        name: unifyDictName(f.name.replace(/-dict\.(js|json)$/i, '')),
         varName: json ? varNameFromFile(f.name) : parseVarName(f.text),
         text: f.text,
         file: f.name,
@@ -1545,8 +1576,10 @@ if (typeof window.define !== 'function') {
         if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 4) {
           // 位移超过阈值 → 进入拖拽，创建 ghost
           dragState.moved = true;
-          const ghost = item.cloneNode(true);
-          ghost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:99999;opacity:0.85;pointer-events:none;width:' + item.offsetWidth + 'px;background:#fff;border:1px solid #667eea;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.2);margin:0;';
+          const ghost = document.createElement('div');
+          ghost.className = 'dict-picker-list dict-drag-ghost';
+          ghost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:99999;width:' + item.offsetWidth + 'px;';
+          ghost.appendChild(item.cloneNode(true));
           document.body.appendChild(ghost);
           dragState.ghost = ghost;
           document.body.classList.add('dict-dragging');
@@ -2832,9 +2865,20 @@ if (typeof window.define !== 'function') {
       }
     }
     showDetail(w, base, favorited, cands, raw);
+    // 首选词典是否确有该词条：宿主据此决定「自动展开」（词卡点击/Enter 直达）是否直接跳详情；
+    // 首选词典没有该词时不跳空白详情，改为留在结果清单里展示该词条。首选不可用（禁用/卸载）时不约束。
+    let prefHas = true;
+    try {
+      const pref = localStorage.getItem('browseDictCur') || '';
+      const pd = pref ? DICTS[pref] : null;
+      if (pd && pd.enabled && pd.data) {
+        const pt = resolveRedirect(pref, w);
+        prefHas = !!(pd.data[pt] != null || pd.data[w] != null);
+      }
+    } catch (e) { /* 忽略 */ }
     // 渲染完成：报告内容高度，供主页按内容撑开 iframe（图片等异步资源加载后高度会变化，主页会复测）
     const detailBox = $('detail');
-    post({ type: 'opened', w, height: detailBox ? detailBox.scrollHeight || 0 : 0 });
+    post({ type: 'opened', w, height: detailBox ? detailBox.scrollHeight || 0 : 0, prefHas });
   }
   if (LOOKUP) {
     window.addEventListener('message', async (ev) => {

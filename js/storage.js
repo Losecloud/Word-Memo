@@ -150,6 +150,7 @@ const Storage = {
         'writingInputDebounce', 'cefrMarkEnabled', 'aiCorrectionEnabled' // AI 工坊写作设置
     ],
     MIRROR_KEY_PREFIXES: ['aiModel_'],  // AI 各下拉上次选中的模型 ID
+    MIRROR_OWNER_KEY: 'wordMemory_mirrorOwner', // 本机镜像键当前归属账号（切换账号时据此清理旧账号残留）
 
     // 该键是否需随用户配置一同持久化
     _isMirrorKey(k) {
@@ -184,22 +185,50 @@ const Storage = {
         return config;
     },
 
-    // 用配置中的 extras 回填独立键（加载配置后调用；值为 null 时移除该键）
-    _applyExtras(config) {
-        const extras = config && config.extras;
-        if (!extras || typeof extras !== 'object') return;
-        this._applyingExtras = true;
+    // 清空本机所有镜像键（不触发回写）：用于切换账号时清理上一账号的残留
+    _clearMirrorKeys() {
+        const stale = [];
         try {
-            for (const k of Object.keys(extras)) {
-                if (!this._isMirrorKey(k)) continue;
-                try {
-                    if (extras[k] === null || extras[k] === undefined) localStorage.removeItem(k);
-                    else localStorage.setItem(k, String(extras[k]));
-                } catch (e) { /* 忽略单键失败 */ }
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k) continue;
+                // liyiWordStats_ 按用户隔离，不受 _isMirrorKey 的当前用户判断限制
+                if (this.MIRROR_KEYS.indexOf(k) >= 0 ||
+                    this.MIRROR_KEY_PREFIXES.some(p => k.indexOf(p) === 0) ||
+                    k.indexOf('liyiWordStats_') === 0) stale.push(k);
             }
-        } finally {
-            this._applyingExtras = false;
+        } catch (e) { /* 忽略 */ }
+        this._applyingExtras = true;
+        try { stale.forEach(k => localStorage.removeItem(k)); } catch (e) { /* 忽略 */ }
+        finally { this._applyingExtras = false; }
+    },
+
+    // 用配置中的 extras 回填独立键（加载配置后调用；值为 null 时移除该键）
+    // 若本机镜像键归属账号与当前账号不一致，先清空再回填，
+    // 避免新账号继承旧账号的授权码 / 收藏词单 / 欧路生词本链接等
+    _applyExtras(config) {
+        const user = this.getCurrentUser() || '';
+        let owner = null;
+        try { owner = localStorage.getItem(this.MIRROR_OWNER_KEY); } catch (e) { /* 忽略 */ }
+        // owner 为 null 视为老版本升级（未记录归属），此时不清空，交由调用方反向同步回收本机键
+        if (owner !== null && owner !== user) this._clearMirrorKeys();
+        const extras = config && config.extras;
+        if (extras && typeof extras === 'object') {
+            this._applyingExtras = true;
+            try {
+                for (const k of Object.keys(extras)) {
+                    if (!this._isMirrorKey(k)) continue;
+                    try {
+                        if (extras[k] === null || extras[k] === undefined) localStorage.removeItem(k);
+                        else localStorage.setItem(k, String(extras[k]));
+                    } catch (e) { /* 忽略单键失败 */ }
+                }
+            } finally {
+                this._applyingExtras = false;
+            }
         }
+        // 记录归属：此后本机镜像键即视为属于当前账号
+        try { localStorage.setItem(this.MIRROR_OWNER_KEY, user); } catch (e) { /* 忽略 */ }
     },
 
     // 拦截独立键的写入/删除，防抖后同步进用户配置（无需改动各业务写入点）
@@ -234,8 +263,10 @@ const Storage = {
         this._installMirrorHook(); // 安装独立键镜像钩子（幂等）
         localStorage.setItem('wordMemory_currentUser', username);
         this.initUserConfig(username);
-        // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签
+        // 切换账号：清理旧账号残留的镜像键（授权码 / 收藏词单 / 欧路链接等）并回填本账号配置
         const config = this.getUserConfig();
+        if (config) this._applyExtras(config);
+        // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签
         if (config && this._migrateCategoryInConfig(config)) this.saveUserConfig(config);
     },
 
@@ -291,11 +322,7 @@ const Storage = {
                     autoNext: true,
                     autoNextTime: 1,
                     hotkeys: { option1: '1', option2: '2', option3: '3', option4: '4', option5: '5', option6: '6' },
-                    defaultCover: 'import',
-                    dictLookupInSidebar: true, // Obsidian：查词跳转是否交由右侧栏承接（默认开启）
-                    hoverLookup: true, // Obsidian：悬浮取词（默认开启）
-                    selectionTranslate: true, // Obsidian：划词右键「翻译」（默认开启）
-                    hideSidebarImport: true // Obsidian：隐藏右侧栏「导入词典」拖入区（默认开启）
+                    defaultCover: 'import'
                 },
                 aiSettings: {
                     aiApiKey: '',
@@ -793,10 +820,6 @@ const Storage = {
             config[section][key] = value;
         }
         const ok = this.saveUserConfig(config);
-        // 设置保存后通知宿主（Obsidian 插件）刷新悬浮取词 / 划词翻译开关，无需刷新页面
-        try {
-            if (typeof window !== 'undefined' && typeof window.__wmSyncHostSettings === 'function') window.__wmSyncHostSettings();
-        } catch (e) { /* 忽略 */ }
         return ok;
     },
 

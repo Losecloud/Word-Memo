@@ -63,9 +63,11 @@ DICT_CATALOG = [
     {
         "file": "englishwords-dict.json",
         "varName": "ENGLISHWORDS_DICT",
-        "label": "基础词典",
+        "label": "基础词典 Basic",
         # name：查词引擎词典清单里的显示名（引擎不读 catalog，故在此随清单一起下发）
-        "name": "基础词典",
+        # 命名规范：中文名 + 英文名（如「优词词根 Youci Root」），label 与 name 保持一致，
+        # 使 AI 工坊卡片与查词引擎显示同一名称。
+        "name": "基础词典 Basic",
         "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，作为默认兜底词库",
         "icon": "🔤",
         "source": "reciting",
@@ -73,7 +75,8 @@ DICT_CATALOG = [
     {
         "file": "youci-dict.json",
         "varName": "YOUCI_DICT",
-        "label": "优词词根",
+        "label": "优词词根 Youci Root",
+        "name": "优词词根 Youci Root",
         "desc": "优词词根词源词典，讲透单词的来龙去脉",
         "icon": "🔠",
         "source": "reciting",
@@ -81,7 +84,8 @@ DICT_CATALOG = [
     {
         "file": "collins柯林斯英语同义词字典_collins_thesaurus_darkdickens-dict.json",
         "varName": "COLLINS柯林斯英语同义词字典_COLLINS_THESAURUS_DARKDICKENS_DICT",
-        "label": "柯林斯同义词",
+        "label": "柯林斯同义词 Collins Thesaurus",
+        "name": "柯林斯同义词 Collins Thesaurus",
         "desc": "柯林斯英语同义词字典，扩展同义替换表达",
         "icon": "📚",
         "source": "reciting",
@@ -89,7 +93,8 @@ DICT_CATALOG = [
     {
         "file": "牛津同义词词词典-dict.json",
         "varName": "牛津同义词词词典_DICT",
-        "label": "牛津同义词",
+        "label": "牛津同义词 Oxford Thesaurus",
+        "name": "牛津同义词 Oxford Thesaurus",
         "desc": "牛津同义词词词典，辨析近义词差异",
         "icon": "📖",
         "source": "reciting",
@@ -97,7 +102,8 @@ DICT_CATALOG = [
     {
         "file": "英语词根词缀词频-dict.json",
         "varName": "英语词根词缀词频_DICT",
-        "label": "词根词缀词频",
+        "label": "词根词缀词频 Roots & Affixes",
+        "name": "词根词缀词频 Roots & Affixes",
         "desc": "按词根词缀拆解单词，附词频辅助记忆",
         "icon": "🧩",
         "source": "reciting",
@@ -105,7 +111,8 @@ DICT_CATALOG = [
     {
         "file": "collins-dict.json",
         "varName": "COLLINS_DICT",
-        "label": "柯林斯",
+        "label": "柯林斯高阶 Collins COBUILD",
+        "name": "柯林斯高阶 Collins COBUILD",
         "desc": "柯林斯高阶英汉词典，整句释义、语料地道",
         "icon": "📘",
         "source": "reciting",

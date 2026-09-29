@@ -46,7 +46,15 @@ function varNameFromFile(fname) {
 }
 
 // 词典清单里的显示名覆盖（文件名保持英文，供路径与变量名推导）
-const DICT_DISPLAY_NAMES = { 'englishwords-dict.json': '基础词典' };
+// 命名规范：中文名 + 英文名，与 tools/web2ob.py 的 DICT_CATALOG 保持一致
+const DICT_DISPLAY_NAMES = {
+  'englishwords-dict.json': '基础词典 Basic',
+  'youci-dict.json': '优词词根 Youci Root',
+  'collins柯林斯英语同义词字典_collins_thesaurus_darkdickens-dict.json': '柯林斯同义词 Collins Thesaurus',
+  '牛津同义词词词典-dict.json': '牛津同义词 Oxford Thesaurus',
+  '英语词根词缀词频-dict.json': '词根词缀词频 Roots & Affixes',
+  'collins-dict.json': '柯林斯高阶 Collins COBUILD',
+};
 
 // 更新 dict-manifest.js：只 upsert 本次导入的词典条目，保留其余条目原样。
 // 不用整表重扫，避免抹掉已有条目的 mdd 资源目录（如 oaldpe 的样式/发音）等字段

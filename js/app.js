@@ -503,6 +503,15 @@ class WordMemoryApp {
         this.wordResults = []; // 记录每个单词的答题结果（用于异色进度条）
         this.wordFirstResults = []; // 记录每个单词的初次答题结果（用于上一题标记）
         this.wordWrongOptions = []; // 记录每个单词本题答错过的所有选项（用于上一题 tooltip 展示）
+        // 本轮复习状态：正式轮答错/未判对的词在本轮末尾自动进入复习轮，直到全部答对才结算。
+        // _roundWords 为本轮主单词列表（进度条基准）；_roundStatus 与之一一对应：
+        // null(未答) | 'correct' | 'wrong' | 'unknown' | 'reviewed'(复习已答对，绿色标但不计入正确率)
+        this._roundWords = [];
+        this._roundStatus = [];
+        this._roundMasterIdx = []; // 当前播放槽 → _roundWords 下标（正式轮为恒等映射）
+        this._roundSessionRef = null; // 已快照的 sessionWords 引用，用于识别新一轮
+        this._isReviewRound = false; // 是否处于复习轮（复习轮不计正确率/耗时/练习记录）
+        this._reviewResultBase = null; // 复习轮开始时的 sessionResults 快照，复习期间回滚
         this.hintUsedForWords = []; // 记录每个单词是否使用过提示
         this.spellHint = []; // 记录拼写模式每个单词的提示情况 { count, idxs, wrongPos }（长词容错判定）
         this.lastWordInfo = null; // 记录上一题的单词信息
@@ -666,6 +675,8 @@ class WordMemoryApp {
         if (saveBtn) saveBtn.addEventListener('click', () => this.saveSettings());
         const resetBtn = document.getElementById('resetSettingsBtn');
         if (resetBtn) resetBtn.addEventListener('click', () => this.resetSettings());
+        // 页面设置：主题色库 / 字体下拉 / 板块折叠（整页初始化被跳过，此处补齐，否则侧栏缺折叠按钮且字体无法选中）
+        this.initPageSettingsControls();
         this.initCustomModelAddRow(); // AI设置：自定义模型行内添加
     }
 
@@ -1597,38 +1608,8 @@ class WordMemoryApp {
             this.openSettings();
         });
 
-        // 页面设置-主题样式：点选色库即时应用全局 CEFR 配色，保存时写入用户配置
-        const cefrThemeList = document.getElementById('cefrThemeList');
-        if (cefrThemeList) {
-            const pickCefrTheme = (card) => {
-                if (!card) return;
-                const key = card.dataset.cefrTheme;
-                // 先只做「待保存」标记：点选即预览生效，真正落盘交给「保存」（未保存关闭则回到原色库）
-                this._pendingCefrTheme = key;
-                this.applyCefrTheme(key);
-                this.syncCefrThemeCards(key);
-            };
-            cefrThemeList.addEventListener('click', (e) => {
-                pickCefrTheme(e.target.closest('.cefr-theme-card'));
-            });
-            cefrThemeList.addEventListener('keydown', (e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                pickCefrTheme(e.target.closest('.cefr-theme-card'));
-            });
-        }
-
-        // 页面设置-主题样式：字体设置（左中文 / 右英文）点选即预览，保存时写入用户配置
-        const fontPicker = document.getElementById('fontPicker');
-        if (fontPicker) {
-            this.renderFontPicker();
-            this.applyFontSettings(this.settings.fontCN, this.settings.fontEN); // 启动/重开时套用已保存字体
-            this.syncFontPicker(this.settings.fontCN, this.settings.fontEN);
-            this.initFontPickers();
-        }
-
-        // 页面设置：各板块标题折叠（默认均为折叠状态）
-        this.initSettingSectionCollapse();
+        // 页面设置-主题样式 / 字体设置 / 板块折叠：统一初始化（Obsidian 侧栏模式复用同一套控件）
+        this.initPageSettingsControls();
 
         // 设置页：添加自定义模型（行内 ID + 名称 + 「+」）
         this.initCustomModelAddRow();
@@ -6225,7 +6206,17 @@ class WordMemoryApp {
 
     // 显示当前单词
     showWord() {
+        // 新一轮学习（sessionWords 被替换为全新数组）时快照主列表，作为进度条与复习判定基准
+        if (this._roundSessionRef !== this.sessionWords) {
+            this._beginRound();
+        }
+
         if (this.currentWordIndex >= this.sessionWords.length) {
+            // 本轮（含复习轮）仍有答错/未判对的词：自动开启下一复习轮，直到全部答对才进入结算画面
+            if (this._prepareReviewRound()) {
+                this.showWord();
+                return;
+            }
             this.showCompletion();
             return;
         }
@@ -7803,8 +7794,10 @@ ${example ? `- 例句：${example}` : ''}
             if (!this.wordWrongOptions[this.currentWordIndex]) {
                 this.wordWrongOptions[this.currentWordIndex] = [];
             }
-            if (!this.wordWrongOptions[this.currentWordIndex].includes(selected)) {
-                this.wordWrongOptions[this.currentWordIndex].push(selected);
+            // 记录「释义 + 对应单词」，用于上一题 tooltip 展示「单词 + 释义」
+            const wrongWord = (this.meaningToWordMap && this.meaningToWordMap[selected]) || '';
+            if (!this.wordWrongOptions[this.currentWordIndex].some(o => o.meaning === selected)) {
+                this.wordWrongOptions[this.currentWordIndex].push({ word: wrongWord, meaning: selected });
             }
             buttons.forEach(btn => {
                 // 使用dataset.option准确匹配，避免textContent的换行符问题
@@ -8692,9 +8685,9 @@ ${example ? `- 例句：${example}` : ''}
                 this.wordFirstResults[this.currentWordIndex] = this._retryOriginalResult;
             }
         }
-        // 累加本题答题耗时（重练同一题不重复计入）
+        // 累加本题答题耗时（重练同一题、复习轮不重复计入）
         if (this._wordStartT) {
-            if (this._retryWordIndex !== this.currentWordIndex) {
+            if (this._retryWordIndex !== this.currentWordIndex && !this._isReviewRound) {
                 if (!this._answerDurations) this._answerDurations = [];
                 // 以「首次作出判断」的时刻为终点（不再用 Date.now()，否则会把判断之后的
                 // 自动切换等待、释义阅读时间也算进来，导致平均答题速度普遍偏大）
@@ -8722,6 +8715,26 @@ ${example ? `- 例句：${example}` : ''}
 
         this._retryWordIndex = -1;
         this._retryOriginalResult = null;
+
+        // ===== 记录本题在本轮主列表中的状态（进度条颜色依据） =====
+        if (this._roundMasterIdx && this._roundMasterIdx.length === this.sessionWords.length) {
+            const mi = this._roundMasterIdx[this.currentWordIndex];
+            if (mi >= 0 && mi < this._roundStatus.length) {
+                if (this._isReviewRound) {
+                    // 复习答对 → 标绿（reviewed）；仍答错则保持原 wrong/unknown，留待下一复习轮
+                    if (this.wordFirstResults[this.currentWordIndex] === 'correct') {
+                        this._roundStatus[mi] = 'reviewed';
+                    }
+                } else {
+                    // 正式轮：以首次结果着色
+                    this._roundStatus[mi] = this.wordFirstResults[this.currentWordIndex] || null;
+                }
+            }
+        }
+        // 复习轮不计入正确率：整体回滚到正式轮结果
+        if (this._isReviewRound && this._reviewResultBase) {
+            this.sessionResults = { ...this._reviewResultBase };
+        }
 
         document.getElementById('nextBtn').disabled = true;
         this.currentWordIndex++;
@@ -8826,10 +8839,13 @@ ${example ? `- 例句：${example}` : ''}
 
     // 更新进度
     updateProgress() {
-        const current = this.currentWordIndex + 1;
-        const total = this.sessionWords.length;
+        // 进度以本轮主列表为准（复习轮不改变分母，只标记各段状态）
+        const total = this._roundWords.length || this.sessionWords.length;
+        const master = this._curMasterIndex();
+        const current = (master >= 0 ? master : this.currentWordIndex) + 1;
+        this.updateColoredProgress();
 
-        document.getElementById('currentIndex').textContent = current;
+        document.getElementById('currentIndex').textContent = Math.min(current, total);
         document.getElementById('totalWords').textContent = total;
 
         // 计算正确率
@@ -8837,49 +8853,85 @@ ${example ? `- 例句：${example}` : ''}
         const accuracy = attempted > 0 ? Math.round((this.sessionResults.correct / attempted) * 100) : 0;
         document.getElementById('accuracy').textContent = `${accuracy}%`;
 
-        // 更新异色进度条
-        this.updateColoredProgress();
-
         // 不在这里更新词书进度，改为在用户作答后才更新
         // this.updateBookProgress();
+    }
+
+    // 当前播放槽对应的主列表下标（正式轮为自身；复习轮映射到对应错题）
+    _curMasterIndex() {
+        if (this._roundMasterIdx && this._roundMasterIdx.length === this.sessionWords.length) {
+            return this._roundMasterIdx[this.currentWordIndex];
+        }
+        return this.currentWordIndex;
+    }
+
+    // 开始一轮新学习：以当前 sessionWords 为主列表快照进度基准
+    _beginRound() {
+        this._roundSessionRef = this.sessionWords;
+        this._roundWords = this.sessionWords.slice();
+        this._roundStatus = this._roundWords.map(() => null);
+        this._roundMasterIdx = this.sessionWords.map((_, i) => i);
+        this._isReviewRound = false;
+        this._reviewResultBase = null;
+    }
+
+    // 本轮结束：若仍有答错/未判对的词，按错题先后顺序构造复习轮并返回 true；否则返回 false（进入结算）。
+    // 复习期间不计入正确率/平均耗时/练习记录；复习再次答错的词会在下一复习轮继续，直到全部答对
+    _prepareReviewRound() {
+        if (!this._roundWords.length) return false;
+        const failed = [];
+        this._roundWords.forEach((_, i) => {
+            const st = this._roundStatus[i];
+            if (st === 'wrong' || st === 'unknown') failed.push(i);
+        });
+        if (!failed.length) return false;
+
+        // 快照正式轮结果，复习期间回滚（复习不计入正确率）
+        this._reviewResultBase = { ...this.sessionResults };
+        this._isReviewRound = true;
+
+        this.sessionWords = failed.map(i => this._roundWords[i]);
+        this._roundMasterIdx = failed.slice();
+        this.wordResults = [];
+        this.wordFirstResults = [];
+        this.wordWrongOptions = [];
+        this.hintUsedForWords = [];
+        this.spellHint = [];
+        this.lastWordInfo = null;
+        this.currentWordIndex = 0;
+        this._roundSessionRef = this.sessionWords; // 防止 showWord 将复习轮误判为新一轮
+        return true;
     }
 
     // 更新异色进度条
     updateColoredProgress() {
         const track = document.getElementById('progressTrack');
-        const total = this.sessionWords.length;
+        const total = this._roundWords.length || this.sessionWords.length;
+        if (!total) return;
         const segmentWidth = 100 / total; // 每个单词占的百分比
+        const curMaster = this._curMasterIndex();
 
         // 清空进度条
         track.innerHTML = '';
 
-        // 创建已答题的进度段
-        for (let i = 0; i < this.currentWordIndex; i++) {
+        for (let i = 0; i < total; i++) {
             const segment = document.createElement('div');
             segment.className = 'progress-segment';
             segment.style.width = `${segmentWidth}%`;
-            
-            // 根据首次答题结果设置颜色（使用首次结果，反映真实的答题情况）
-            if (this.wordFirstResults && this.wordFirstResults[i]) {
-                segment.classList.add(this.wordFirstResults[i]); // 'correct', 'wrong', 或 'unknown'
+
+            // 复习已答对：标绿（reviewed → correct 绿色，仅作视觉标记，不计入正确率）
+            const raw = this._roundStatus[i];
+            const st = raw === 'reviewed' ? 'correct' : raw;
+
+            if (i === curMaster) {
+                // 当前段：复习轮沿用原 wrong/unknown 的呼吸变化，标识复习进度
+                segment.classList.add('current');
+                if (st) segment.classList.add(st);
+            } else if (st) {
+                segment.classList.add(st);
+            } else {
+                segment.classList.add('pending');
             }
-            
-            track.appendChild(segment);
-        }
-
-        // 添加当前正在答的单词（高亮）
-        if (this.currentWordIndex < total) {
-            const currentSegment = document.createElement('div');
-            currentSegment.className = 'progress-segment current';
-            currentSegment.style.width = `${segmentWidth}%`;
-            track.appendChild(currentSegment);
-        }
-
-        // 添加未答的单词（灰色）
-        for (let i = this.currentWordIndex + 1; i < total; i++) {
-            const segment = document.createElement('div');
-            segment.className = 'progress-segment pending';
-            segment.style.width = `${segmentWidth}%`;
             track.appendChild(segment);
         }
     }
@@ -8898,6 +8950,9 @@ ${example ? `- 例句：${example}` : ''}
                 console.log('🔄 重练模式：跳过书签进度更新');
                 return;
             }
+
+            // 复习轮：不推进书签进度（复习不计入练习记录）
+            if (this._isReviewRound) return;
             
             // 实时进度 = 本次开始索引 + 当前已答题数（包含答对和答错）
             // 这样用户可以实时看到学习进度
@@ -8946,6 +9001,9 @@ ${example ? `- 例句：${example}` : ''}
             console.log('🔄 重练模式：跳过统计更新');
             return;
         }
+
+        // 复习轮：不计入单词统计与 SM-2（复习只作巩固，不进练习记录）
+        if (this._isReviewRound) return;
 
         // 优先使用 word._bookId，否则使用 currentBook
         const bookId = word._bookId || this.currentBook?.id;
@@ -9103,6 +9161,9 @@ ${example ? `- 例句：${example}` : ''}
         // 重练模式：不更新错题列表
         if (this._isRetryMode) return;
 
+        // 复习轮：不更新错题列表（复习不计入练习记录）
+        if (this._isReviewRound) return;
+
         // 「太简单」的词不再进入错题复习队列
         if (Storage.loadTooEasySet().has(`${word._bookId || this.currentBook.id}:${word.word}`)) return;
 
@@ -9159,6 +9220,9 @@ ${example ? `- 例句：${example}` : ''}
     // 从错题列表中移除已答对的单词（复习模式答对时调用）
     removeCorrectWordFromWrongList(word) {
         if (!this.currentBook || !word) return;
+
+        // 复习轮：不改动词书错题列表（复习不计入练习记录）
+        if (this._isReviewRound) return;
 
         const book = Storage.getBook(this.currentBook.id);
         if (!book) return;
@@ -9348,9 +9412,10 @@ ${example ? `- 例句：${example}` : ''}
             ctx.fill();
             ctx.globalAlpha = 1;
             if (isHot) {
-                // 描边用表面色，与背后散点自然分离
+                // hover 描边取 text-primary（浅色近黑、深色近白），与画布背景互为反色才可见；
+                // 原先误用 cSurface，浅色下白线/深色下黑线都与背景同色，等于隐身
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = cSurface;
+                ctx.strokeStyle = cTextPrimary;
                 ctx.stroke();
             }
         };
@@ -10943,16 +11008,6 @@ ${example ? `- 例句：${example}` : ''}
         // 字体设置：回填当前中/英文字体选中态
         this.syncFontPicker(this.settings.fontCN, this.settings.fontEN);
 
-        // 右侧窗口查词（Obsidian）：未设置过时默认开启，保持既有行为
-        document.getElementById('dictLookupInSidebar').checked = this.settings.dictLookupInSidebar !== false;
-
-        // 悬浮取词 / 划词翻译（Obsidian）：未设置过时默认开启
-        document.getElementById('hoverLookup').checked = this.settings.hoverLookup !== false;
-        document.getElementById('selectionTranslate').checked = this.settings.selectionTranslate !== false;
-
-        // 隐藏右侧栏「导入词典」拖入区（Obsidian）：未设置过时默认开启，让查单词视野更完整
-        document.getElementById('hideSidebarImport').checked = this.settings.hideSidebarImport !== false;
-
         // 渲染自定义模型列表（当前厂商）
         this.renderCustomModelList();
 
@@ -11253,10 +11308,6 @@ ${example ? `- 例句：${example}` : ''}
             cefrTheme: this._pendingCefrTheme || this.settings.cefrTheme || 'color_1', // CEFR 六级色库（页面设置-主题样式，点选即已预览，此处落盘）
             fontCN: this._pendingFontCN !== undefined ? this._pendingFontCN : (this.settings.fontCN || ''), // 中文字体（页面设置-主题样式）
             fontEN: this._pendingFontEN !== undefined ? this._pendingFontEN : (this.settings.fontEN || ''), // 英文字体（页面设置-主题样式）
-            dictLookupInSidebar: document.getElementById('dictLookupInSidebar').checked, // Obsidian 查词跳转交由右侧栏承接
-            hoverLookup: document.getElementById('hoverLookup').checked, // Obsidian 悬浮取词
-            selectionTranslate: document.getElementById('selectionTranslate').checked, // Obsidian 划词右键「翻译」
-            hideSidebarImport: document.getElementById('hideSidebarImport').checked, // Obsidian 隐藏右侧栏导入词典拖入区
             oralTianKey: String(this.settings.oralTianKey || ''), // 已移至「口语角设置」弹窗，此处仅沿用
             obWereadKey: String(this.settings.obWereadKey || ''), // 已移至「原著榜设置」弹窗，此处仅沿用
             obWereadProxy: String(this.settings.obWereadProxy || ''), // 已移至「微信读书设置」弹窗，此处仅沿用
@@ -11486,10 +11537,6 @@ ${example ? `- 例句：${example}` : ''}
                 cefrTheme: 'color_1', // CEFR 六级色库（默认 Nature）
                 fontCN: '', // 中文字体（'' = 系统默认，页面设置-主题样式）
                 fontEN: '', // 英文字体（'' = 系统默认，页面设置-主题样式）
-                dictLookupInSidebar: true, // Obsidian：查词跳转是否交由右侧栏承接（默认开启）
-                hoverLookup: true, // Obsidian：悬浮取词（默认开启）
-                selectionTranslate: true, // Obsidian：划词右键「翻译」（默认开启）
-                hideSidebarImport: true, // Obsidian：隐藏右侧栏「导入词典」拖入区（默认开启）
                 obWereadKey: '', // 微信读书 API Key（英文原著榜划线，选填）
                 obWereadProxy: '', // 微信读书划线转发地址（选填，留空用本地网关）
                 wreWereadKey: '', // 微信读书 API Key（划线导出专用，留空则沿用 obWereadKey）
@@ -11537,6 +11584,9 @@ ${example ? `- 例句：${example}` : ''}
     updateStatsRealtime() {
         // 重练模式：不计入今日统计
         if (this._isRetryMode) return;
+
+        // 复习轮：不计入今日统计（复习只作巩固，不进练习记录）
+        if (this._isReviewRound) return;
 
         // 计算本次新增的作答数（sessionResults - sessionStatsRecorded）
         const newCorrect = this.sessionResults.correct - this.sessionStatsRecorded.correct;
@@ -12820,6 +12870,10 @@ ${example ? `- 例句：${example}` : ''}
                     this.markSpellTyping();
                     return;
                 }
+
+                // 快速切题保护：上一题（如记得么）答对后按下的同一按键事件会继续派发到此处，
+                // 若下一题恰为拼写模式，会被当成「提示/不知道」而误判。缓冲期内直接忽略。
+                if (this._isInputLocked()) return;
 
                 const hotkeys = this.settings.hotkeys || {
                     option1: '1', option2: '2', option3: '3',
@@ -17242,8 +17296,9 @@ ${example ? `- 例句：${example}` : ''}
 
         const sequence = book.progress.sequence || [];
         
-        // 计算答对的单词数
-        const correctCount = this.wordFirstResults.filter(result => result === 'correct').length;
+        // 计算答对的单词数（复习轮的 reviewed 不计入；以本轮主列表状态为准）
+        const roundResults = (this._roundStatus && this._roundStatus.length) ? this._roundStatus : this.wordFirstResults;
+        const correctCount = roundResults.filter(result => result === 'correct').length;
         
         // 更新进度：sessionStartIndex + 答对的单词数
         const newIndex = this.sessionStartIndex + correctCount;
@@ -23249,7 +23304,7 @@ ${head}
         }
         const cnt = document.getElementById('wreBookCount');
         if (cnt) {
-            const detecting = this._wreDetecting ? '，识别中…' : '';
+            const detecting = this._wreDetecting ? '，识别中' : '';
             cnt.textContent = books.length + ' 本' + detecting;
         }
 
@@ -25290,7 +25345,7 @@ ${head}
             // 答错：正确答案优先展示，答错部分（所有选错过的选项）放其下方（红色）
             const wrongOnes = Array.isArray(result.wrongOptions) && result.wrongOptions.length > 0
                 ? result.wrongOptions
-                : [result.meaning]; // 兜底：无记录时展示本次释义
+                : [{ word: '', meaning: result.meaning }]; // 兜底：无记录时展示本次释义
             html += `<div class="badge-tooltip-group badge-tooltip-gray">
                         <div class="badge-tooltip-group-label">正确答案</div>
                         <div class="badge-tooltip-tags">
@@ -25300,8 +25355,11 @@ ${head}
                     <div class="badge-tooltip-group badge-tooltip-red">
                         <div class="badge-tooltip-group-label">答错 (${wrongOnes.length})</div>
                         <div class="badge-tooltip-tags">`;
-            wrongOnes.forEach(w => {
-                html += `<span class="badge-tooltip-tag strike">${esc(w)}</span>`;
+            wrongOnes.forEach(o => {
+                // 兼容纯释义字符串与「{word, meaning}」两种记录格式
+                const wWord = o && typeof o === 'object' ? (o.word || '') : '';
+                const wMeaning = o && typeof o === 'object' ? (o.meaning || '') : o;
+                html += `<span class="badge-tooltip-tag strike">${wWord ? esc(wWord) + ' ' : ''}${esc(wMeaning)}</span>`;
             });
             html += '</div></div>';
         }
@@ -26080,7 +26138,7 @@ ${head}
                 { label: '苹方', value: "'PingFang SC'" }
             ],
             en: [
-                { label: '系统默认', value: '' },
+                { label: 'System Default', value: '' },
                 { label: 'Times New Roman', value: "'Times New Roman'" },
                 { label: 'Georgia', value: 'Georgia' },
                 { label: 'Garamond', value: 'Garamond' },
@@ -26214,6 +26272,46 @@ ${head}
         document.addEventListener('click', (e) => {
             if (!wrap.contains(e.target)) closeAll();
         });
+    }
+
+    // 页面设置：主题色库点选 / 字体下拉 / 板块折叠的统一初始化。
+    // 主页在 initEventListeners 中调用；Obsidian 侧栏模式整页初始化被跳过，由 initSidebarSettingsModal 单独调用，
+    // 避免侧栏缺折叠按钮与字体无法选中
+    initPageSettingsControls() {
+        // 主题样式：点选色库即时应用全局 CEFR 配色，保存时写入用户配置
+        const cefrThemeList = document.getElementById('cefrThemeList');
+        if (cefrThemeList && !cefrThemeList._cefrBound) {
+            cefrThemeList._cefrBound = true;
+            const pickCefrTheme = (card) => {
+                if (!card) return;
+                const key = card.dataset.cefrTheme;
+                // 先只做「待保存」标记：点选即预览生效，真正落盘交给「保存」（未保存关闭则回到原色库）
+                this._pendingCefrTheme = key;
+                this.applyCefrTheme(key);
+                this.syncCefrThemeCards(key);
+            };
+            cefrThemeList.addEventListener('click', (e) => {
+                pickCefrTheme(e.target.closest('.cefr-theme-card'));
+            });
+            cefrThemeList.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                pickCefrTheme(e.target.closest('.cefr-theme-card'));
+            });
+        }
+
+        // 主题样式：字体设置（左中文 / 右英文）点选即预览，保存时写入用户配置
+        const fontPicker = document.getElementById('fontPicker');
+        if (fontPicker && !fontPicker._fontPickerRendered) {
+            fontPicker._fontPickerRendered = true;
+            this.renderFontPicker();
+            this.applyFontSettings(this.settings && this.settings.fontCN, this.settings && this.settings.fontEN); // 启动/重开时套用已保存字体
+            this.syncFontPicker(this.settings && this.settings.fontCN, this.settings && this.settings.fontEN);
+            this.initFontPickers();
+        }
+
+        // 各板块标题折叠（默认均为折叠状态）
+        this.initSettingSectionCollapse();
     }
 
     // 页面设置：把每个 setting-section-title 变成可折叠头，其后的内容（至下一个标题）收进可折叠体，
@@ -26619,16 +26717,16 @@ ${head}
             const btnWrap = document.createElement('div');
             btnWrap.style.cssText = 'flex-shrink:0; display:flex; align-items:center; gap:8px; margin-left:12px;';
             const editBtn = document.createElement('button');
-            editBtn.textContent = '✏️ 编辑';
+            editBtn.innerHTML = '<i class="fi-rr-pencil"></i> 编辑';
             editBtn.title = '编辑此自定义模型的标签与ID';
-            editBtn.style.cssText = 'padding:4px 10px; border:1px solid var(--primary-color,#3b82f6); border-radius:6px; background:transparent; color:var(--primary-color,#3b82f6); font-size:13px; cursor:pointer;';
+            editBtn.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--primary-color,#3b82f6); border-radius:6px; background:transparent; color:var(--primary-color,#3b82f6); font-size:13px; cursor:pointer;';
             editBtn.addEventListener('click', () => {
                 this.editCustomAiModel(model.value);
             });
             const delBtn = document.createElement('button');
-            delBtn.textContent = '🗑 删除';
+            delBtn.innerHTML = '<i class="fi-rr-trash"></i> 删除';
             delBtn.title = '删除此自定义模型';
-            delBtn.style.cssText = 'padding:4px 10px; border:1px solid var(--error); border-radius:6px; background:transparent; color:var(--error); font-size:13px; cursor:pointer;';
+            delBtn.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--error); border-radius:6px; background:transparent; color:var(--error); font-size:13px; cursor:pointer;';
             delBtn.addEventListener('click', () => {
                 if (confirm(`确定要删除自定义模型 "${model.label || model.shortLabel}" 吗？`)) {
                     this.removeCustomAiModel(model.value);
@@ -28052,10 +28150,11 @@ ${head}
         const colEl = barsEl && barsEl.querySelector('.cefr-bar');
         // 柱状图内容区高度（上下 padding 合计 26px），也是柱子的最大高度
         const CHART_H = Math.max(1, barsEl && barsEl.clientHeight ? barsEl.clientHeight - 26 : 100);
-        // 初始正方形边长：取「列宽的 80%」与「上半区可用高度的一半」中的较小值，写入 --bar-sq。
-        // 宽高同源于该变量可保证恒为正方形；按可用高度折半可始终留出向上的增长空间（满值柱高即 CHART_H）
+        // 初始正方形边长：取「列宽」与「上半区可用高度的 75%」中的较小值，写入 --bar-sq。
+        // 柱子宽度已改为撑满列宽（由 CSS 控制），此处 --bar-sq 仅决定初始高度：
+        // 可用高度充足时与列宽同值（正方形），不足时仅压低高度、留出向上的增长空间（满值柱高即 CHART_H）
         const sq = colEl && colEl.offsetWidth
-            ? Math.min(Math.round(colEl.offsetWidth * 0.8), Math.round(CHART_H * 0.5))
+            ? Math.min(Math.round(colEl.offsetWidth), Math.round(CHART_H * 0.75))
             : 0;
         if (sq && barsEl) {
             barsEl.style.setProperty('--bar-sq', sq + 'px');
@@ -30770,6 +30869,42 @@ But little did she know, this was just the beginning of an extraordinary journey
         }
     }
 
+    // AI 查询：比单纯翻译更强大包容——英文则翻译并解读，中文则解释概念帮助理解
+    // 供 Obsidian 划词「查询」使用（单词仍走首选词典释义，句子/中文段落走此处）
+    async queryText(text) {
+        console.log('🔎 开始查询:', text);
+        const translateModelEl = document.getElementById('translateAiModel');
+        const translateModel = (translateModelEl && translateModelEl.value) || this.getLastUsedModel() || '';
+
+        const systemPrompt = [
+            '你是一个博学的「查询」助手，目标是帮用户真正理解所查询的内容。请识别输入的语言与形态后灵活处理：',
+            '- 英文（单词、短语、句子或段落）：先用准确自然的中文译出，再解读其含义、用法与语境（如关键语法结构、固定搭配、引申义、文化或背景含义），必要时指出易混淆点。',
+            '- 中文（词语、概念或句子）：解释其含义与所指概念，帮助用户建立理解，可从定义、来源、用法、相关概念辨析、恰当例子等角度展开。',
+            '- 术语、专有名词或缩写：补充其定义、所属领域与必要的背景知识。',
+            '输出要求：',
+            '1. 直接给出结果，不要复述或翻译本提示。',
+            '2. 使用简洁清晰的 Markdown 组织内容（可用小标题与要点列表），重点突出，避免冗长。',
+            '3. 使用与输入相匹配的语言：输入为英文时讲解以中文为主（可保留英文例证）；输入为中文时用中文讲解。'
+        ].join('\n');
+
+        try {
+            const out = await AIService.callModel(translateModel, text, {
+                temperature: 0.3,
+                max_tokens: 900,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: text }
+                ]
+            });
+            const result = String(out || '').trim();
+            console.log('✅ 查询完成:', result);
+            return result;
+        } catch (error) {
+            console.error('❌ 查询失败:', error);
+            throw error;
+        }
+    }
+
     // 查词词典 AI 翻译：自动识别中英文，返回结构化结果 { word, phonetic, meaning }
     async dictLookupTranslate(text, _zhRetried) {
         console.log('🌐 词典AI翻译:', text);
@@ -31741,9 +31876,9 @@ But little did she know, this was just the beginning of an extraordinary journey
                 <div>
                     <div class="stats-history-date">${dateStr}</div>
                     <div class="stats-history-data">
-                        <span>⏱️ ${timeStr}</span>
-                        <span>📖 ${item.words}词</span>
-                        <span>✅ ${item.mastery}%</span>
+                        <span><i class="fi-rr-clock"></i>${timeStr}</span>
+                        <span><i class="fi-rr-book"></i>${item.words}词</span>
+                        <span><i class="fi-rr-check-circle"></i>${item.mastery}%</span>
                     </div>
                 </div>
                 <div class="stats-history-actions">
@@ -32362,6 +32497,30 @@ But little did she know, this was just the beginning of an extraordinary journey
     }
 }
 
+// 封面控制面板的滑条为完全自绘（见 styles.css 的 .nebula-range），填充比例需按当前值
+// 写入 --fill。封面模块恢复配置时是直接赋 .value（不触发 input 事件），故除监听 input
+// 外，再在初始化后延迟补几次同步兜底；「复位」类按钮改了值则借点击事件补同步
+function initNebulaRangeFill() {
+    const sync = (el) => {
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        const ratio = (isFinite(min) && isFinite(max) && max > min)
+            ? (parseFloat(el.value) - min) / (max - min) : 0;
+        el.style.setProperty('--fill', (Math.max(0, Math.min(1, ratio)) * 100).toFixed(2));
+    };
+    const syncAll = () => document.querySelectorAll('.nebula-range').forEach(sync);
+    document.addEventListener('input', (e) => {
+        const t = e.target;
+        if (t && t.classList && t.classList.contains('nebula-range')) sync(t);
+    });
+    document.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('.nebula-controls')) syncAll();
+    });
+    syncAll();
+    // 封面模块恢复配置的时机不定（含异步构建），多补几次延迟同步兜底
+    [300, 1200, 2500].forEach((t) => setTimeout(syncAll, t));
+}
+
 // 初始化应用
 let app;
 document.addEventListener('DOMContentLoaded', () => {
@@ -32388,5 +32547,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => app.initCategoryFilter(), 100);
     // 浏览词单表格：列宽可拖拽调整（含缓存恢复）
     app.initWordListColumnResize();
+    // 封面控制面板滑条的填充比例（自绘滑条，见 .nebula-range）
+    initNebulaRangeFill();
 });
 
