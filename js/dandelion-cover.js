@@ -3271,14 +3271,14 @@
         books.forEach(function (book) {
             panel.appendChild(bookOption(String(book.id), book.name || '未命名'));
         });
-        panel.appendChild(bookOption('favorites', '♡ 收藏'));
+        panel.appendChild(bookOption('favorites', '收藏', '<i class="fi-rr-heart"></i>'));
         if (state.selected.indexOf('favorites') !== -1) names.push('收藏');
         trigger.textContent = names.length ? names.join('、') : '选择词单';
         // 面板最宽 240px，词单多时按钮文字会被省略号截断，故悬停显示完整名单
         trigger.title = names.join('、');
     }
 
-    function bookOption(id, name) {
+    function bookOption(id, name, iconHtml) {
         var label = document.createElement('label');
         label.className = 'nebula-bookopt';
         var cb = document.createElement('input');
@@ -3287,7 +3287,8 @@
         cb.addEventListener('change', function () { selectBook(id, cb.checked); });
         label.appendChild(cb);
         var span = document.createElement('span');
-        span.textContent = name;
+        // 词书名来自用户数据，只走 textContent；仅内联图标走 innerHTML
+        if (iconHtml) span.innerHTML = iconHtml + name; else span.textContent = name;
         label.appendChild(span);
         return label;
     }

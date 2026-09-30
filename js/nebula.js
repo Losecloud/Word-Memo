@@ -2393,7 +2393,7 @@
         favCb.addEventListener('change', function () { selectBook('favorites', favCb.checked); });
         fav.appendChild(favCb);
         var favSpan = document.createElement('span');
-        favSpan.textContent = '♡ 收藏';
+        favSpan.innerHTML = '<i class="fi-rr-heart"></i> 收藏';
         fav.appendChild(favSpan);
         panel.appendChild(fav);
 

@@ -1728,6 +1728,11 @@ class WordMemoryApp {
             this.exitLearning();
         });
 
+        // 暂停 / 继续：按钮与毛玻璃遮罩互为触发点（三个练习模式各一组）
+        this.bindPracticePause('pauseOverlay', 'pauseBtn');
+        this.bindPracticePause('synonymPauseOverlay', 'synonymPauseBtn');
+        this.bindPracticePause('liyiPauseOverlay', 'liyiPauseBtn');
+
         // 移动端学习头部返回按钮：弹出确认，确定后退出学习
         const learningBackBtn = document.getElementById('learningBackBtn');
         const exitLearningModal = document.getElementById('exitLearningModal');
@@ -2174,6 +2179,11 @@ class WordMemoryApp {
 
         // 学习模式中的「太简单」按钮（标记后不再复习）
         document.getElementById('tooEasyBtn1').addEventListener('click', () => {
+            this.markWordTooEasy();
+        });
+
+        // 拼写模式的「不再学习」为仅图标按钮，与模式1/3 同一逻辑
+        document.getElementById('tooEasyBtn2').addEventListener('click', () => {
             this.markWordTooEasy();
         });
 
@@ -3578,8 +3588,8 @@ class WordMemoryApp {
             const expanded = allSelected || (this.categoryFilterState.root && this.categoryFilterState.root[root.code + '_expanded']);
             const hasChildren = root.children && root.children.length > 0;
             const expandIcon = hasChildren
-                ? `<span class="cat-expand-icon" data-root="${root.code}">${expanded ? '▾' : '▸'}</span>`
-                : '<span class="cat-expand-icon" style="visibility:hidden">▸</span>';
+                ? `<i class="cat-expand-icon fi-rr-caret-down" data-root="${root.code}" style="transform:rotate(${expanded ? 0 : -90}deg)"></i>`
+                : '<i class="cat-expand-icon" style="visibility:hidden"></i>';
 
             html += `<div class="cat-filter-root">
                 ${expandIcon}
@@ -4016,7 +4026,7 @@ class WordMemoryApp {
                 <div class="basic-words-overlay"></div>
                 <div class="basic-words-content fill-dialog-content">
                     <div class="basic-words-header">
-                        <h3>🔍 导入单词确认</h3>
+                        <h3><i class="fi-rr-search"></i> 导入单词确认</h3>
                         <div class="basic-words-bookname-wrap">
                             <label for="bookNameInput">词书名称：</label>
                             <input type="text" id="bookNameInput" class="basic-words-bookname-input" value="${this.escapeHtml(defaultBookName)}" placeholder="输入词书名称">
@@ -4235,7 +4245,7 @@ class WordMemoryApp {
             dialog.innerHTML = `
                 <div class="basic-words-overlay"></div>
                 <div class="basic-words-content fill-dialog-content">
-                    <h3>🔍 单词补缺确认</h3>
+                    <h3><i class="fi-rr-search"></i> 单词补缺确认</h3>
                     <p class="basic-words-hint">
                         ${allComplete
                             ? `词单数据完整。如需强制更新部分内容，请勾选下方要更新的列，点击确认后AI将重新生成所选列：<br>`
@@ -4371,7 +4381,7 @@ class WordMemoryApp {
                 pickerDialog.innerHTML = `
                     <div class="basic-words-overlay"></div>
                     <div class="basic-words-content category-picker-content">
-                        <h3>📁 选择场景类别 — ${this.escapeHtml(word.word)}</h3>
+                        <h3><i class="fi-rr-folder"></i> 选择场景类别 — ${this.escapeHtml(word.word)}</h3>
                         <p class="basic-words-hint" style="font-size:0.85rem;color:var(--text-secondary)">${this.escapeHtml(truncatedMeaning)}</p>
                         <p class="basic-words-hint">当前：${currentCategory ? `<span class="word-list-cat-tag">${this.escapeHtml(currentCategory)}</span>` : '<span class="word-list-sim-empty">-</span>'}</p>
                         <div class="category-picker-search">
@@ -4462,7 +4472,7 @@ class WordMemoryApp {
                                 : '<span class="cat-preview-empty">该类目暂无单词</span>';
                             html += `<div class="cat-picker-item${selected ? ' selected' : ''}" data-path="${this.escapeHtml(p)}">
                                 <span class="cat-picker-path">${displayHtml}</span>
-                                ${selected ? '<span class="cat-picker-check">✓</span>' : ''}
+                                ${selected ? '<span class="cat-picker-check"><i class="fi-rr-check"></i></span>' : ''}
                                 <div class="cat-picker-preview">${previewHtml}</div>
                             </div>`;
                         }
@@ -4503,7 +4513,7 @@ class WordMemoryApp {
                                 : '<span class="cat-preview-empty">该类目暂无单词</span>';
                             html += `<div class="cat-picker-item${selected ? ' selected' : ''}" data-path="${this.escapeHtml(p)}">
                                 <span class="cat-picker-path">${this.escapeHtml(display)}</span>
-                                ${selected ? '<span class="cat-picker-check">✓</span>' : ''}
+                                ${selected ? '<span class="cat-picker-check"><i class="fi-rr-check"></i></span>' : ''}
                                 <div class="cat-picker-preview">${previewHtml}</div>
                             </div>`;
                         }
@@ -4850,9 +4860,13 @@ class WordMemoryApp {
      */
     async fillMissingFields() {
         // 检查是否在浏览词单模式（通过检查是否有浏览中的词书ID或临时词书）
-        const currentBook = this.tempSmartImportBook || 
-                          (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null);
-        
+        // 收藏词单是虚拟聚合（currentWordListBookId === 'favorites'），不存在于 Storage.books，
+        // 必须走 getFavoritesVirtualBook() 取，否则会误判为「未浏览词单」而用不了补缺
+        const currentBook = this.tempSmartImportBook ||
+                          (this.currentWordListBookId === 'favorites'
+                              ? (this.favoritesVirtualBook || this.getFavoritesVirtualBook())
+                              : (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null));
+
         if (!currentBook || !currentBook.words || currentBook.words.length === 0) {
             alert('请先浏览词单再使用补缺功能');
             return;
@@ -4865,8 +4879,11 @@ class WordMemoryApp {
             this.saveAllWordListEdits();
             
             // 重新获取词书数据（因为保存后可能更新了）
-            const updatedBook = this.tempSmartImportBook || 
-                              (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null);
+            // 收藏词单编辑会同步回源词书并重建虚拟词单，故此处同样按收藏词单口径重新取
+            const updatedBook = this.tempSmartImportBook ||
+                              (this.currentWordListBookId === 'favorites'
+                                  ? (this.favoritesVirtualBook || this.getFavoritesVirtualBook())
+                                  : (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null));
             if (updatedBook) {
                 // 使用最新的词书数据
                 currentBook.words = updatedBook.words;
@@ -4938,6 +4955,10 @@ class WordMemoryApp {
                     // 首次保存临时词书到 storage
                     Storage.addBook({ name: currentBook.name, words: currentBook.words });
                 }
+            } else if (this._isFavoritesWordList()) {
+                // 收藏词单不存在于 books，需回写源词书/自定义词单，否则补完刷新即丢
+                this.saveFavoritesVirtualBook(currentBook);
+                this.loadBooks();
             } else {
                 Storage.updateBook(currentBook.id, currentBook);
             }
@@ -5042,6 +5063,9 @@ class WordMemoryApp {
                             } else {
                                 Storage.addBook({ name: book.name, words: book.words });
                             }
+                        } else if (this._isFavoritesWordList()) {
+                            // 收藏词单虚拟表：回写源词书/自定义词单
+                            this.saveFavoritesVirtualBook(book);
                         } else {
                             Storage.updateBook(book.id, book);
                         }
@@ -5071,7 +5095,24 @@ class WordMemoryApp {
             // 保存更新后的词书（如果不是临时词书）
             if (!this.tempSmartImportBook) {
                 console.log('📦 准备最终验证和刷新...');
-                
+
+                // 收藏词单：来源是各源词书/自定义词单，Storage.getBook('favorites') 恒为 undefined，
+                // 故最终再回写一次并用内存中的虚拟表做校验与重绘
+                if (this._isFavoritesWordList()) {
+                    this.saveFavoritesVirtualBook(currentBook);
+                    this.loadBooks();
+                    const freshBook = this.favoritesVirtualBook = this.getFavoritesVirtualBook();
+                    console.log(`  ✓ 收藏词单回写完成，包含 ${freshBook.words.length} 个单词`);
+                    setTimeout(() => {
+                        this.renderWordListTable(freshBook);
+                        this.hideAIProgress();
+                        alert(allComplete
+                            ? `✅ 更新完成！\n\n已成功更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}），并同步至来源词书`
+                            : `✅ 补缺完成！\n\n已成功补全 ${targetWords.length} 个单词的缺失字段，并同步至来源词书`);
+                    }, 300);
+                    return;
+                }
+
                 // 从localStorage重新读取最新数据，确保同步
                 const freshBook = Storage.getBook(currentBook.id);
                 console.log(`  ✓ 从localStorage读取词书: ${freshBook.name}`);
@@ -5623,7 +5664,7 @@ class WordMemoryApp {
         dialog.innerHTML = `
             <div class="basic-words-overlay"></div>
             <div class="basic-words-content category-picker-content">
-                <h3>📁 选择场景类别 — ${this.escapeHtml(word.word)}</h3>
+                <h3><i class="fi-rr-folder"></i> 选择场景类别 — ${this.escapeHtml(word.word)}</h3>
                 <p class="basic-words-hint" style="font-size:0.85rem;color:var(--text-secondary)">${this.escapeHtml(truncatedMeaning)}</p>
                 <p class="basic-words-hint">当前：${currentCategory ? `<span class="word-list-cat-tag">${this.escapeHtml(currentCategory)}</span>` : '<span class="word-list-sim-empty">-</span>'}</p>
                 <div class="category-picker-search">
@@ -5763,7 +5804,7 @@ class WordMemoryApp {
                         : '<span class="cat-preview-empty">该类目暂无单词</span>';
                     html += `<div class="cat-picker-item${selected ? ' selected' : ''}" data-path="${this.escapeHtml(p)}">
                         <span class="cat-picker-path">${this.escapeHtml(display)}</span>
-                        ${selected ? '<span class="cat-picker-check">✓</span>' : ''}
+                        ${selected ? '<span class="cat-picker-check"><i class="fi-rr-check"></i></span>' : ''}
                         <div class="cat-picker-preview">${previewHtml}</div>
                     </div>`;
                 }
@@ -6314,18 +6355,26 @@ class WordMemoryApp {
     }
 
     // 启动每题计时器
-    _startAnswerTimer() {
+    _startAnswerTimer(secondsOverride) {
         // 清除旧计时器
         this._clearAnswerTimer();
 
-        // 获取计时秒数：优先词书覆盖，否则全局设置
+        // 获取计时秒数：优先词书覆盖，其次续做时的剩余秒数，最后全局设置
         let seconds;
-        if (this.currentBook && this.currentBook.answerTimeLimit !== undefined && this.currentBook.answerTimeLimit !== null) {
+        if (typeof secondsOverride === 'number' && secondsOverride > 0) {
+            seconds = secondsOverride;
+        } else if (this.currentBook && this.currentBook.answerTimeLimit !== undefined && this.currentBook.answerTimeLimit !== null) {
             seconds = this.currentBook.answerTimeLimit;
         } else {
             seconds = this.settings.answerTimeLimit;
         }
-        if (!seconds || seconds <= 0) return;
+        if (!seconds || seconds <= 0) {
+            this._answerTimerDeadline = null;
+            return;
+        }
+
+        // 记录到期时刻：暂停时据此算出剩余秒数，继续后按剩余时间重新计时
+        this._answerTimerDeadline = Date.now() + seconds * 1000;
 
         // 在进度条当前段上设置动画时长
         const currentSeg = document.querySelector('.progress-segment.current');
@@ -6336,6 +6385,7 @@ class WordMemoryApp {
 
         this._answerTimer = setTimeout(() => {
             this._answerTimer = null;
+            this._answerTimerDeadline = null;
             // 如果本题已作答（已跳过或已提交），不重复触发
             if (this.wordFirstResults[this.currentWordIndex]) return;
             // 计时到 -> 标记 unknown（黄色），但不自动切到下一题
@@ -7232,7 +7282,7 @@ class WordMemoryApp {
             if (!apiKey) {
                 return `
                     <div class="memory-method-section">
-                        <div class="memory-method-title">⚠️ 未配置API密钥</div>
+                        <div class="memory-method-title"><i class="fi-rr-triangle-warning"></i> 未配置API密钥</div>
                         <div class="memory-method-content">
                             <p>请先在设置中配置API密钥才能使用AI记忆辅助功能。</p>
                             <p>前往 设置 → AI工坊设置 → 配置API密钥</p>
@@ -7303,7 +7353,7 @@ ${example ? `- 例句：${example}` : ''}
             console.error('获取记忆方法失败:', error);
             return `
                 <div class="memory-method-section">
-                    <div class="memory-method-title">❌ 生成失败</div>
+                    <div class="memory-method-title"><i class="fi-rr-cross"></i> 生成失败</div>
                     <div class="memory-method-content">
                         <p>无法连接到AI服务，请检查：</p>
                         <ul>
@@ -7573,7 +7623,7 @@ ${example ? `- 例句：${example}` : ''}
                 html += `
                     <div class="memory-method-section">
                         <div class="memory-method-title">
-                            <span class="memory-icon">💡</span>
+                            <span class="memory-icon"><i class="fi-rr-bulb"></i></span>
                             <span class="memory-type">记忆提示 ${index + 1}</span>
                         </div>
                         <div class="memory-method-content">
@@ -7659,8 +7709,11 @@ ${example ? `- 例句：${example}` : ''}
             });
 
             // 以主色调浮现正确例句，并在其余选项上浮现其真实单词（便于对照记忆）。
-            // 首次作答即答对、或先答错后选中正确项时揭示；先点“不知道”（橙色）则保持原样
-            if (this.wordFirstResults[this.currentWordIndex] !== 'unknown') {
+            // 仅「用户主动点了不知道」时保持原样（此时不知道按钮已转为「如何记忆？」）；
+            // 超时被判 unknown 时不写该标记，故超时后再选正确项同样会浮现对照
+            const unknownClicked = Array.from(buttons)
+                .some(btn => btn.dataset.memoryAidMode === 'true');
+            if (!unknownClicked) {
                 this.showExampleOnWrongAnswer('correct');
                 buttons.forEach(btn => {
                     if (btn.dataset.option === correct) return;
@@ -7987,7 +8040,10 @@ ${example ? `- 例句：${example}` : ''}
 
         // 清除“记得”按钮的命中反馈
         const rememberBtnReset = document.getElementById('rememberBtn');
-        if (rememberBtnReset) rememberBtnReset.classList.remove('btn-remember-active');
+        if (rememberBtnReset) {
+            rememberBtnReset.classList.remove('btn-remember-active');
+            rememberBtnReset.classList.remove('btn-remember-next');
+        }
 
         // 填充角标：记得=③(option1)，不记得=④(option2)
         const hotkeys = this.settings.hotkeys || {
@@ -8134,6 +8190,21 @@ ${example ? `- 例句：${example}` : ''}
                 // 点击后：仅请求AI记忆方法（释义已显示，不再重复显示）
                 this.showRememberMeaningAid();
             };
+        }
+
+        // 已判「不记得」，本轮不再有改判入口：「记得」按钮转为「下一个」用于切下一题。
+        // 保留角标 span 结构，便于沿用 option1 快捷键切题
+        const rememberBtn = document.getElementById('rememberBtn');
+        if (rememberBtn) {
+            rememberBtn.classList.remove('btn-remember-active');
+            rememberBtn.classList.add('btn-remember-next'); // 已是切题动作，去掉“记得”的绿色语义
+            rememberBtn.innerHTML = '下一个 <span class="hotkey-hint" id="rememberHotkey"></span>';
+            const hint = document.getElementById('rememberHotkey');
+            const hotkeys = this.settings.hotkeys || {
+                option1: '1', option2: '2', option3: '3',
+                option4: '4', option5: '5', option6: '6'
+            };
+            if (hint) hint.textContent = hotkeys.option1;
         }
 
         // 复用模式1“不知道”的统计口径：计入错误次数、写入错题、进度条标红
@@ -8628,7 +8699,7 @@ ${example ? `- 例句：${example}` : ''}
         const text = document.getElementById('feedbackText');
         const answer = document.getElementById('correctAnswer');
 
-        icon.textContent = isCorrect ? '✓' : '✗';
+        icon.innerHTML = `<i class="${isCorrect ? 'fi-rr-check' : 'fi-rr-cross'}"></i>`;
         text.textContent = message;
         answer.textContent = detail;
 
@@ -9667,7 +9738,7 @@ ${example ? `- 例句：${example}` : ''}
         
         if (this._isSm2Review) {
             // 艾宾浩斯复习：完成后继续复习剩余到期单词
-            completionIcon.textContent = '🧠';
+            completionIcon.innerHTML = '<i class="fi-rr-brain"></i>';
             completionTitle.textContent = '本轮复习完成！';
             // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
@@ -9876,11 +9947,36 @@ ${example ? `- 例句：${example}` : ''}
     backToHome() {
         // 停止今日统计显示定时器
         this.stopStatsDisplayTimer();
-        
+
         // 清除"换个模式"的临时模式，避免影响下次进入学习
         this.sessionModeOverride = null;
-        
+
+        // 复位所有暂停态：退出后遮罩与「继续」按钮文案不应残留到下次进入
+        this.resetAllPracticePause();
+
         this.showScreen('welcomeScreen');
+    }
+
+    // 复位三个练习模式的暂停遮罩与按钮（切题/退出时统一调用，避免遮罩残留）
+    resetAllPracticePause() {
+        this._pausedTimerDeadline = null;
+        this._answerTimerDeadline = null;
+        [
+            ['pauseOverlay', 'pauseBtn'],
+            ['synonymPauseOverlay', 'synonymPauseBtn'],
+            ['liyiPauseOverlay', 'liyiPauseBtn']
+        ].forEach(([overlayId, btnId]) => {
+            const overlay = document.getElementById(overlayId);
+            const btn = document.getElementById(btnId);
+            if (overlay) overlay.classList.add('hidden');
+            if (!btn) return;
+            btn.dataset.paused = '';
+            btn.title = '暂停';
+            const iconEl = btn.querySelector('i');
+            const labelEl = btn.querySelector('.btn-text-label');
+            if (iconEl) iconEl.className = 'fi-rr-pause';
+            if (labelEl) labelEl.textContent = '暂停';
+        });
     }
 
     // 退出学习
@@ -9891,6 +9987,70 @@ ${example ? `- 例句：${example}` : ''}
             
             this.backToHome();
         }
+    }
+
+    // ===== 暂停 / 继续 =====
+    // 暂停：盖上毛玻璃遮罩并把「暂停」按钮改为「继续」。
+    // 每题倒计时同时停掉，避免遮罩期间被判超时；继续时按剩余时间重新计时。
+    pausePractice(overlayId, btnId) {
+        const overlay = document.getElementById(overlayId);
+        const btn = document.getElementById(btnId);
+        if (!overlay || !btn || btn.dataset.paused === '1') return;
+
+        // 记下本题倒计时的到期时刻，继续时按剩余时间续做（不重新给满时间）
+        this._pausedTimerDeadline = this._answerTimerDeadline || null;
+
+        btn.dataset.paused = '1';
+        const iconEl = btn.querySelector('i');
+        const labelEl = btn.querySelector('.btn-text-label');
+        if (iconEl) iconEl.className = 'fi-rr-play';
+        if (labelEl) labelEl.textContent = '继续';
+        btn.title = '继续';
+        overlay.classList.remove('hidden');
+
+        this._clearAnswerTimer();
+        this.pauseWordTiming();
+    }
+
+    // 继续：撤下遮罩，按剩余时间恢复本题倒计时
+    resumePractice(overlayId, btnId) {
+        const overlay = document.getElementById(overlayId);
+        const btn = document.getElementById(btnId);
+        if (!overlay || !btn || btn.dataset.paused !== '1') return;
+
+        btn.dataset.paused = '';
+        const iconEl = btn.querySelector('i');
+        const labelEl = btn.querySelector('.btn-text-label');
+        if (iconEl) iconEl.className = 'fi-rr-pause';
+        if (labelEl) labelEl.textContent = '暂停';
+        btn.title = '暂停';
+        overlay.classList.add('hidden');
+
+        this.resumeWordTiming();
+
+        // 暂停前确有倒计时在跑才续做：同义词/熟词僻义模式本就没有每题限时，
+        // 不能借此凭空开一个；未开启限时时同样不重开
+        const hadTimer = !!this._pausedTimerDeadline;
+        const left = hadTimer
+            ? (this._pausedTimerDeadline - Date.now()) / 1000
+            : 0;
+        this._pausedTimerDeadline = null;
+        if (!hadTimer) return;
+        // 本题已作答：不再重开倒计时
+        if (this.wordFirstResults[this.currentWordIndex]) return;
+        this._startAnswerTimer(left > 0 ? left : undefined);
+    }
+
+    // 绑定一组「暂停 / 继续」：按钮与遮罩互为触发点
+    bindPracticePause(overlayId, btnId) {
+        const overlay = document.getElementById(overlayId);
+        const btn = document.getElementById(btnId);
+        if (!overlay || !btn) return;
+        btn.addEventListener('click', () => {
+            if (btn.dataset.paused === '1') this.resumePractice(overlayId, btnId);
+            else this.pausePractice(overlayId, btnId);
+        });
+        overlay.addEventListener('click', () => this.resumePractice(overlayId, btnId));
     }
 
     // 加载可用的声优
@@ -10381,7 +10541,7 @@ ${example ? `- 例句：${example}` : ''}
         }
 
         const { word, pos, meaning, result, favorite } = this.lastWordInfo;
-        const icon = result === 'correct' ? '✔' : result === 'wrong' ? '✗' : '?';
+        const icon = result === 'correct' ? 'check' : result === 'wrong' ? 'cross' : 'question';
         const className = result === 'correct' ? 'correct' : result === 'wrong' ? 'wrong' : 'unknown';
         
         const detailHtml = this.buildNormalLastBadgeDetail(this.lastWordInfo);
@@ -10389,7 +10549,7 @@ ${example ? `- 例句：${example}` : ''}
         badge.style.display = 'flex';
         badge.className = `last-word-badge ${className}`;
         badge.innerHTML = `
-            <span class="badge-icon">${icon}</span>
+            <span class="badge-icon"><i class="fi-rr-${icon}"></i></span>
             <span class="badge-content">
                 <span class="badge-word">${word}</span>:
                 <span class="badge-meaning">${pos} ${meaning}</span>
@@ -11858,7 +12018,7 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="review-book-name">${safeName}</div>
                         <div class="review-book-count">${book.wrongCount} 词</div>
                     </div>
-                    <button class="review-book-btn" onclick="app.startBookReview('${book.id}')" title="开始复习">✏️</button>
+                    <button class="review-book-btn" onclick="app.startBookReview('${book.id}')" title="开始复习"><i class="fi-rr-pencil"></i></button>
                 </div>
             `;
         });
@@ -13104,7 +13264,7 @@ ${example ? `- 例句：${example}` : ''}
                 <div class="book-item-header">
                     <span class="book-item-icon">${this.bookIconHtml('fi-sr-star favorite-icon', 'fi-sr-star favorite-icon')}</span>
                     <div class="book-item-name">${this.escapeHtml(pref.name)}</div>
-                    <button class="fav-sync-btn${this.getEudicLink(pref.id) ? '' : ' hidden'}" id="favSyncBtn" type="button" title="同步到欧路词典">
+                    <button class="fav-sync-btn${this.getEudicLink(pref.id) ? '' : ' hidden'}" id="favSyncBtn" type="button" title="重新拉取欧路释义">
                         <svg class="svg-ic fav-sync-ok" aria-hidden="true"><use href="#ic-ok"></use></svg>
                         <i class="fav-sync-refresh fi-rr-refresh"></i>
                     </button>
@@ -13123,6 +13283,8 @@ ${example ? `- 例句：${example}` : ''}
                 syncBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     if (syncBtn.classList.contains('is-syncing')) return;
+                    // 手动点击 = 强制重拉：从欧路重新取全量并按当前清洗规则重写释义，
+                    // 用于规则更新后刷新旧释义（自动同步只做增量，无变化属正常）
                     await this.runFavEudicSync();
                 });
             }
@@ -13536,10 +13698,15 @@ ${example ? `- 例句：${example}` : ''}
         return Array.isArray(d) ? d : [];
     }
 
-    // 拉取某个欧路生词本的全部单词（该接口无分页参数，一次返回全量；按单词去重）
+    // 拉取某个欧路生词本的全部单词。
+    // 该接口行为实测有两个坑：
+    //  1) 传 page 会直接返回空数组（page=1 亦然），只能用不传 page 的默认全量；
+    //  2) page_size 上限为 100，超过 100（如 150/500/2000）同样返回空数组。
+    // 故先按 page_size=100 取一次，若恰好取满 100 条则无法确认是否还有更多，
+    // 退化为只处理已取到的部分（欧路单生词本超过 100 词时需另行处理）。
     async eudicFetchWords(categoryId) {
         const d = await this.eudicApi('/studylist/words', {
-            query: { language: 'en', category_id: String(categoryId) }
+            query: { language: 'en', category_id: String(categoryId), page_size: '100' }
         });
         const arr = Array.isArray(d) ? d : [];
         const seen = new Set();
@@ -13571,12 +13738,19 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 清洗欧路返回的释义（含 HTML）
-    // 欧路生词本的 exp 会在释义后用 <br> 追加词形变化 / 派生词等内容（如「时 态: possessed, possessing, possesses」「名 词: possessor」），
-    // 这些不属于释义，需逐段剔除（官网词典页展示的释义不含这些内容）。
+    // 欧路生词本的 exp 会在释义后追加非释义内容，分两类：
+    //  1) 词性 / 形态标注 + 冒号，如「时 态: possessed」「名 词: possessor」「形容词: jurisdictional」「比较级: wholesomer」；
+    //     标注可能独立成段（<br> 分隔），也可能无分隔直接黏在释义尾部。
+    //  2) 英文单词本身与缩写释义，如「…；Liner低电离核区」「…；Sulfur硫黄」「…；SNAPabbr. Satellite Naviga…」。
+    // 这些都不属于释义，需从首个切点起截断（官网词典页展示的释义不含这些内容）。
     eudicCleanExp(exp) {
-        const label = '(?:时\\s*态|名\\s*词|动\\s*词|形容词|副\\s*词|过去\\s*式|过去\\s*分词|现在\\s*分词|第三人称\\s*单数|复\\s*数|比较级|最高级|词\\s*形|变\\s*形|词\\s*性|词\\s*根|派生)';
-        const dropSeg = new RegExp('^' + label + '\\s*[:：]');
-        const cutTail = new RegExp('[;；]\\s*' + label + '\\s*[:：][\\s\\S]*$');
+        const label = '(?:时\\s*态|名\\s*词|动\\s*词|形\\s*容\\s*词|副\\s*词|比\\s*较\\s*级|最\\s*高\\s*级|过\\s*去\\s*式|过\\s*去\\s*分\\s*词|现\\s*在\\s*分\\s*词|现\\s*在\\s*时\\s*间|第\\s*三\\s*人\\s*称\\s*单\\s*数|单\\s*数|复\\s*数|词\\s*形|变\\s*形|变\\s*位|词\\s*性|词\\s*根|派\\s*生|词\\s*缀|词\\s*头)';
+        // 分句开头出现标注，或任意位置出现「; 标注:」，即从该处截断
+        const cutLabel = new RegExp('(?:[;；]\\s*|\\s*|^)' + label + '\\s*[:：][\\s\\S]*$');
+        // 追加的单词本身与缩写释义：分号后紧跟英文词、且该词直接贴着中文或 abbr.，
+        // 如「;Liner低电离核区」「;Sulfur硫黄」「;BADGEabbr. Base Air…」。
+        // 要求「英文词 + (紧贴中文 或 abbr.)」，可避开释义中正当的英文词（如「;the cat」不匹配）
+        const cutWord = /(?:^|[;；]\s*)[A-Za-z]{2,}(?=\s*[一-龥]|abbr\.)[\s\S]*$/i;
         return String(exp || '')
             .replace(/\r\n?/g, '\n')
             .split(/<br\s*\/?>|\n/gi)
@@ -13588,8 +13762,11 @@ ${example ? `- 例句：${example}` : ''}
                 .trim()
                 .replace(/^[;；]+|[;；]+$/g, '')
                 .trim())
-            .filter(seg => seg && !dropSeg.test(seg))
-            .map(seg => seg.replace(cutTail, '').trim())
+            .map(seg => seg
+                .replace(cutLabel, '')
+                .replace(cutWord, '')
+                .replace(/[;；\s]+$/g, '')
+                .trim())
             .filter(Boolean)
             .join('；');
     }
@@ -13601,10 +13778,104 @@ ${example ? `- 例句：${example}` : ''}
         return (d && Array.isArray(d.words)) ? d.words : [];
     }
 
+    // 当前浏览的是否为收藏词单（虚拟聚合，不存在于 Storage.books）
+    _isFavoritesWordList() {
+        return this.currentWordListBookId === 'favorites';
+    }
+
+    // 把收藏词单虚拟表里的改动写回来源（各源词书 / 自定义词单自身 words / 全局收藏）。
+    // 收藏词单与词书不同源，Storage.updateBook('favorites') 找不到目标会静默失败，
+    // 故补缺等批量修改必须经此回写，否则补完刷新即丢。返回实际写入的来源数量。
+    saveFavoritesVirtualBook(virtualBook) {
+        if (!virtualBook || !Array.isArray(virtualBook.words)) return 0;
+
+        const listId = this.getCurrentFavoriteListId();
+        let saved = 0;
+
+        // 自定义词单：词条就存在词单自身，直接落盘
+        if (listId !== 'favorites') {
+            const lists = this.getFavoriteLists();
+            const d = lists.find(x => x.id === listId);
+            if (d) {
+                d.words = virtualBook.words;
+                this.saveFavoriteLists(lists);
+                saved++;
+            }
+            return saved;
+        }
+
+        // 默认词单：虚拟表带 _sourceBookId / _sourceWordIndex / _originalWord，需回写各源
+        const books = new Map();
+        const dirty = new Set();
+        const globals = Storage.loadFavoriteItems() || [];
+        let globalsDirty = false;
+
+        virtualBook.words.forEach(vw => {
+            if (!vw) return;
+            if (vw._sourceBookId === 'global') {
+                const g = globals.find(x => x && String(x.word || '').trim().toLowerCase() ===
+                    String(vw._originalWord || vw.word || '').trim().toLowerCase());
+                if (!g) return;
+                g.phonetic = vw.phonetic || g.phonetic || '';
+                if (Array.isArray(vw.definitions) && vw.definitions.length) {
+                    g.definitions = JSON.parse(JSON.stringify(vw.definitions));
+                }
+                globalsDirty = true;
+                return;
+            }
+            if (!books.has(vw._sourceBookId)) books.set(vw._sourceBookId, Storage.getBook(vw._sourceBookId));
+            const book = books.get(vw._sourceBookId);
+            if (!book || !Array.isArray(book.words)) return;
+            // 索引提示可能已过期，按原始文本回退匹配
+            let idx = -1;
+            const key = String(vw._originalWord || vw.word || '').trim().toLowerCase();
+            if (typeof vw._sourceWordIndex === 'number' &&
+                book.words[vw._sourceWordIndex] &&
+                book.words[vw._sourceWordIndex].word.toLowerCase() === key) {
+                idx = vw._sourceWordIndex;
+            } else {
+                idx = book.words.findIndex(x => x && x.word && x.word.toLowerCase() === key);
+            }
+            if (idx === -1) return;
+            const src = book.words[idx];
+            // 只覆盖补缺涉及的字段，保留源词条上的收藏标记与学习统计
+            src.phonetic = vw.phonetic || src.phonetic || '';
+            if (Array.isArray(vw.definitions) && vw.definitions.length) {
+                src.definitions = JSON.parse(JSON.stringify(vw.definitions));
+            }
+            if (vw.category) src.category = vw.category;
+            if (vw.similar) src.similar = vw.similar;
+            dirty.add(vw._sourceBookId);
+        });
+
+        dirty.forEach(bookId => {
+            const b = books.get(bookId);
+            if (b) { Storage.updateBook(bookId, b); saved++; }
+        });
+        if (globalsDirty) { Storage.saveFavoriteItems(globals); saved++; }
+        return saved;
+    }
+
     // 收藏词单与欧路生词本的链接信息（暂不支持更换链接源，仅支持取消链接）
     getEudicLink(id) {
         const d = this.getFavoriteLists().find(x => x.id === id);
         return (d && d.eudic && d.eudic.categoryId) ? d.eudic : null;
+    }
+
+    // 是否以欧路释义覆盖本词单的本地释义（存于词单自身，随词单配置落盘）
+    // 缺省为 true：已链接的词单默认以欧路为准；只有显式关掉才不覆盖
+    getEudicOverwriteOn(id) {
+        const d = this.getFavoriteLists().find(x => x.id === id);
+        if (!d || !d.eudic || !d.eudic.categoryId) return false;
+        return d.eudic.overwrite !== false;
+    }
+
+    setEudicOverwriteOn(id, on) {
+        const lists = this.getFavoriteLists();
+        const d = lists.find(x => x.id === id);
+        if (!d || !d.eudic || !d.eudic.categoryId) return;
+        d.eudic.overwrite = !!on;
+        this.saveFavoriteLists(lists);
     }
 
     setEudicLink(id, link) {
@@ -13692,13 +13963,15 @@ ${example ? `- 例句：${example}` : ''}
         }
         // 欧路侧补齐
         if (toEudic.length) await this.eudicAddWords(cat.id, toEudic);
-
+        // 两端已有的词：释义立即以欧路为准覆盖本地（词单关闭了覆盖则跳过）
         this.setEudicLink(id, {
             categoryId: String(cat.id),
             categoryName: cat.name || '未命名生词本',
             language: 'en',
+            overwrite: true,
             linkedAt: new Date().toISOString()
         });
+        if (this.getEudicOverwriteOn(id)) this.eudicOverwriteFromRemote(id, remote);
         // 基线 = 两端并集，避免合并后立刻把刚补齐的词又推一遍
         const union = new Set(remoteWords.map(norm));
         localWords.forEach(w => union.add(norm(w)));
@@ -13726,19 +13999,20 @@ ${example ? `- 例句：${example}` : ''}
         btn.classList.toggle('is-syncing', state === 'syncing');
     }
 
-    // 手动同步（左下角同步按钮点击）
+    // 手动重拉（左下角同步按钮点击），force 恒为 true
+    // 忽略上次基线，从欧路重新取全量并按当前清洗规则重写释义：
+    // 清洗规则升级后旧释义需按新规则刷新一遍，此时增量同步会提示「无变化」。
     async runFavEudicSync() {
         this.setFavSyncBtnState('syncing');
-        const r = await this.eudicAutoSync();
+        const r = await this.eudicAutoSync(true);
         this.setFavSyncBtnState('idle');
         if (!r) this.showToast('欧路词典同步失败：请检查授权码是否有效', 'error');
-        else if (!r.added && !r.removed && !r.pulled) this.showToast('已与欧路词典核对，无变化', 'info');
+        else if (!r.pulled && !r.overwritten) this.showToast('已重新拉取欧路，释义已是最新', 'info');
         else {
             const parts = [];
             if (r.pulled) parts.push(`拉取 ${r.pulled}`);
-            if (r.added) parts.push(`推送 ${r.added}`);
-            if (r.removed) parts.push(`移除 ${r.removed}`);
-            this.showToast('已同步欧路词典：' + parts.join('、'), 'success');
+            if (r.overwritten) parts.push(`重写释义 ${r.overwritten}`);
+            this.showToast('已重新拉取欧路：' + parts.join('、'), 'success');
         }
         return r;
     }
@@ -13785,15 +14059,94 @@ ${example ? `- 例句：${example}` : ''}
         return added;
     }
 
-    async eudicAutoSync() {
-        if (this._eudicSyncing) return { added: 0, removed: 0, pulled: 0 };
+    // 用欧路的释义覆盖本地已存在的词条（默认词单是虚拟聚合，需回写各源词书与全局收藏）
+    // 例句不参与覆盖：生词本条目的 context_line 是「添加时自己填的语境」，多数为空，
+    // 词典例句所在的语料库接口取不到稳定的对应关系，强行覆盖只会弄丢本地例句。
+    // 云端释义为空时保留本地原值。force = 无条件重写（清洗规则更新后手动重拉时用），
+    // 此时即使清洗结果与本地相同也重新落盘，确保旧释义按新规则刷新一遍。
+    // 返回实际发生变化的词数。
+    eudicOverwriteFromRemote(id, remoteArr, force) {
+        if (!Array.isArray(remoteArr) || !remoteArr.length) return 0;
+        const remoteMap = new Map();
+        remoteArr.forEach(r => {
+            const k = String((r && r.word) || '').trim().toLowerCase();
+            if (k && !remoteMap.has(k)) remoteMap.set(k, r);
+        });
+        if (!remoteMap.size) return 0;
+
+        let changed = 0;
+        const apply = (w, r) => {
+            if (!w) return false;
+            if (!Array.isArray(w.definitions) || !w.definitions.length) w.definitions = [{ meaning: '', example: '' }];
+            const def = w.definitions[0];
+            const meaning = this.eudicCleanExp(r.exp);
+            if (!meaning) return false;
+            if (meaning === def.meaning) {
+                // 强制重拉：内容相同也算一次刷新，保证旧释义按新规则重新落盘
+                if (!force) return false;
+                changed++;
+                return true;
+            }
+            def.meaning = meaning;
+            changed++;
+            return true;
+        };
+
+        if (id === 'favorites') {
+            const books = new Map();
+            const dirty = new Set();
+            const globals = Storage.loadFavoriteItems() || [];
+            let globalsDirty = false;
+            this.getFavoritesVirtualBook().words.forEach(vw => {
+                const key = String((vw && vw.word) || '').trim().toLowerCase();
+                const r = remoteMap.get(key);
+                if (!r) return;
+                if (vw._sourceBookId === 'global') {
+                    const g = globals.find(x => x && String(x.word || '').trim().toLowerCase() === key);
+                    if (g && apply(g, r)) globalsDirty = true;
+                    return;
+                }
+                if (!books.has(vw._sourceBookId)) books.set(vw._sourceBookId, Storage.getBook(vw._sourceBookId));
+                const book = books.get(vw._sourceBookId);
+                if (!book || !Array.isArray(book.words)) return;
+                // 索引提示可能已过期，按原始文本回退匹配
+                let idx = -1;
+                if (typeof vw._sourceWordIndex === 'number' && book.words[vw._sourceWordIndex] && book.words[vw._sourceWordIndex].word === vw._originalWord) {
+                    idx = vw._sourceWordIndex;
+                } else {
+                    idx = book.words.findIndex(x => x && x.word && x.word.toLowerCase() === key);
+                }
+                if (idx !== -1 && apply(book.words[idx], r)) dirty.add(vw._sourceBookId);
+            });
+            dirty.forEach(bookId => { const b = books.get(bookId); if (b) Storage.updateBook(bookId, b); });
+            if (globalsDirty) Storage.saveFavoriteItems(globals);
+            return changed;
+        }
+
+        const lists = this.getFavoriteLists();
+        const d = lists.find(x => x.id === id);
+        if (!d || !Array.isArray(d.words)) return 0;
+        d.words.forEach(w => {
+            const r = remoteMap.get(String((w && w.word) || '').trim().toLowerCase());
+            if (r) apply(w, r);
+        });
+        this.saveFavoriteLists(lists);
+        return changed;
+    }
+
+    // force = 忽略基线强制重拉（手动点同步按钮时用）：
+    //   基线视作空集 → 本地词全视为「新增」会被推给云端（已存在则云端忽略），
+    //   云端词也全视为「新增」会拉回本地；配合无条件重写释义，
+    //   清洗规则升级后旧释义能按新规则重写一遍。
+    async eudicAutoSync(force) {
+        if (this._eudicSyncing) return { added: 0, removed: 0, pulled: 0, overwritten: 0 };
         if (!this.getEudicToken()) return null;
         const links = this.getFavoriteLists().filter(l => l.eudic && l.eudic.categoryId);
-        if (!links.length) return { added: 0, removed: 0, pulled: 0 };
+        if (!links.length) return { added: 0, removed: 0, pulled: 0, overwritten: 0 };
         this._eudicSyncing = true;
-        let totalAdd = 0, totalDel = 0, totalPull = 0;
+        let totalAdd = 0, totalDel = 0, totalPull = 0, totalOverwrite = 0;
         try {
-            const base = this.getEudicSyncedMap();
+            const base = force ? {} : this.getEudicSyncedMap();
             for (const l of links) {
                 const cur = this.getFavoriteListWords(l.id)
                     .map(w => String((w && w.word) || '').trim()).filter(Boolean);
@@ -13821,9 +14174,31 @@ ${example ? `- 例句：${example}` : ''}
                     if (!baseSet.has(k) && !curMap.has(k)) toPull.push(item);
                 });
 
+                // 强制重拉模式：只做「拉回 + 重写释义」，不推送也不删除，
+                // 避免把本地全部词重发给欧路（触发频率限制）并无谓改动云端词单
+                if (force) {
+                    const pulledF = this.eudicApplyPulledWords(l.id, toPull);
+                    // 无条件重写：不论释义是否相同都按当前清洗规则重新落一遍
+                    const rewritten = this.getEudicOverwriteOn(l.id) ? this.eudicOverwriteFromRemote(l.id, remoteArr, true) : 0;
+                    totalPull += pulledF;
+                    totalOverwrite += rewritten;
+                    // 基线直接取云端全量：强制重拉不改变两端词集合
+                    base[l.id] = Array.from(new Set([...curMap.keys(), ...remoteMap.keys()]));
+                    this.saveEudicSyncedMap(base);
+                    const nameF = l.eudic.categoryName || '欧路生词本';
+                    const partsF = [];
+                    if (pulledF) partsF.push(`拉取 ${pulledF}`);
+                    if (rewritten) partsF.push(`重写释义 ${rewritten}`);
+                    this.showToast(`已重新拉取欧路「${nameF}」：${partsF.join('、') || '已是最新'}`, 'success');
+                    continue;
+                }
+
                 if (toAdd.length) await this.eudicAddWords(l.eudic.categoryId, toAdd);
                 if (toDel.length) await this.eudicDeleteWords(l.eudic.categoryId, toDel);
                 const pulled = this.eudicApplyPulledWords(l.id, toPull);
+                // 两端已存在的词：释义以欧路为准覆盖本地（云端为空则保留本地值）
+                const overwritten = this.getEudicOverwriteOn(l.id) ? this.eudicOverwriteFromRemote(l.id, remoteArr) : 0;
+                totalOverwrite += overwritten;
 
                 totalAdd += toAdd.length;
                 totalDel += toDel.length;
@@ -13841,24 +14216,25 @@ ${example ? `- 例句：${example}` : ''}
                 base[l.id] = Array.from(localPost).filter(k => remotePost.has(k));
                 this.saveEudicSyncedMap(base);
 
-                if (toAdd.length || toDel.length || pulled) {
+                if (toAdd.length || toDel.length || pulled || overwritten) {
                     const name = l.eudic.categoryName || '欧路生词本';
                     const parts = [];
                     if (toAdd.length) parts.push(`推送 ${toAdd.length}`);
                     if (toDel.length) parts.push(`移除 ${toDel.length}`);
                     if (pulled) parts.push(`拉取 ${pulled}`);
+                    if (overwritten) parts.push(`更新释义 ${overwritten}`);
                     this.showToast(`已同步欧路「${name}」：${parts.join('、')}`, 'success');
                 }
             }
-            // 有从云端拉回的单词：刷新侧栏词单计数与当前浏览的收藏列表
-            if (totalPull) {
+            // 有从云端拉回或被覆盖释义的单词：刷新侧栏词单计数与当前浏览的收藏列表
+            if (totalPull || totalOverwrite) {
                 this.renderBookList();
                 try { this.renderFavListPicker(); } catch (e) { /* 忽略 */ }
                 if (this.currentWordListBookId === 'favorites') {
                     this.openFavoritesWordList(this.getCurrentFavoriteListId());
                 }
             }
-            return { added: totalAdd, removed: totalDel, pulled: totalPull };
+            return { added: totalAdd, removed: totalDel, pulled: totalPull, overwritten: totalOverwrite };
         } catch (e) {
             console.warn('欧路词典同步失败:', e);
             this.showToast('欧路词典同步失败：' + (e && e.message || e), 'error');
@@ -13903,7 +14279,7 @@ ${example ? `- 例句：${example}` : ''}
         addBtn.type = 'button';
         addBtn.className = 'ai-picker-add-btn';
         addBtn.title = '新建收藏词单';
-        addBtn.textContent = '➕ 新建';
+        addBtn.innerHTML = '<i class="fi-rr-plus"></i> 新建';
         group.appendChild(groupLabel);
         group.appendChild(addBtn);
         panel.appendChild(group);
@@ -14032,7 +14408,7 @@ ${example ? `- 例句：${example}` : ''}
         ok.type = 'button';
         ok.className = 'fav-list-item-edit-ok';
         ok.title = '确认';
-        ok.textContent = '✓';
+        ok.innerHTML = '<i class="fi-rr-check"></i>';
         [input, ok].forEach(el => {
             el.addEventListener('mousedown', (e) => e.stopPropagation());
             el.addEventListener('click', (e) => e.stopPropagation());
@@ -14108,6 +14484,16 @@ ${example ? `- 例句：${example}` : ''}
                             <span class="switch-slider"></span>
                         </label>
                     </div>
+                    <div class="fav-list-set-row" id="favListEudicOverwriteRow">
+                        <div class="fav-list-set-text">
+                            <div class="fav-list-set-label">以欧路释义覆盖本地释义</div>
+                            <div class="fav-list-set-hint">同步时用欧路的单词释义覆盖本词单里的同名单词，例句保持本地不变</div>
+                        </div>
+                        <label class="switch-wrap">
+                            <input type="checkbox" id="favListEudicOverwriteSwitch">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
                     <!-- 链接欧路词典（授权码 → 生词本列表 → 合并并链接 / 取消链接） -->
                     <div class="eudic-block" id="eudicBlock"></div>
                 </div>
@@ -14122,9 +14508,14 @@ ${example ? `- 例句：${example}` : ''}
         const nameInput = overlay.querySelector('#favListRenameInput');
         const descInput = overlay.querySelector('#favListDescInput');
         const prefSwitch = overlay.querySelector('#favListPrefSwitch');
+        const overwriteSwitch = overlay.querySelector('#favListEudicOverwriteSwitch');
+        const overwriteRow = overlay.querySelector('#favListEudicOverwriteRow');
         nameInput.value = d.name;
         descInput.value = d.desc || '';
         prefSwitch.checked = isPreferred;
+        // 覆盖开关只在该词单已链接欧路生词本时可用
+        overwriteRow.style.display = this.getEudicLink(id) ? '' : 'none';
+        overwriteSwitch.checked = this.getEudicOverwriteOn(id);
 
         this.mountEudicSection(overlay.querySelector('#eudicBlock'), id);
 
@@ -14146,6 +14537,8 @@ ${example ? `- 例句：${example}` : ''}
             this.setFavoriteListDesc(id, descInput.value.trim());
             if (prefSwitch.checked) this.setPreferredFavoriteListId(id);
             else if (isPreferred) this.setPreferredFavoriteListId('favorites'); // 取消首选则回落默认词单
+            // 覆盖开关只对已链接的词单生效（未链接时无处可覆盖）
+            if (this.getEudicLink(id)) this.setEudicOverwriteOn(id, overwriteSwitch.checked);
             closeModal();
             this.renderFavListPicker();
             this.renderBookList(); // 同步侧栏「收藏词单」入口（名称 / 单词数 / 介绍）
@@ -14274,10 +14667,11 @@ ${example ? `- 例句：${example}` : ''}
                     try {
                         const r = await this.eudicAutoSync();
                         if (!r) setHint('同步失败：请检查授权码是否有效。', 'error');
-                        else if (!r.added && !r.removed && !r.pulled) setHint('已与欧路词典核对，无变化。', 'ok');
+                        else if (!r.added && !r.removed && !r.pulled && !r.overwritten) setHint('已与欧路词典核对，无变化。', 'ok');
                         else {
                             const parts = [];
                             if (r.pulled) parts.push('拉取 ' + r.pulled + ' 词');
+                            if (r.overwritten) parts.push('更新释义 ' + r.overwritten + ' 词');
                             if (r.added) parts.push('推送 ' + r.added + ' 词');
                             if (r.removed) parts.push('移除 ' + r.removed + ' 词');
                             setHint('同步完成：' + parts.join('、'), 'ok');
@@ -14300,6 +14694,9 @@ ${example ? `- 例句：${example}` : ''}
                     this.clearEudicLink(listId);
                     setHint('已取消链接，可重新填入授权码并选择生词本。', 'info');
                     renderCats();
+                    // 已无链接，覆盖开关随之隐藏
+                    const owRow = document.getElementById('favListEudicOverwriteRow');
+                    if (owRow) owRow.style.display = 'none';
                 });
                 acts.appendChild(unlink);
                 row.appendChild(acts);
@@ -14429,6 +14826,13 @@ ${example ? `- 例句：${example}` : ''}
             const r = await this.eudicMergeAndLink(listId, cat);
             setHint('已链接欧路「' + name + '」（欧路 ' + r.remoteCount + ' 词）：词忆新增 ' + r.addedToLocal + ' 个，欧路新增 ' + r.addedToEudic + ' 个。', 'ok');
             rerender();
+            // 链接后才可用覆盖开关，同步刷新弹窗里的开关状态
+            const owRow = document.getElementById('favListEudicOverwriteRow');
+            if (owRow) {
+                owRow.style.display = '';
+                const ow = document.getElementById('favListEudicOverwriteSwitch');
+                if (ow) ow.checked = this.getEudicOverwriteOn(listId);
+            }
             this.renderBookList();
             this.renderFavListPicker();
             // 当前正在浏览该词单时刷新表格
@@ -17555,23 +17959,28 @@ ${example ? `- 例句：${example}` : ''}
         
         const searchTerm = query.toLowerCase().trim();
         
-        // 极简图标分类：按图标名称搜索
-        if (this.currentEmojiCategory === 'uicons') {
-            const data = window.UICONS_ICONS || { all: [] };
-            const prefix = 'fi-' + this.currentUiconStyle + '-';
-            const matched = data.all.filter(name => name.includes(searchTerm));
-            matched.forEach(name => {
-                const cls = prefix + name;
-                const emojiItem = document.createElement('div');
-                emojiItem.className = 'emoji-item uicon-item';
-                emojiItem.innerHTML = `<i class="${cls}"></i>`;
-                emojiItem.title = name;
-                emojiItem.addEventListener('click', () => {
-                    this.selectEmoji(cls);
-                });
-                emojiGrid.appendChild(emojiItem);
+        // 极简图标（UIcons）：按图标英文名搜索，如 book / star / home
+        const uiconData = window.UICONS_ICONS || { all: [] };
+        const uiconPrefix = 'fi-' + this.currentUiconStyle + '-';
+        const matchedUicons = uiconData.all.filter(name => name.includes(searchTerm));
+        const addUiconItem = name => {
+            const cls = uiconPrefix + name;
+            const uiconItem = document.createElement('div');
+            uiconItem.className = 'emoji-item uicon-item';
+            uiconItem.innerHTML = `<i class="${cls}"></i>`;
+            uiconItem.title = name;
+            uiconItem.addEventListener('click', () => {
+                this.selectEmoji(cls);
             });
-            if (matched.length === 0) {
+            emojiGrid.appendChild(uiconItem);
+        };
+        // 「全部」分类需同时涵盖极简图标，否则搜不到 uicon，有违「全部」之名；
+        // 其余分类只展示本类内容，极简图标仅在「极简」分类或「全部」下参与搜索
+        const searchUicons = this.currentEmojiCategory === 'uicons' || this.currentEmojiCategory === 'all';
+        if (searchUicons) matchedUicons.forEach(addUiconItem);
+        
+        if (this.currentEmojiCategory === 'uicons') {
+            if (matchedUicons.length === 0) {
                 emojiGrid.innerHTML = `
                 <div style="padding: 40px 20px; text-align: center; color: var(--text-secondary); grid-column: 1 / -1;">
                     <div style="font-size: 0.875rem;">未找到"${query}"相关的图标</div>
@@ -17598,6 +18007,9 @@ ${example ? `- 例句：${example}` : ''}
         // 去重（某些emoji可能在多个分类中）
         const uniqueEmojis = [...new Set(matchedEmojis)];
         
+        // 极简图标已提前插入，需与 emoji 一并判断，避免仅有 uicon 命中时被空结果覆盖
+        const shownUicons = searchUicons ? matchedUicons.length : 0;
+        
         if (uniqueEmojis.length > 0) {
             // 显示搜索结果
             uniqueEmojis.forEach(emoji => {
@@ -17610,15 +18022,17 @@ ${example ? `- 例句：${example}` : ''}
                 });
                 emojiGrid.appendChild(emojiItem);
             });
-            
-            console.log(`🔍 搜索"${query}"找到 ${uniqueEmojis.length} 个emoji`);
+        }
+        
+        if (uniqueEmojis.length > 0 || shownUicons > 0) {
+            console.log(`🔍 搜索"${query}"找到 ${uniqueEmojis.length} 个emoji、${shownUicons} 个极简图标`);
         } else {
             // 没有找到结果
             emojiGrid.innerHTML = `
                 <div style="padding: 40px 20px; text-align: center; color: var(--text-secondary); grid-column: 1 / -1;">
                     <div style="font-size: 3rem; margin-bottom: 12px;">🔍</div>
-                    <div style="font-size: 0.875rem;">未找到"${query}"相关的emoji</div>
-                    <div style="font-size: 0.75rem; margin-top: 8px; opacity: 0.7;">试试其他关键词，如：心、书、旗帜、美国</div>
+                    <div style="font-size: 0.875rem;">未找到"${query}"相关的图标</div>
+                    <div style="font-size: 0.75rem; margin-top: 8px; opacity: 0.7;">试试其他关键词，如：心、书、旗帜、book</div>
                 </div>
             `;
         }
@@ -17851,7 +18265,7 @@ ${example ? `- 例句：${example}` : ''}
             card.dataset.app = 'dict:' + d.file;
             card.dataset.cat = 'dict';
             card.innerHTML =
-                `<div class="workshop-app-icon">${d.icon || '📗'}</div>` +
+                `<div class="workshop-app-icon"><i class="fi-rr-book"></i></div>` +
                 `<h3 class="workshop-app-title">${d.label || d.file}</h3>` +
                 `<p class="workshop-app-desc">${d.desc || ''}</p>` +
                 `<div class="dict-apply-row"></div>` +
@@ -20362,7 +20776,7 @@ When including options, each must have an "impact" field. Use the available keyw
             }
             
             docItem.innerHTML = `
-                <span class="doc-item-icon">${doc.isBuiltIn ? '📚' : '📄'}</span>
+                <span class="doc-item-icon"><i class="${doc.isBuiltIn ? 'fi-rr-books' : 'fi-rr-document'}"></i></span>
                 <div class="doc-item-info">
                     <div class="doc-item-name">${doc.name}</div>
                     <div class="doc-item-meta">${doc.wordCount} 个单词 · ${this.formatDate(doc.uploadTime)}</div>
@@ -20903,7 +21317,7 @@ When including options, each must have an "impact" field. Use the available keyw
         const answer = document.getElementById('synonymCorrectAnswer');
         
         if (isFullyCorrect) {
-            icon.textContent = '✓';
+            icon.innerHTML = '<i class="fi-rr-check"></i>';
             icon.style.color = 'var(--success)';
             text.textContent = '完全正确！';
             answer.textContent = '';
@@ -20912,7 +21326,7 @@ When including options, each must have an "impact" field. Use the available keyw
             this.playAnimation(true);
             this.playCorrectSound();
         } else if (isPartiallyCorrect) {
-            icon.textContent = '△';
+            icon.innerHTML = '<i class="fi-rr-triangle"></i>';
             icon.style.color = 'var(--warning)';
             text.textContent = '部分正确';
             answer.innerHTML = `<div style="margin-top: 1rem;">正确答案：<strong>${correctAnswers.join(', ')}</strong></div>`;
@@ -20921,7 +21335,7 @@ When including options, each must have an "impact" field. Use the available keyw
             this.playAnimation('neutral');
             this.playWrongSound();
         } else {
-            icon.textContent = '✗';
+            icon.innerHTML = '<i class="fi-rr-cross"></i>';
             icon.style.color = 'var(--error)';
             text.textContent = '请继续加油！';
             answer.innerHTML = `<div style="margin-top: 1rem;">正确答案：<strong>${correctAnswers.join(', ')}</strong></div>`;
@@ -21098,7 +21512,10 @@ When including options, each must have an "impact" field. Use the available keyw
         if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
             // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
             this.stopStatsDisplayTimer();
-            
+
+            // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
+            this.resetAllPracticePause();
+
             this.synonymStartTime = null;
             this.synonymBaseMinutes = null;
             this.effectiveStartTime = null;
@@ -21193,23 +21610,23 @@ When including options, each must have an "impact" field. Use the available keyw
             
             // 与正常背单词模式一致的图标 + 配色类
             let className = 'unknown';
-            let icon = '?';
+            let icon = 'question';
             let text = '';
             if (lastResult.correct) {
                 className = 'correct';
-                icon = '✔';
+                icon = 'check';
                 text = '上一题正确';
             } else if (lastResult.partial) {
                 className = 'partial';
-                icon = '△';
+                icon = 'triangle';
                 text = '上一题部分正确';
             } else if (lastResult.skipped) {
                 className = 'skipped';
-                icon = '⊘';
+                icon = 'ban';
                 text = '上一题跳过';
             } else {
                 className = 'wrong';
-                icon = '✗';
+                icon = 'cross';
                 text = '上一题错误';
             }
             
@@ -21218,7 +21635,7 @@ When including options, each must have an "impact" field. Use the available keyw
             // 悬浮详情卡片：上一组答案对照
             const detailHtml = this.buildSynonymLastBadgeDetail(lastResult);
             badge.innerHTML = `
-                <span class="badge-icon">${icon}</span>
+                <span class="badge-icon"><i class="fi-rr-${icon}"></i></span>
                 <span class="badge-content">
                     <span class="badge-word">${text}</span>
                 </span>
@@ -23801,7 +24218,7 @@ ${head}
         dialog.innerHTML = `
             <div class="basic-words-overlay"></div>
             <div class="basic-words-content fill-dialog-content">
-                <h3>📚 生成词书确认</h3>
+                <h3><i class="fi-rr-books"></i> 生成词书确认</h3>
                 <p class="basic-words-hint">
                     本书共识别到 <strong>${items.length}</strong> 个符合所选等级的划线单词，勾选后确认收录：<br>
                     <span class="fill-mark-ok">√</span> 表示基础词典已有该内容；<span class="fill-mark-missing">-</span> 表示缺失（收录后可在词单中补缺）。
@@ -24209,7 +24626,7 @@ ${head}
             item.dataset.docId = doc.id;
             
             item.innerHTML = `
-                <span class="doc-item-icon">${doc.isBuiltIn ? '📖' : '📄'}</span>
+                <span class="doc-item-icon"><i class="${doc.isBuiltIn ? 'fi-rr-book' : 'fi-rr-document'}"></i></span>
                 <div class="doc-item-info">
                     <div class="doc-item-name">${this.escapeHtml(doc.name)}</div>
                     <div class="doc-item-meta">${doc.wordCount} 个单词</div>
@@ -24945,7 +25362,7 @@ ${head}
         const text = document.getElementById('liyiFeedbackText');
         const answer = document.getElementById('liyiCorrectAnswer');
         
-        icon.textContent = '✓';
+        icon.innerHTML = '<i class="fi-rr-check"></i>';
         icon.style.color = 'var(--success)';
         text.textContent = '回答正确！';
         answer.textContent = '';
@@ -25051,7 +25468,10 @@ ${head}
         if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
             // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
             this.stopStatsDisplayTimer();
-            
+
+            // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
+            this.resetAllPracticePause();
+
             this.liyiStartTime = null;
             this.liyiBaseMinutes = null;
             this.effectiveStartTime = null;
@@ -25198,24 +25618,24 @@ ${head}
             const lastResult = this.liyiResults[this.liyiResults.length - 1];
             
             let className = 'unknown';
-            let icon = '?';
+            let icon = 'question';
             let text = '';
             if (lastResult.correct) {
                 className = 'correct';
-                icon = '✔';
+                icon = 'check';
                 text = '上一题正确';
             } else if (lastResult.partial) {
                 // 选错但属于该词全义：温和黄色提醒（同义替换 partial 级别）
                 className = 'partial';
-                icon = '△';
+                icon = 'triangle';
                 text = '上一题差点答对';
             } else if (lastResult.skipped) {
                 className = 'skipped';
-                icon = '⊘';
+                icon = 'ban';
                 text = '上一题跳过';
             } else {
                 className = 'wrong';
-                icon = '✗';
+                icon = 'cross';
                 text = '上一题错误';
             }
             
@@ -25223,7 +25643,7 @@ ${head}
             badge.className = `last-word-badge ${className}`;
             const detailHtml = this.buildLiyiLastBadgeDetail(lastResult);
             badge.innerHTML = `
-                <span class="badge-icon">${icon}</span>
+                <span class="badge-icon"><i class="fi-rr-${icon}"></i></span>
                 <span class="badge-content">
                     <span class="badge-word">${text}</span>
                 </span>
@@ -27461,7 +27881,7 @@ ${head}
         addBtn.className = 'ai-picker-add-btn';
         addBtn.dataset.aiValue = '__add_new__';
         addBtn.title = '添加自定义模型';
-        addBtn.innerHTML = '➕ 添加自定义模型';
+        addBtn.innerHTML = '<i class="fi-rr-plus"></i> 添加自定义模型';
         cg.appendChild(cgLabel);
         cg.appendChild(addBtn);
         panel.appendChild(cg);
@@ -31682,7 +32102,7 @@ But little did she know, this was just the beginning of an extraordinary journey
             resultItem.className = `result-item ${isCorrect ? 'correct' : 'wrong'}`;
             resultItem.innerHTML = `
                 <div class="result-header">
-                    <span class="result-icon">${isCorrect ? '✓' : '✗'}</span>
+                    <span class="result-icon"><i class="${isCorrect ? 'fi-rr-check' : 'fi-rr-cross'}"></i></span>
                     <span class="result-title">Question ${index + 1}</span>
                 </div>
                 <div class="result-question">${this.escapeHtml(this.cleanMarkdown(q.question))}</div>

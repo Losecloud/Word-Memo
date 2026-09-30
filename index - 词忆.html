@@ -97,11 +97,21 @@
             display: flex;
             flex-shrink: 0;
         }
+        /* 输入框定位包裹层：作为左侧 logo 与清空按钮的定位基准，
+           使二者始终相对 36px 高的输入框垂直居中，不受 .dict-lookup 高度变化影响 */
+        .dict-lookup-input-wrap {
+            position: relative;
+            width: 100%;
+            flex: 0 0 auto;
+            line-height: 0;
+        }
         .dict-lookup-input {
             width: 100%;
             box-sizing: border-box;
             height: 36px;
+            display: block;
             padding: 0 12px;
+            padding-left: 34px; /* 左侧留白，容纳 logo 图标 */
             padding-right: 32px; /* 右侧留白，避免文本被清空按钮遮挡 */
             font-size: 1.1rem;
             color: var(--text-primary);
@@ -110,6 +120,27 @@
             border-radius: var(--radius-md);
             transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
+        /* 左侧 logo 图标：常驻叠加在输入框内，聚焦时高亮为主色 */
+        .dict-lookup-icon {
+            position: absolute;
+            top: 50%;
+            left: 11px;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .dict-lookup-icon svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .dict-lookup-icon svg path { fill: var(--text-secondary); transition: fill 0.15s ease; }
+        .dict-lookup:focus-within .dict-lookup-icon svg path { fill: var(--primary-color); }
         /* 清空文本 × 按钮：悬浮输入框右侧 */
         .dict-lookup-clear {
             position: absolute;
@@ -626,11 +657,8 @@
             padding: var(--spacing-sm) var(--spacing-xs);
             font-size: 0.8rem;
         }
-        /* 清空按钮：绝对定位基准 .dict-lookup 在侧栏下变为满高 flex 容器，
-           沿用 top:50% 会落到整栏中部，故改为相对输入框垂直居中（输入框高 36px） */
-        html.wm-sidebar-mode .dict-lookup-clear {
-            top: 18px;
-        }
+        /* 清空按钮与左侧 logo 的定位基准已改为 .dict-lookup-input-wrap（与输入框等高），
+           故 top:50% + translateY(-50%) 在 Web 端与侧栏下均正确垂直居中 */
         /* ===== Obsidian 封面视窗（?wmView=cover）：整页只承载可视化封面 ===== */
         html.wm-cover-mode,
         html.wm-cover-mode body {
@@ -1039,8 +1067,13 @@
             </div>
             <!-- 查单词：调用 tools/browse-dict.html 检索功能，复用启用词库缓存与最近查词缓存；位于整栏正中心 -->
             <div class="dict-lookup" id="dictLookup">
+              <div class="dict-lookup-input-wrap">
+                <span class="dict-lookup-icon" id="dictLookupIcon" aria-hidden="true">
+                    <svg viewBox="0 0 80.14 80.14" xmlns="http://www.w3.org/2000/svg"><path d="M35.44,4.14c16.37-.6,30.44,11,34.04,26.46,1.52,6.61.99,13.51-1.53,19.82-1.05,2.57-2.19,4.52-3.67,6.83,3.9,3.91,7.86,7.78,11.72,11.73.98,1.01,1.62,1.88,1.56,3.34-.04,1.04-.49,2.01-1.27,2.72-.7.64-1.68,1.01-2.65.98-1.93-.07-2.97-1.44-4.22-2.7-.92-.91-1.84-1.83-2.76-2.76l-4.88-4.94c-.82-.82-1.81-1.74-2.57-2.56-.77.8-1.44,1.28-2.31,1.96-5.51,4.2-12.21,6.61-19.18,6.92-8.94.29-17.62-2.92-24.16-8.91-6.41-5.84-10.59-14.63-10.94-23.24-.06-1.35-.06-3.23.04-4.54.51-6.62,3-12.96,7.15-18.21.77-.98,1.59-1.84,2.44-2.75,6.05-6.27,14.39-9.93,23.19-10.16ZM37.66,64.27c.87-.02,1.85-.14,2.71-.27,5.68-.82,10.9-3.61,14.84-7.68,5.16-5.33,7.75-12.55,7.49-19.86-.04-1.09-.29-2.6-.52-3.68-1.13-5.31-3.88-10.17-7.87-13.93-4.9-4.64-11.48-7.17-18.28-7.05-.13,0-.37,0-.5.02-7.35.3-13.61,3.17-18.51,8.57-4.88,5.38-7.18,12.11-6.76,19.28.43,7.23,3.61,13.32,8.99,18.17,4.28,3.8,9.74,6.06,15.5,6.4.91.06,2,.05,2.92.03h0Z"/><path d="M35.53,33.56c2.39-.4,4.65,1.22,5.04,3.61s-1.24,4.65-3.64,5.03c-2.38.38-4.62-1.24-5-3.62-.39-2.38,1.22-4.62,3.6-5.02Z"/><path d="M20.95,33.59c2.38-.47,4.69,1.08,5.15,3.46.46,2.38-1.1,4.68-3.49,5.13-2.37.45-4.65-1.1-5.11-3.47-.46-2.36,1.08-4.65,3.44-5.12h.01Z"/><path d="M49.91,33.58c2.39-.45,4.68,1.14,5.11,3.53s-1.17,4.67-3.57,5.08c-2.37.4-4.62-1.18-5.04-3.54-.42-2.36,1.14-4.63,3.5-5.07Z"/></svg>
+                </span>
                 <input class="dict-lookup-input" id="dictLookupInput" type="text" placeholder="查单词" autocomplete="off" spellcheck="false">
                 <button type="button" class="dict-lookup-clear" id="dictLookupClear" title="清空" aria-label="清空">×</button>
+              </div>
                 <div class="dict-lookup-dropdown" id="dictLookupDropdown" style="display:none">
                     <div class="dict-lookup-results" id="dictLookupResults"></div>
                     <!-- 词条详情：复用 browse-dict.html(?mode=lookup) 渲染，直接在下拉窗口中展示 -->
@@ -1089,7 +1122,7 @@
                         <span class="user-name" id="headerUserName">用户</span>
                         <i class="fi-sr-exclamation config-dirty-hint hidden" id="configDirtyHint"
                            title="最新配置尚未保存到本地 user/ 文件，仅存在于浏览器缓存（自动保存未能落盘）。请点开本菜单，选择「保存用户配置」。"></i>
-                        <span class="user-caret">▾</span>
+                        <i class="user-caret fi-rr-caret-down"></i>
                     </button>
                     <div class="user-dropdown hidden" id="userDropdown">
                         <div class="dropdown-item" id="dropdownProfile">个人信息</div>
@@ -1672,6 +1705,13 @@
 
                 <!-- 单词卡片区域 -->
                 <div class="card-container">
+                    <!-- 暂停遮罩：覆盖整个练习卡片，点击即继续 -->
+                    <div class="practice-pause-overlay hidden" id="pauseOverlay">
+                        <div class="practice-pause-tip">
+                            <i class="fi-rr-pause"></i>
+                            <span>已暂停</span>
+                        </div>
+                    </div>
                     <div class="word-card" id="wordCard">
                          <!-- 移动端学习头部：返回按钮（左）+ 发音按钮（右），仅移动端显示 -->
                         <div class="learning-mobile-header" id="learningMobileHeader">
@@ -1719,7 +1759,7 @@
                             </div>
                             <!-- 答错时显示的例句 -->
                             <div class="wrong-answer-example" id="wrongAnswerExample" title="点击播放例句">
-                                <div class="example-label">📝 例句 </div>
+                                <div class="example-label"><i class="fi-rr-notes"></i> 例句 </div>
                                 <p class="example-sentence-choice" id="exampleSentenceChoice">&nbsp;</p>
                             </div>
                             <div class="options-container" id="optionsContainer">
@@ -1748,6 +1788,10 @@
                                         <div class="word-meta-inline">
                                             <span class="word-stats" id="wordStats2" style="display: none;"></span>
                                             <span class="meaning-pos" id="meaningPos">A1</span>
+                                            <!-- 拼写模式仅图标操作：不再学习（太简单）/ 收藏 -->
+                                            <button class="btn-favorite btn-too-easy" id="tooEasyBtn2" title="太简单，不再复习该词">
+                                                <i class="fi-rr-ban"></i>
+                                            </button>
                                             <button class="btn-favorite" id="favoriteBtn2" title="收藏/取消收藏">
                                                 <i class="favorite-icon fi-rr-star favorite-gray"></i>
                                             </button>
@@ -1809,12 +1853,12 @@
                             <div class="remember-meaning-display hidden" id="rememberMeaningDisplay">
                                 <!-- 释义区域 (前置，默认隐藏) -->
                                 <div class="remember-meaning-section hidden" id="rememberMeaningSection" style="margin-bottom: 10px;">
-                                    <div class="example-label">📖 释义</div>
+                                    <div class="example-label"><i class="fi-rr-book"></i> 释义</div>
                                     <p class="remember-meaning-text" id="rememberMeaningText"></p>
                                 </div>
                                 <!-- 例句区域 -->
                                 <div class="remember-example-section" id="rememberExampleSection">
-                                    <div class="example-label">📝 例句</div>
+                                    <div class="example-label"><i class="fi-rr-notes"></i> 例句</div>
                                     <p class="remember-example-text" id="rememberExampleText"></p>
                                 </div>
                             </div>
@@ -1836,7 +1880,7 @@
                         <!-- 结果反馈叠加层 -->
                         <div class="feedback-overlay hidden" id="feedbackOverlay">
                             <div class="feedback-content">
-                                <div class="feedback-icon" id="feedbackIcon">✓</div>
+                                <div class="feedback-icon" id="feedbackIcon"><i class="fi-rr-check"></i></div>
                                 <p class="feedback-text" id="feedbackText">太棒了！</p>
                                 <div class="correct-answer" id="correctAnswer"></div>
                             </div>
@@ -1846,7 +1890,7 @@
                     <!-- 记忆方法卡片（PC端直接显示在下方） -->
                     <div class="memory-aid-card hidden" id="memoryAidCard">
                         <div class="memory-aid-header">
-                            <h3>💡 如何记忆
+                            <h3><i class="fi-rr-bulb"></i> 如何记忆
                                 <button type="button" class="btn-refresh-memory" id="refreshMemoryAidBtn" title="重新生成">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <polyline points="23 4 23 10 17 10"/>
@@ -1876,9 +1920,10 @@
 
                 <!-- 底部操作栏 -->
                 <div class="learning-actions">
-                    <button class="btn-text" id="skipBtn">跳过</button>
+                    <button class="btn-text" id="skipBtn"><i class="fi-rr-forward"></i><span class="btn-text-label">跳过</span></button>
+                    <button class="btn-text" id="pauseBtn" title="暂停"><i class="fi-rr-pause"></i><span class="btn-text-label">暂停</span></button>
                     <button class="btn-primary" id="nextBtn" disabled>下一个</button>
-                    <button class="btn-text" id="exitLearningBtn">退出</button>
+                    <button class="btn-text" id="exitLearningBtn"><i class="fi-rr-exit"></i><span class="btn-text-label">退出</span></button>
                 </div>
             </div>
 
@@ -1892,7 +1937,7 @@
                             <line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                     </button>
-                    <div class="completion-icon">🎉</div>
+                    <div class="completion-icon"><i class="fi-rr-confetti"></i></div>
                     <h2 class="completion-title">恭喜完成学习！</h2>
                     <div class="stats-summary">
                         <div class="stat-item">
@@ -2332,7 +2377,7 @@
 
                         <div class="form-actions">
                             <button class="btn-secondary" id="useDemoStoryBtn">
-                                <span>📝</span>
+                                <i class="fi-rr-notes"></i>
                                 使用示例
                             </button>
                             <button class="btn-primary btn-generate" id="generateStoryBtn">
@@ -2381,7 +2426,7 @@
                         <!-- 单词列表（可折叠） -->
                         <div class="story-vocabulary" id="storyVocabulary">
                             <div class="vocabulary-header">
-                                <h4>📚 本文生词</h4>
+                                <h4><i class="fi-rr-books"></i> 本文生词</h4>
                                 <span class="vocabulary-count" id="vocabularyCount">0 个单词</span>
                             </div>
                             <div class="vocabulary-list" id="vocabularyList">
@@ -2403,7 +2448,7 @@
                     <!-- 阅读理解题 -->
                     <div class="ai-questions-display hidden" id="aiQuestionsDisplay">
                         <div class="questions-header">
-                            <h3>📝 阅读理解练习</h3>
+                            <h3><i class="fi-rr-notes"></i> 阅读理解练习</h3>
                             <p>根据上面的故事，完成以下题目</p>
                         </div>
                         <div class="questions-list" id="questionsList">
@@ -2671,7 +2716,7 @@
 
                             <div class="form-actions">
                                 <button class="btn-secondary" id="useDemoGameBtn">
-                                    <span>📝</span>
+                                    <i class="fi-rr-notes"></i>
                                     使用示例
                                 </button>
                                 <button class="btn-primary btn-generate" id="generateGameBtn">
@@ -2917,7 +2962,7 @@
                                 </div>
                                 
                                 <div class="current-doc-info" id="synonymCurrentDocInfo">
-                                    <span class="info-icon">📄</span>
+                                    <span class="info-icon"><i class="fi-rr-document"></i></span>
                                     <span class="info-text">
                                         当前：<span id="synonymCurrentDocName">未选择</span>
                                         （<span id="synonymCurrentDocCount">0</span> 个单词）
@@ -2967,6 +3012,12 @@
 
                         <!-- 单词卡片 -->
                         <div class="card-container">
+                            <div class="practice-pause-overlay hidden" id="synonymPauseOverlay">
+                                <div class="practice-pause-tip">
+                                    <i class="fi-rr-pause"></i>
+                                    <span>已暂停</span>
+                                </div>
+                            </div>
                             <div class="word-card" id="synonymWordCard">
                                 <div class="card-header">
                                     <button class="btn-icon btn-sound" id="synonymSoundBtn">
@@ -3001,7 +3052,7 @@
                                 <!-- 结果反馈 -->
                                 <div class="feedback-overlay hidden" id="synonymFeedbackOverlay">
                                     <div class="feedback-content">
-                                        <div class="feedback-icon" id="synonymFeedbackIcon">✓</div>
+                                        <div class="feedback-icon" id="synonymFeedbackIcon"><i class="fi-rr-check"></i></div>
                                         <p class="feedback-text" id="synonymFeedbackText">完全正确！</p>
                                         <div class="correct-answer" id="synonymCorrectAnswer"></div>
                                     </div>
@@ -3011,9 +3062,9 @@
 
                         <!-- 底部操作栏 -->
                         <div class="learning-actions">
-                            <button class="btn-text" id="synonymSkipBtn">跳过</button>
-                            
-                            <button class="btn-text" id="synonymExitBtn">退出</button>
+                            <button class="btn-text" id="synonymSkipBtn"><i class="fi-rr-forward"></i><span class="btn-text-label">跳过</span></button>
+                            <button class="btn-text" id="synonymPauseBtn" title="暂停"><i class="fi-rr-pause"></i><span class="btn-text-label">暂停</span></button>
+                            <button class="btn-text" id="synonymExitBtn"><i class="fi-rr-exit"></i><span class="btn-text-label">退出</span></button>
                         </div>
                     </div>
 
@@ -3053,7 +3104,7 @@
                         <div class="word-list-header">
                             <div class="word-list-title-section">
                                 <h2 class="word-list-title">
-                                    <span class="word-list-icon">📄</span>
+                                    <span class="word-list-icon"><i class="fi-rr-document"></i></span>
                                     <span id="synonymViewDocName">词单名称</span>
                                 </h2>
                                 <p class="word-list-subtitle">
@@ -3468,7 +3519,7 @@
                                 </div>
                                 
                                 <div class="current-doc-info" id="liyiCurrentDocInfo">
-                                    <span class="info-icon">📄</span>
+                                    <span class="info-icon"><i class="fi-rr-document"></i></span>
                                     <span class="info-text">
                                         当前：<span id="liyiCurrentDocName">未选择</span>
                                         （<span id="liyiCurrentDocCount">0</span> 个单词）
@@ -3518,6 +3569,12 @@
 
                         <!-- 单词卡片 -->
                         <div class="card-container">
+                            <div class="practice-pause-overlay hidden" id="liyiPauseOverlay">
+                                <div class="practice-pause-tip">
+                                    <i class="fi-rr-pause"></i>
+                                    <span>已暂停</span>
+                                </div>
+                            </div>
                             <div class="word-card" id="liyiWordCard">
                                 <div class="card-header">
                                     <button class="btn-icon btn-sound" id="liyiSoundBtn">
@@ -3545,7 +3602,7 @@
                                 </div>
                                 <!-- 例句展示 -->
                                 <div class="liyi-example-box">
-                                    <p class="liyi-example-label">📝 例句</p>
+                                    <p class="liyi-example-label"><i class="fi-rr-notes"></i> 例句</p>
                                     <p class="liyi-example-text" id="liyiExampleText">The mattress has lost its spring and feels flat now.</p>
                                     <!-- 答错后显示的例句中文翻译辅助 -->
                                     <div class="liyi-meaning-aid hidden" id="liyiMeaningAid">
@@ -3563,7 +3620,7 @@
                                 <!-- 结果反馈 -->
                                 <div class="feedback-overlay hidden" id="liyiFeedbackOverlay">
                                     <div class="feedback-content">
-                                        <div class="feedback-icon" id="liyiFeedbackIcon">✓</div>
+                                        <div class="feedback-icon" id="liyiFeedbackIcon"><i class="fi-rr-check"></i></div>
                                         <p class="feedback-text" id="liyiFeedbackText">回答正确！</p>
                                         <div class="correct-answer" id="liyiCorrectAnswer"></div>
                                     </div>
@@ -3573,9 +3630,9 @@
 
                         <!-- 底部操作栏 -->
                         <div class="learning-actions">
-                            <button class="btn-text" id="liyiSkipBtn">跳过</button>
-                            
-                            <button class="btn-text" id="liyiExitBtn">退出</button>
+                            <button class="btn-text" id="liyiSkipBtn"><i class="fi-rr-forward"></i><span class="btn-text-label">跳过</span></button>
+                            <button class="btn-text" id="liyiPauseBtn" title="暂停"><i class="fi-rr-pause"></i><span class="btn-text-label">暂停</span></button>
+                            <button class="btn-text" id="liyiExitBtn"><i class="fi-rr-exit"></i><span class="btn-text-label">退出</span></button>
                         </div>
                     </div>
 
@@ -3611,7 +3668,7 @@
                         <div class="word-list-header">
                             <div class="word-list-title-section">
                                 <h2 class="word-list-title">
-                                    <span class="word-list-icon">📄</span>
+                                    <span class="word-list-icon"><i class="fi-rr-document"></i></span>
                                     <span id="liyiViewDocName">词单名称</span>
                                 </h2>
                                 <p class="word-list-subtitle">
@@ -3671,7 +3728,7 @@
                     <div class="word-list-title-section">
                         <div class="word-list-title-main">
                             <h2 class="word-list-title">
-                                <span class="word-list-icon" id="wordListIcon">📖</span>
+                                <span class="word-list-icon" id="wordListIcon"><i class="fi-rr-book"></i></span>
                                 <span id="wordListBookName">词书名称</span>
                             </h2>
                             <p class="word-list-subtitle">
@@ -3687,7 +3744,7 @@
                     <!-- AI补充进度显示 -->
                     <div class="ai-progress-container hidden" id="aiProgressContainer">
                         <div class="ai-progress-text">
-                            <span class="ai-progress-icon">🤖</span>
+                            <span class="ai-progress-icon"><i class="fi-rr-robot"></i></span>
                             <span id="aiProgressMessage">正在补充单词信息...</span>
                             <button type="button" class="ai-progress-cancel" id="aiProgressCancelBtn" title="终止当前AI补缺，并保存已补充的内容">终止</button>
                         </div>
@@ -3757,11 +3814,11 @@
                                 <th class="word-list-col-avgtime">联想时间</th>
                                 <th class="word-list-col-category">
                                     <span class="word-list-cat-header">场景类别</span>
-                                    <button class="word-list-cat-filter-btn" id="categoryFilterBtn" title="筛选场景类别">▾</button>
+                                    <button class="word-list-cat-filter-btn" id="categoryFilterBtn" title="筛选场景类别"><i class="fi-rr-caret-down"></i></button>
                                     <div class="word-list-cat-filter-panel" id="categoryFilterPanel">
                                         <div class="cat-filter-header">
                                             <label class="cat-filter-select-all"><input type="checkbox" id="catFilterSelectAll" checked> 全选</label>
-                                            <button id="catFilterClear" class="cat-filter-clear-btn" title="清除所有筛选">✕</button>
+                                            <button id="catFilterClear" class="cat-filter-clear-btn" title="清除所有筛选"><i class="fi-rr-cross"></i></button>
                                         </div>
                                         <div class="cat-filter-level-row">
                                             <span class="cat-filter-level-label">显示层级：</span>
@@ -3789,13 +3846,13 @@
                     <!-- 编辑模式下的新增单词按钮群 -->
                     <div class="word-list-add-buttons hidden" id="wordListAddButtons">
                         <button class="word-list-add-btn" id="addOneWordBtn" title="添加1行空白行">
-                            <span>＋1</span>
+                            <i class="fi-rr-plus"></i><span>1</span>
                         </button>
                         <button class="word-list-add-btn" id="addNWordsBtn" title="添加N行空白行">
-                            <span>＋N</span>
+                            <i class="fi-rr-plus"></i><span>N</span>
                         </button>
                         <button class="word-list-add-btn" id="addWordsFromFileBtn" title="从文件导入单词">
-                            <span>＋📂</span>
+                            <i class="fi-rr-add-folder"></i>
                         </button>
                     </div>
                 </div>
@@ -3906,9 +3963,9 @@
                         </div>
                         <!-- 到期单词列表（分页：顶部页码切换，每页 10 个） -->
                         <div class="sm2-page-bar" id="sm2DuePager" style="display:none;">
-                            <button class="sm2-page-btn" id="sm2DuePagePrev" title="上一页">‹</button>
+                            <button class="sm2-page-btn" id="sm2DuePagePrev" title="上一页"><i class="fi-rr-angle-left"></i></button>
                             <span class="sm2-page-nums" id="sm2DuePageNums"><!-- 动态生成页码 --></span>
-                            <button class="sm2-page-btn" id="sm2DuePageNext" title="下一页">›</button>
+                            <button class="sm2-page-btn" id="sm2DuePageNext" title="下一页"><i class="fi-rr-angle-right"></i></button>
                             <span class="sm2-page-info">/ <span id="sm2DuePageTotal">1</span> 页</span>
                             <span class="sm2-page-jump">
                                 跳至<input type="number" class="sm2-page-input" id="sm2DuePageInput" min="1" value="1">页
@@ -4686,7 +4743,7 @@
                     <div class="book-settings-wrong-value">
                         <span class="book-settings-wrong-count" id="bookSettingsWrongCount">0</span>
                         <span class="book-settings-wrong-unit"> 词</span>
-                        <button class="book-settings-review-btn" id="bookSettingsReviewBtn" title="开始复习错题">✏️ 复习错题</button>
+                        <button class="book-settings-review-btn" id="bookSettingsReviewBtn" title="开始复习错题"><i class="fi-rr-pencil"></i> 复习错题</button>
                     </div>
                 </div>
             </div>
@@ -4766,7 +4823,7 @@
         <div class="memory-aid-modal-overlay"></div>
         <div class="memory-aid-modal-content">
             <div class="memory-aid-modal-header">
-                <h3>💡 如何记忆
+                <h3><i class="fi-rr-bulb"></i> 如何记忆
                     <button type="button" class="btn-refresh-memory" id="refreshMemoryAidMobileBtn" title="重新生成">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -5743,6 +5800,14 @@
         function preferredVar() {
             try { return localStorage.getItem('browseDictCur') || ''; } catch (e) { return ''; }
         }
+        // 词典 tag 在清单页只显示中文：清单名为「中文 English」格式，取首个空格前的中文部分；
+        // 无空格（如「形近词」）时原样返回
+        function dictNameCn(full) {
+            if (!full) return '';
+            const s = String(full);
+            const i = s.indexOf(' ');
+            return i > 0 ? s.slice(0, i) : s;
+        }
         function doSearch() {
             lastQueryDisp = input.value.trim(); // 展示保留用户输入的原貌
             lastQuery = normWord(lastQueryDisp); // 检索键统一小写
@@ -5855,7 +5920,7 @@
             }
             const dictEl = document.createElement('span');
             dictEl.className = 'dl-dict';
-            dictEl.textContent = it.dictName || it.dict || '';
+            dictEl.textContent = dictNameCn(it.dictName || it.dict || '');
             if (it.similar || it.reverse || it.baseFallback) {
                 // 形近词/兜底结果：中性弱化 tag
                 dictEl.classList.add('dl-dict-sim');
@@ -6176,7 +6241,7 @@
                     if (existing.has(sw)) return;
                     existing.add(sw);
                     const preview = (String(r.phonetic || '') + ' ' + String(r.meaning || '')).trim().slice(0, 110);
-                    added.push({ w: r.w, dict: '', dictName: '基础词典 Basic', preview: preview, fuzzy: false, reverse: true });
+                    added.push({ w: r.w, dict: '', dictName: '基础词典', preview: preview, fuzzy: false, reverse: true });
                 });
                 if (!added.length) {
                     // 本地词典无该中文释义 -> 清除检索提示，自动调用 AI 翻译兜底
@@ -6256,7 +6321,7 @@
                     catTags = '<span class="dl-cat-tag dl-cat-tag-last">' + parts[parts.length - 1] + '</span>';
                 }
             }
-            const item = createItem({ w: w, dict: '', dictName: '基础词典 Basic', preview: preview, catTags: catTags, fuzzy: false, baseFallback: true });
+            const item = createItem({ w: w, dict: '', dictName: '基础词典', preview: preview, catTags: catTags, fuzzy: false, baseFallback: true });
             // 放在分隔线紧挨的上方（主结果区末尾）：已有主次分隔线则插入其前，否则追加到末尾
             const divider = results.querySelector('.dl-alt-divider');
             if (divider) results.insertBefore(item, divider);
@@ -6381,7 +6446,7 @@
                 aiDetail.querySelector('.dl-ai-detail-word').textContent = result.word || word;
                 var bodyHtml = '';
                 if (result.corrected) {
-                    bodyHtml += '<div style="font-size:0.85rem;color:var(--error);margin-bottom:8px;">⚠ 该单词查询无结果，请检查是否拼写有误</div>';
+                    bodyHtml += '<div style="font-size:0.85rem;color:var(--error);margin-bottom:8px;"><i class="fi-rr-triangle-warning"></i> 该单词查询无结果，请检查是否拼写有误</div>';
                 }
                 if (result.phonetic) {
                     bodyHtml += '<div style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px;">' + result.phonetic.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
@@ -7022,7 +7087,7 @@
                 // 重命名笔形按钮：悬浮显示，点击进入编辑态
                 const renameBtn = document.createElement('button');
                 renameBtn.className = 'dict-picker-item-rename';
-                renameBtn.title = '重命名词库';
+                renameBtn.title = '重命名词典';
                 renameBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>';
                 renameBtn.addEventListener('mousedown', (e) => e.stopPropagation());
                 renameBtn.addEventListener('click', (e) => {
@@ -7043,7 +7108,8 @@
                 item.appendChild(delBtn);
                 const tag = document.createElement('span');
                 tag.className = 'dict-picker-item-tag';
-                tag.textContent = d.varName === preferred ? '★ 首选' : (isEnabled ? '已启用' : '已禁用');
+                if (d.varName === preferred) tag.innerHTML = '<i class="fi-rr-star"></i> 首选';
+                else tag.textContent = isEnabled ? '已启用' : '已禁用';
                 if (!isEnabled) tag.classList.add('is-disabled');
                 item.appendChild(tag);
                 bindDrag(item, d.varName);
@@ -7182,7 +7248,7 @@
             const ok = document.createElement('button');
             ok.className = 'dict-picker-item-edit-ok';
             ok.title = '确认';
-            ok.textContent = '✓';
+            ok.innerHTML = '<i class="fi-rr-check"></i>';
             [input, ok].forEach(el => {
                 el.addEventListener('mousedown', (e) => e.stopPropagation());
                 el.addEventListener('click', (e) => e.stopPropagation());

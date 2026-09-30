@@ -46,6 +46,7 @@
     var JOKER_BOMB_SCORE = 12;   // 王炸的赋分（不计字母数）
     var JOKER_BOMB_FINISH = 10;  // 收官奖励：最后出的一手是王炸，固定加 10 分（它没有字母数）
     var PANIC_HAND = 8;          // 有玩家手牌少于这个数，其他人就「恐慌」抢牌权
+    var BOMB_ENDGAME_HAND = 6;   // 自己手牌 ≤ 这个数就进入收官冲刺，炸弹不再留着当储备
     var PANIC_BUBBLE_HAND = 5;   // 手牌 ≤ 这个数就在座位旁冒气泡「我就剩 N 张牌了」
     var PANIC_BUBBLE_MS = 5000;  // 气泡只喊一次，持续 5 秒后淡出（记在 S.panicBubbles 里，避免每次渲染重放）
     var HAND_SIZE = 27; // 108 / 4，掼蛋原版发牌数
@@ -56,6 +57,7 @@
 
     // 三档 AI：词汇视野（CEFR 档位）× 选牌策略 × 失误率。
     // 「愚蠢度」不靠单一维度：限词 + 只会贪心 + 会看走眼，三样叠加才像人菜。
+    // bombChance = 手里有炸弹时顺势甩出的倾向；bombKeep = 中途硬性预留几手炸弹留到收官翻盘。
     // icon / tag / desc 供设置页的富文本典雅下拉（.ai-picker）取用
     var LEVELS = {
         easy: {
@@ -63,21 +65,21 @@
             icon: 'fi-rr-leaf', tag: 'A1–A2',
             desc: '词汇视野 A1–A2 · 常看走眼，失误率高',
             maxLead: 3,
-            passChance: 0.28, blunder: 0.25, bombChance: 0.35
+            passChance: 0.28, blunder: 0.25, bombChance: 0.35, bombKeep: 1
         },
         normal: {
             label: '普通', cefr: ['A1', 'A2', 'B1', 'B2'],
             icon: 'fi-rr-star', tag: 'A1–B2',
             desc: '词汇视野 A1–B2 · 会打配合，偶有失误',
             maxLead: 6,
-            passChance: 0.08, blunder: 0.08, bombChance: 0.65
+            passChance: 0.08, blunder: 0.08, bombChance: 0.65, bombKeep: 1
         },
         hard: {
             label: '困难', cefr: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
             icon: 'fi-rr-flame', tag: 'A1–C2',
             desc: '词汇视野 A1–C2 · 零失误，首墩随机先出',
             maxLead: 10,
-            passChance: 0, blunder: 0, bombChance: 1
+            passChance: 0, blunder: 0, bombChance: 1, bombKeep: 2
         }
     };
 
@@ -1465,14 +1467,18 @@
         var cap = Math.min(MAX_WORD_LEN, Math.max(lv.maxLead, bombMin));
         var target = pickLeadLength(cap);
 
-        // 恐慌：有人快出完了，直接甩一颗**最长**的炸弹封台 —— 逼别人拿更长的炸弹来跟，
+        // 炸弹规划：手里正好有一颗能一次出完的炸弹 → 直接领出去收官（顺便拿「炸弹收官」奖励）
+        var plan = aiBombPlan(p, g, lv, 0);
+        if (plan.finish) {
+            return { action: 'play', cards: makeCards(hand, plan.finish), asBomb: true, word: plan.finish };
+        }
+
+        // 恐慌：有人快出完了，甩一颗**最长**的炸弹封台 —— 逼别人拿更长的炸弹来跟，
         // 手牌少的那位基本跟不动，牌权就留在自己手里。
-        if (hasPanicField(g, p.seat) && Math.random() < 0.45) {
-            var seal = findBombs(hand, bombMin, g.usedWords, 0, known);
-            if (seal.length) {
-                seal.sort(function (a, b) { return b.length - a.length; });
-                return { action: 'play', cards: makeCards(hand, seal[0]), asBomb: true, word: seal[0] };
-            }
+        // 但只能花「非储备」的那几颗（plan.spend），压箱底的雷要留到结尾翻盘。
+        if (hasPanicField(g, p.seat) && plan.spend.length && Math.random() < 0.45) {
+            var seal = plan.spend.slice().sort(function (a, b) { return b.length - a.length; });
+            return { action: 'play', cards: makeCards(hand, seal[0]), asBomb: true, word: seal[0] };
         }
 
         // 目标 1 字：甩一张废牌（单牌只能越出越大）
@@ -1485,10 +1491,9 @@
         if (!words.length) words = normalLeads(hand, 2, cap, known, g, bombMin);
 
         if (!words.length) {
-            var bombs = findBombs(hand, bombMin, g.usedWords, 0, known);
-            if (bombs.length) {
-                bombs.sort(function (a, b) { return a.length - b.length; });
-                return { action: 'play', cards: makeCards(hand, bombs[0]), asBomb: true, word: bombs[0] };
+            // 没有普通词可领：花掉一颗非储备炸弹（挑**最短**的，省长牌留着封台）
+            if (plan.spend.length) {
+                return { action: 'play', cards: makeCards(hand, plan.spend[0]), asBomb: true, word: plan.spend[0] };
             }
             var s = worstSingle(hand);
             return { action: 'play', cards: s ? [s] : [], asBomb: false };
@@ -1504,6 +1509,34 @@
         return findAll(hand, minLen, maxLen, known).filter(function (w) {
             return !isBombWord(w, bombMin) && !g.usedWords[w];
         });
+    }
+
+    // AI 的炸弹规划：炸弹是留给收官的「底牌」，甩出去能夺权，但一把甩光结尾就只剩普通牌。
+    // 先算清三件事 —— 手里有几颗炸弹、哪颗能一次出完剩余手牌、此刻允许花掉几颗。
+    // 出现「一把出完」的炸弹，或自己已进入收官阶段（手牌很少）时，预留数直接归零：
+    // 先把胜利和「炸弹收官」的额外分拿到手，其余情况按难度留 1~2 手（见 LEVELS.bombKeep）。
+    function aiBombPlan(p, g, lv, minLen) {
+        var known = DATA.known[S.cfg.level];
+        var bombs = findBombs(p.hand, S.cfg.bombMin || 4, g.usedWords, minLen || 0, known);
+        bombs.sort(function (a, b) { return a.length - b.length; });
+
+        var finish = null;
+        for (var i = 0; i < bombs.length; i++) {
+            var picked = pickCards(p.hand, bombs[i]);
+            if (picked && picked.ids.length === p.hand.length) { finish = bombs[i]; break; }
+        }
+
+        var keep = 0;
+        if (!finish && p.hand.length > BOMB_ENDGAME_HAND) {
+            keep = Math.max(0, (lv && lv.bombKeep) || 0);
+            // 只够留几颗 / 只有一颗时不留：否则人机会攥着炸弹一路过牌，把牌权全送出去
+            if (keep >= bombs.length) keep = Math.max(0, bombs.length - 1);
+        }
+
+        return {
+            finish: finish,                              // 能一次出完手牌的炸弹：有就立刻甩
+            spend: bombs.slice(0, Math.max(0, bombs.length - keep))  // 此刻允许花掉的炸弹（留最长的压箱底）
+        };
     }
 
     // 手上的炸弹材料：返回「牌 id → 该炸弹的分值」。
@@ -1549,7 +1582,6 @@
     function decideFollow(p, lv, g) {
         var hand = p.hand;
         var known = DATA.known[S.cfg.level];
-        var bombMin = S.cfg.bombMin || 4;
         var bombOnTable = g.bombLevel > 0;
         var jokerBomb = jokerBombOf(hand);
         // 恐慌：有人快出完了，不能再让他轻松拿到牌权 —— 提高出炸弹的意愿
@@ -1573,17 +1605,23 @@
         var words = [];
         if (!bombOnTable && g.level >= 2) words = freshWords(findAll(hand, g.level, g.level, known));
 
-        var bombs = findBombs(hand, bombMin, g.usedWords, g.bombLevel, known);
-        bombs.sort(function (a, b) { return a.length - b.length; });
+        // 炸弹规划：能一次出完手牌的那颗优先甩（直接收官 + 拿「炸弹收官」奖励）；
+        // 其余情况按难度留 1~2 手到结尾，只有 plan.spend 里的炸弹才允许中途花掉。
+        var plan = aiBombPlan(p, g, lv, g.bombLevel);
+        if (plan.finish && plan.finish.length >= g.bombLevel) {
+            return { action: 'play', cards: makeCards(hand, plan.finish), asBomb: true, word: plan.finish };
+        }
 
         // 挑普通牌时先算好手里的炸弹材料：跟一手小牌若会拆掉炸弹，就得掂量值不值
         var reserve = bombReserve(hand, g);
         var chosen = words.length ? chooseKeepBest(hand, words, g, lv, reserve) : null;
         var breakCost = (chosen && words.length) ? wordBreakCost(hand, chosen, reserve) : 0;
 
-        // 恐慌：不惜动用炸弹抢回牌权，把出牌权从快出完的人手里夺过来
-        if (panic && !bombOnTable && bombs.length && Math.random() < bombChance) {
-            return { action: 'play', cards: makeCards(hand, bombs[0]), asBomb: true, word: bombs[0] };
+        // 恐慌：不惜动用炸弹抢回牌权，把出牌权从快出完的人手里夺过来。
+        // 只从 plan.spend 里挑 —— 压箱底的那几手留给结尾翻盘。
+        if (panic && !bombOnTable && plan.spend.length && Math.random() < bombChance) {
+            var seize = plan.spend.slice().sort(function (a, b) { return b.length - a.length; });
+            return { action: 'play', cards: makeCards(hand, seize[0]), asBomb: true, word: seize[0] };
         }
 
         // 跟这手普通牌会拆掉手里的炸弹，而台面只是一手小牌（≤3 字母）：保守起见宁可不跟，
@@ -1600,9 +1638,10 @@
         if (single) return { action: 'play', cards: [single], asBomb: false };
         if (chosen) return { action: 'play', cards: makeCards(hand, chosen), asBomb: false, word: chosen };
 
-        // 只能靠炸弹：挑**刚好够用**的那颗（最省），把更长的炸弹留给以后
-        if (bombs.length && Math.random() < bombChance) {
-            var b = bombs[0];
+        // 只能靠炸弹：挑**刚好够用**的那颗（最省），把更长的炸弹留给以后。
+        // plan.spend 已按「难度预留 1~2 手 / 收官阶段全放行」算好，这里不再看全部炸弹。
+        if (plan.spend.length && Math.random() < bombChance) {
+            var b = plan.spend[0];
             return { action: 'play', cards: makeCards(hand, b), asBomb: true, word: b };
         }
         // 词炸弹也压不动、手里又没别的牌：平时宁可过牌把王炸留着，
@@ -1894,9 +1933,16 @@
         if (!root || !S.cfg) return;
         if (S.view === 'config') { root.innerHTML = renderConfig(); autoLoadSfx(); return; }
         if (S.view === 'result') { root.innerHTML = renderResult(); return; }
+        // 对局记录按「最新在底部」排列，重绘前先记住滚动位置：
+        // 贴底时重绘后继续贴底（跟随最新一条），用户往回翻看历史时则保持原位不被拽回
+        var prevLog = root.querySelector('.ep-log');
+        var stickBottom = prevLog ? (prevLog.scrollTop + prevLog.clientHeight >= prevLog.scrollHeight - 8) : true;
+        var prevTop = prevLog ? prevLog.scrollTop : 0;
         root.innerHTML = renderGame();
         markOverlaps();
         paintSfxStatus();   // 音效状态提示（音量按钮左侧）
+        var newLog = root.querySelector('.ep-log');
+        if (newLog) newLog.scrollTop = stickBottom ? newLog.scrollHeight : prevTop;
         // 锦囊拼写题打开时，重画后把焦点还回输入框（避免误丢输入）
         if (S.charm && S.charm.phase === 'quiz') focusCharmInput();
     }
@@ -2444,7 +2490,8 @@
                 var e = dictEntry(w);
                 var bomb = isBombWord(w, S.cfg.bombMin);
                 return '<div class="ep-review-item' + (bomb ? ' ep-review-bomb' : '') + '">' +
-                    '<span class="ep-review-word">' + esc(w.toUpperCase()) + (bomb ? '<i class="fi-sr-bolt"></i>' : '') + '</span>' +
+                    (bomb ? '<i class="fi-rr-bomb ep-review-icon"></i>' : '') +
+                    '<span class="ep-review-word">' + esc(w.toUpperCase()) + '</span>' +
                     (e && e.phonetic ? '<span class="ep-review-ph">' + esc(e.phonetic) + '</span>' : '') +
                     (e && e.meaning ? '<span class="ep-review-mean">' + esc(e.meaning) + '</span>' : '') +
                     '</div>';
@@ -2455,13 +2502,19 @@
 
         // 锦囊复盘：优先贴出「开了锦囊却没拼出来就放弃」的词（带例句，不显示音标）；
         // 一局都没用过锦囊，就拿漏掉的炸弹词补位（不显示例句）。
-        var charmGiveUp = g.charmGaveUp || [];
+        // 注意要剔掉「后来真在牌局里拼出来过」的词：锦囊只是给了例句提示，
+        // 玩家照着例句真把这个炸弹打出来了，就不算「没拼出来」。
+        var playedSet = {};
+        mine.forEach(function (w) { playedSet[w] = 1; });
+        var charmGiveUp = (g.charmGaveUp || []).filter(function (x) { return !playedSet[x.word]; });
         var charmHTML;
         if (charmGiveUp.length) {
             charmHTML = charmGiveUp.map(function (x) {
                 var e = dictEntry(x.word);
                 return '<div class="ep-review-item ep-review-bomb">' +
-                    '<span class="ep-review-word"><i class="fi-rr-bomb"></i>' + esc(x.word.toUpperCase()) + '</span>' +
+                    '<i class="fi-rr-bomb ep-review-icon"></i>' +
+                    '<span class="ep-review-word">' + esc(x.word.toUpperCase()) + '</span>' +
+                    (e && e.phonetic ? '<span class="ep-review-ph">' + esc(e.phonetic) + '</span>' : '') +
                     (e && e.meaning ? '<span class="ep-review-mean">' + esc(e.meaning) + '</span>' : '') +
                     (x.example ? '<span class="ep-review-eg">' + esc(x.example) + '</span>' : '') +
                     '</div>';
@@ -2472,7 +2525,9 @@
                 ? filler.map(function (m) {
                     var e = dictEntry(m.word);
                     return '<div class="ep-review-item ep-review-bomb">' +
-                        '<span class="ep-review-word"><i class="fi-rr-bomb"></i>' + esc(m.word.toUpperCase()) + '</span>' +
+                        '<i class="fi-rr-bomb ep-review-icon"></i>' +
+                        '<span class="ep-review-word">' + esc(m.word.toUpperCase()) + '</span>' +
+                        (e && e.phonetic ? '<span class="ep-review-ph">' + esc(e.phonetic) + '</span>' : '') +
                         (e && e.meaning ? '<span class="ep-review-mean">' + esc(e.meaning) + '</span>' : '') +
                         '</div>';
                 }).join('')
@@ -2494,7 +2549,7 @@
             mvpLine +
             '<div class="ep-review">' +
             '<h4><i class="fi-rr-star"></i>复盘 · 你拼出的词</h4>' + myWordsHTML +
-            '<h4><i class="fi-rr-bomb"></i>复盘 · 锦囊里没拼出来的炸弹</h4>' + charmHTML +
+            '<h4><i class="fi-rr-bulb"></i>复盘 · 锦囊里没拼出来的炸弹</h4>' + charmHTML +
             '<div class="ep-ai-bombs">' + aiBombHTML + '</div>' +
             '</div>' +
             '<div class="ep-actions">' +

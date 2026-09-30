@@ -313,6 +313,13 @@ body {
     background-color: rgba(var(--primary-rgb), 0.05);
 }
 
+/* btn-text 内的 uicon 前缀：与文字之间留出间距 */
+.btn-text > i[class^="fi-"],
+.btn-text > i[class*=" fi-"] {
+    margin-right: 0.35em;
+    font-size: 0.95em;
+}
+
 .btn-small {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
@@ -2000,6 +2007,11 @@ i[class^="fi-"], i[class*=" fi-"] {
     align-items: center;
     gap: 4px;
     flex-wrap: wrap;
+    /* 选中外扩的激活环（.is-active 的 box-shadow）画在 chip 外侧，
+       而 .nebula-controls-body 是 overflow-x:hidden 的滚动容器，会把溢出
+       body 盒子的那一圈裁掉。这里留出 2px 让外环落在 body 盒内，
+       视觉上仍是"边框向外延伸"，且不受面板 padding 影响 */
+    padding: 2px;
 }
 
 .dandelion-palette-chip {
@@ -3405,6 +3417,7 @@ body.nebula-word-themed .nebula-card {
 
 /* 单词卡片 */
 .card-container {
+    position: relative; /* 暂停遮罩的绝对定位基准 */
     margin-bottom: var(--spacing-xl);
     perspective: 1000px;
 }
@@ -3429,6 +3442,45 @@ body.nebula-word-themed .nebula-card {
         opacity: 1;
         transform: translateX(0);
     }
+}
+
+/* 暂停遮罩：毛玻璃覆盖练习卡片，点击任意处继续 */
+.practice-pause-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    cursor: pointer;
+    animation: pauseFadeIn 0.25s ease-out;
+}
+
+@keyframes pauseFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.practice-pause-tip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 30px;
+    border-radius: var(--radius-lg);
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    user-select: none;
+}
+
+.practice-pause-tip i {
+    font-size: 1.6rem;
+    color: var(--primary-color);
 }
 
 .card-header {
@@ -4313,8 +4365,12 @@ body.nebula-word-themed .nebula-card {
         var(--border-gradient) border-box;
 }
 
+/* 例句标签按答题状态着色：答对=绿、不知道/超时=橙、答错=红（红为 .example-label 的默认色） */
 .wrong-answer-example.example-correct .example-label {
     color: var(--success);
+}
+.wrong-answer-example.example-unknown .example-label {
+    color: var(--warning);
 }
 
 /* 显示状态 */
@@ -4572,7 +4628,8 @@ body.nebula-word-themed .nebula-card {
 
 .memory-method-content li::before,
 .memory-list li::before {
-    content: "▸";
+    content: "\f379"; /* uicon fi-rr-caret-right */
+    font-family: 'uicons-regular-rounded';
     position: absolute;
     left: 0;
     color: #FB923C;
@@ -6659,6 +6716,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 4px;
     padding: var(--spacing-md) var(--spacing-lg);
     background: var(--background);
     color: var(--primary-color);
@@ -6799,6 +6857,21 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .btn-favorite:hover .favorite-icon {
     transform: rotate(15deg);
+}
+
+/* 「不再学习」仅图标按钮（拼写模式）：与收藏按钮同一尺寸，静止态取灰，
+   hover 放大并转为主色，与 btn-favorite 的手感一致 */
+.btn-too-easy {
+    color: var(--text-tertiary);
+}
+
+.btn-too-easy:hover {
+    color: var(--primary-color);
+    transform: scale(1.15);
+}
+
+.btn-too-easy:active {
+    transform: scale(0.95);
 }
 
 /* word-meta 内的所属词书标签（原收藏按钮的位置） */
@@ -11041,6 +11114,14 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
         linear-gradient(135deg, #14301F 0%, #1A3B27 100%) padding-box,
         var(--border-gradient) border-box;
 }
+/* 记得么模式：区内的「释义 / 例句」标签随状态着色（记得=绿、不记得=橙），
+   否则会沿用 .example-label 的默认红色，与卡片底色冲突 */
+.remember-meaning-display.meaning-correct .example-label {
+    color: var(--success);
+}
+.remember-meaning-display.meaning-unknown .example-label {
+    color: var(--warning);
+}
 /* 例句中的单词高亮 - 不知道样式（橙色），与模式1的 example-sentence-choice 一致 */
 .remember-example-text .word-highlight-unknown {
     color: #ffa502;
@@ -11052,13 +11133,18 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border-radius: var(--radius-sm);
 }
 
-/* 例句中的单词高亮 - 记得样式（绿色，答对主色调） */
-.remember-example-text .word-list-highlight {
+/* 例句中的单词高亮 - 记得样式（绿色，答对主色调）
+   注意：showRememberAnswerReveal('correct') 传入的 type 是 'correct'，
+   highlightWordInExample 据此输出的是 .word-highlight-correct（不是 .word-list-highlight），
+   故两种类名都要覆盖，否则正确态的例句高亮会丢失颜色与下划线 */
+.remember-example-text .word-list-highlight,
+.remember-example-text .word-highlight-correct {
     color: var(--success);
     font-weight: 700;
     font-style: italic;
     background: transparent;
     text-decoration: underline var(--success);
+    text-underline-offset: 2px;
     padding: 0.1rem 0.1rem;
     border-radius: var(--radius-sm);
 }
@@ -11107,6 +11193,16 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 /* 在深色模式下，可能需要更亮的绿色以保证对比度 */
 [data-theme="dark"] .remember-actions .btn-remember {
     color: #34D399; /* 稍微亮一点的绿色 */
+}
+
+/* 点「不记得」后该按钮已转为「下一个」（切题动作），不再是“答对”语义，
+   故去掉 .btn-remember 的绿色文字，回归普通次级按钮的中性色 */
+.remember-actions .btn-remember.btn-remember-next {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .remember-actions .btn-remember.btn-remember-next {
+    color: var(--text-primary);
 }
 
 .remember-meaning-text{
@@ -11424,6 +11520,15 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
     .main-content {
         padding: var(--spacing-md);
+    }
+
+    /* 中窄屏：统计卡仅保留「图标 + 数值」，隐藏文字标签 */
+    .stat-name {
+        display: none;
+    }
+
+    .stat-info {
+        flex: 0 0 auto;
     }
 }
 
@@ -11930,7 +12035,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .synonym-settings .btn-primary:hover:not(:disabled) {
-    background: var(--primary-hover);
+    background: var(--primary-emphasis);
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
 }
@@ -14173,7 +14278,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .liyi-settings .btn-primary:hover:not(:disabled) {
-    background: var(--primary-hover);
+    background: var(--primary-emphasis);
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
 }
@@ -16992,7 +17097,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .text-highlight::after {
-    content: '×';
+    content: "\f4f7"; /* uicon fi-rr-cross */
+    font-family: 'uicons-regular-rounded';
     position: absolute;
     right: -18px;
     top: 50%;
@@ -17146,14 +17252,13 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .ep-btn-gold {
-    background: var(--ep-gold);
-    border-color: var(--ep-gold);
-    color: var(--ep-gold-ink);
+    background: var(--primary-color);
+    color: white;
     font-weight: 700;
 }
 
 .ep-btn-gold:hover:not(:disabled) {
-    background: #e0b25e;
+    background: var(--primary-emphasis);
 }
 
 .ep-btn-ghost {
@@ -18694,10 +18799,34 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--ep-mut);
 }
 
+/* 记录条数不设上限：固定高度 + 纵向滚动，牌桌高度不会被长局记录撑开 */
 .ep-log {
     display: flex;
     flex-direction: column;
     gap: 3px;
+    height: 160px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 滚动条跟随牌桌的深色底，不能用全局浅色样式 */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.ep-log::-webkit-scrollbar {
+    width: 5px;
+}
+
+.ep-log::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ep-log::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+}
+
+.ep-log::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.38);
 }
 
 .ep-log-line {
@@ -18889,11 +19018,14 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: #cfe3d8;
 }
 
-/* 锦囊复盘：金色的炸弹图标 + 换行铺满的例句（例句只有「放弃过的词」才有） */
-.ep-review-bomb .ep-review-word i {
+/* 复盘行首的炸弹标识：统一用实心 UIcons 炸弹，金色、前置在单词之前 */
+.ep-review-icon {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
     color: var(--ep-gold);
 }
 
+/* 锦囊复盘：换行铺满的例句（例句只有「放弃过的词」才有） */
 .ep-review-eg {
     flex-basis: 100%;
     font-size: 0.78rem;
