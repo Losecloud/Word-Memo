@@ -678,6 +678,50 @@ class WordMemoryApp {
         // 页面设置：主题色库 / 字体下拉 / 板块折叠（整页初始化被跳过，此处补齐，否则侧栏缺折叠按钮且字体无法选中）
         this.initPageSettingsControls();
         this.initCustomModelAddRow(); // AI设置：自定义模型行内添加
+        this.bindAiProviderControls(); // AI设置：多厂商 sheet 切换/新增（侧栏整页初始化被跳过，须在此补齐）
+    }
+
+    // AI 多厂商 sheet：新增 / 切换 / 双击重命名 / 删除。
+    // 主页由 initEventListeners 调用；Obsidian 侧栏模式整页初始化被跳过，
+    // 由 initSidebarSettingsModal 调用，否则侧栏内无法切换厂商 sheet。
+    bindAiProviderControls() {
+        const addProviderBtn = document.getElementById('aiAddProviderTab');
+        if (addProviderBtn && !addProviderBtn._aiBound) {
+            addProviderBtn._aiBound = true;
+            addProviderBtn.addEventListener('click', () => { this.addAiProvider(); });
+        }
+        const providerTabList = document.getElementById('aiProviderTabList');
+        if (!providerTabList || providerTabList._aiBound) return;
+        providerTabList._aiBound = true;
+        providerTabList.addEventListener('click', (e) => {
+            const del = e.target.closest('.ai-provider-tab-del');
+            if (del) {
+                const idx = parseInt(del.dataset.del, 10);
+                this.removeAiProvider(idx);
+                return;
+            }
+            const tab = e.target.closest('.ai-provider-tab');
+            if (tab) {
+                const idx = parseInt(tab.dataset.index, 10);
+                this.switchAiProvider(idx);
+            }
+        });
+        providerTabList.addEventListener('dblclick', async (e) => {
+            const tab = e.target.closest('.ai-provider-tab');
+            if (!tab) return;
+            const idx = parseInt(tab.dataset.index, 10);
+            const providers = this.getAiProviders();
+            const p = providers[idx];
+            if (!p) return;
+            const trimmed = await this.askText({ title: '重命名厂商', label: '厂商名称', value: p.name || '未命名' });
+            if (trimmed) {
+                p.name = trimmed;
+                // 重命名就地落盘：不点设置页「保存」关闭时也不丢
+                this.settings.aiProviders = providers;
+                this.persistAiProviders();
+                this.renderAiProviderTabs();
+            }
+        });
     }
 
     // Obsidian 封面视窗（?wmView=cover）：供其它可视化插件内嵌的独立窗口。
@@ -1614,41 +1658,8 @@ class WordMemoryApp {
         // 设置页：添加自定义模型（行内 ID + 名称 + 「+」）
         this.initCustomModelAddRow();
 
-        // AI 多厂商 sheet：新增厂商
-        const addProviderBtn = document.getElementById('aiAddProviderTab');
-        if (addProviderBtn) {
-            addProviderBtn.addEventListener('click', () => { this.addAiProvider(); });
-        }
-        // AI 多厂商 sheet：点击切换 / 双击重命名 / 删除
-        const providerTabList = document.getElementById('aiProviderTabList');
-        if (providerTabList) {
-            providerTabList.addEventListener('click', (e) => {
-                const del = e.target.closest('.ai-provider-tab-del');
-                if (del) {
-                    const idx = parseInt(del.dataset.del, 10);
-                    this.removeAiProvider(idx);
-                    return;
-                }
-                const tab = e.target.closest('.ai-provider-tab');
-                if (tab) {
-                    const idx = parseInt(tab.dataset.index, 10);
-                    this.switchAiProvider(idx);
-                }
-            });
-            providerTabList.addEventListener('dblclick', async (e) => {
-                const tab = e.target.closest('.ai-provider-tab');
-                if (!tab) return;
-                const idx = parseInt(tab.dataset.index, 10);
-                const providers = this.getAiProviders();
-                const p = providers[idx];
-                if (!p) return;
-                const trimmed = await this.askText({ title: '重命名厂商', label: '厂商名称', value: p.name || '未命名' });
-                if (trimmed) {
-                    p.name = trimmed;
-                    this.renderAiProviderTabs();
-                }
-            });
-        }
+        // AI 多厂商 sheet：新增厂商 / 切换 / 双击重命名 / 删除（与侧栏模式共用）
+        this.bindAiProviderControls();
 
         // 关闭设置
         document.getElementById('closeModalBtn').addEventListener('click', () => {
@@ -11471,6 +11482,8 @@ ${example ? `- 例句：${example}` : ''}
             oralTianKey: String(this.settings.oralTianKey || ''), // 已移至「口语角设置」弹窗，此处仅沿用
             obWereadKey: String(this.settings.obWereadKey || ''), // 已移至「原著榜设置」弹窗，此处仅沿用
             obWereadProxy: String(this.settings.obWereadProxy || ''), // 已移至「微信读书设置」弹窗，此处仅沿用
+            wreWereadKey: String(this.settings.wreWereadKey || ''), // 微信读书划线导出专用 Key（在「微信读书设置」弹窗维护，此处仅沿用）
+            wreKeyConfirmed: !!this.settings.wreKeyConfirmed, // 是否已确认沿用原著榜 Key（同上）
             selectProMode: !!this.settings.selectProMode // 「看单词选释义」Pro 版（由栏右侧刷新图标即时切换，此处仅沿用）
         };
 
@@ -26922,6 +26935,23 @@ ${head}
         });
     }
 
+    // 清理不属于当前激活厂商的模型下拉缓存（localStorage: aiModel_<selectId>），
+    // 切换厂商后调用，使各下拉回到当前厂商的「首选」模型，而非残留的其它厂商模型
+    clearStaleModelCaches() {
+        const values = this.getCustomAiModels().map(m => m.value);
+        const stale = [];
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.indexOf('aiModel_') === 0) {
+                    const v = localStorage.getItem(k);
+                    if (v && v !== '__add_new__' && values.indexOf(v) === -1) stale.push(k);
+                }
+            }
+            stale.forEach(k => localStorage.removeItem(k));
+        } catch (e) { /* 忽略 */ }
+    }
+
     // 切换激活厂商
     switchAiProvider(index) {
         const providers = this.getAiProviders();
@@ -26933,6 +26963,7 @@ ${head}
         this.renderAiProviderTabs();
         this.loadAiProviderForm();
         // 模型列表按厂商隔离，切换后刷新
+        this.clearStaleModelCaches();
         this.renderCustomModelList();
         this.initAiModelSelects();
     }
@@ -26966,10 +26997,10 @@ ${head}
         this.initAiModelSelects();
     }
 
-    // 获取所有可用模型（内置 + 所有厂商自定义模型，下拉统一展示）
+    // 获取当前激活厂商的可用模型（模型与供应商绑定，下拉仅展示该厂商模型，避免跨厂商误选）
     getAllAiModels() {
         // 已停用内置模型，统一只使用自定义模型
-        return this.getAllCustomAiModels();
+        return this.getCustomAiModels();
     }
 
     // 合并所有厂商的自定义模型（存储上仍按厂商隔离，仅展示时汇总，附带厂商归属）
@@ -27049,13 +27080,31 @@ ${head}
         });
     }
 
-    // 获取全局最近一次使用的模型值；无记录则取首个自定义模型
+    // 获取当前激活厂商的「首选」模型：该厂商模型中使用记录最靠前的一个；
+    // 无使用记录则取该厂商首个自定义模型。查词等默认调用据此取模型，
+    // 调用供应商由激活厂商（aiActiveProviderIndex）决定，二者保持同一厂商，避免跨厂商错配。
     getLastUsedModel() {
+        const providerModels = this.getCustomAiModels();
         const usage = this.getModelUsageOrder();
-        if (usage.length > 0) return usage[0];
-        const custom = this.getAllCustomAiModels();
-        if (custom.length > 0) return custom[0].value;
-        return null;
+        if (providerModels.length > 0) {
+            const values = providerModels.map(m => m.value);
+            for (const v of usage) {
+                if (values.indexOf(v) !== -1) return v;
+            }
+            return providerModels[0].value;
+        }
+        // 当前厂商无模型时退回全局最近使用（兼容旧数据）
+        return usage.length > 0 ? usage[0] : null;
+    }
+
+    // 将模型限定到当前激活厂商：候选模型不属于当前厂商时，改用该厂商「首选」模型。
+    // 查词/翻译等默认调用统一走此方法，避免下拉缓存或使用记录中残留的其它厂商模型
+    // 被发送到当前厂商（导致 400「Model does not exist」）。
+    resolveActiveModel(candidate) {
+        const models = this.getCustomAiModels();
+        if (!models.length) return candidate || this.getLastUsedModel() || '';
+        if (candidate && models.some(m => m.value === candidate)) return candidate;
+        return this.getLastUsedModel() || models[0].value;
     }
 
     // 添加自定义模型（默认写入当前激活厂商，也可指定 providerIndex）
@@ -27121,43 +27170,80 @@ ${head}
     renderCustomModelList() {
         const container = document.getElementById('customModelList');
         if (!container) return;
-        const custom = this.getCustomAiModels();
+        const custom = this.getCustomAiModels().slice();
         if (custom.length === 0) {
             container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-tertiary); font-size:13px;">暂无自定义模型</div>';
             return;
         }
         container.innerHTML = '';
+        const preferred = this.getLastUsedModel();
+        // 首选置顶：将「首选」模型固定为列表第一项
+        if (preferred) {
+            const pi = custom.findIndex(m => m.value === preferred);
+            if (pi > 0) { const [p] = custom.splice(pi, 1); custom.unshift(p); }
+        }
         custom.forEach(model => {
+            const isPreferred = model.value === preferred;
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid var(--border-color);';
+            row.className = 'model-picker-item' + (isPreferred ? ' model-picker-item-active' : '');
+            row.title = isPreferred ? '当前首选模型' : '点击设为「首选」';
+
             const info = document.createElement('div');
-            info.style.cssText = 'flex:1; min-width:0;';
-            info.innerHTML = `<div style="font-weight:500; color:var(--text-primary);">${this.escapeHtml(model.label || model.value)}</div>` +
-                             `<div style="font-size:12px; color:var(--text-secondary); word-break:break-all;">${this.escapeHtml(model.value)}</div>`;
-            const btnWrap = document.createElement('div');
-            btnWrap.style.cssText = 'flex-shrink:0; display:flex; align-items:center; gap:8px; margin-left:12px;';
+            info.className = 'model-picker-item-info';
+            info.innerHTML = `<div class="model-picker-item-label">${this.escapeHtml(model.label || model.value)}</div>` +
+                             `<div class="model-picker-item-id">${this.escapeHtml(model.value)}</div>`;
+
+            // 编辑按钮：仅图标、无边框，悬浮整行时浮出
             const editBtn = document.createElement('button');
-            editBtn.innerHTML = '<i class="fi-rr-pencil"></i> 编辑';
+            editBtn.type = 'button';
+            editBtn.className = 'model-picker-item-edit';
             editBtn.title = '编辑此自定义模型的标签与ID';
-            editBtn.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--primary-color,#3b82f6); border-radius:6px; background:transparent; color:var(--primary-color,#3b82f6); font-size:13px; cursor:pointer;';
-            editBtn.addEventListener('click', () => {
+            editBtn.innerHTML = '<i class="fi-rr-pencil"></i>';
+            editBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 this.editCustomAiModel(model.value);
             });
+
+            // 删除按钮：仅图标、无边框，悬浮整行时浮出
             const delBtn = document.createElement('button');
-            delBtn.innerHTML = '<i class="fi-rr-trash"></i> 删除';
+            delBtn.type = 'button';
+            delBtn.className = 'model-picker-item-delete';
             delBtn.title = '删除此自定义模型';
-            delBtn.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--error); border-radius:6px; background:transparent; color:var(--error); font-size:13px; cursor:pointer;';
-            delBtn.addEventListener('click', () => {
+            delBtn.innerHTML = '<i class="fi-rr-trash"></i>';
+            delBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (confirm(`确定要删除自定义模型 "${model.label || model.shortLabel}" 吗？`)) {
                     this.removeCustomAiModel(model.value);
                     this.showToast('自定义模型已删除', 'info');
                     this.renderCustomModelList();
                 }
             });
-            btnWrap.appendChild(editBtn);
-            btnWrap.appendChild(delBtn);
+
+            // 状态小字：固定在最右，首选显示星标
+            const tag = document.createElement('span');
+            tag.className = 'model-picker-item-tag';
+            if (isPreferred) tag.innerHTML = '<i class="fi-rr-star"></i> 首选';
+            else tag.textContent = '已启用';
+
             row.appendChild(info);
-            row.appendChild(btnWrap);
+            row.appendChild(editBtn);
+            row.appendChild(delBtn);
+            row.appendChild(tag);
+
+            // 点击整行：设为首选（记录使用顺序置顶，供各下拉与查词翻译兜底）
+            row.addEventListener('click', () => {
+                if (isPreferred) return;
+                this.recordModelUsage(model.value);
+                // 「首选」即查词 AI 在线翻译的默认模型：清掉翻译模型下拉的上次显式选择缓存，
+                // 使其重新按新的首选模型解析，避免旧缓存继续压制首选。
+                try { localStorage.removeItem('aiModel_translateAiModel'); } catch (e) {}
+                this.renderCustomModelList();
+                this.initAiModelSelects();
+                this.showToast(`已将「${model.label || model.value}」设为首选`, 'success');
+            });
+
             container.appendChild(row);
         });
     }
@@ -27806,19 +27892,13 @@ ${head}
     // 恢复下拉上次选择值（优先级：该下拉上次记录 > select已有值 > 全局最近使用 > 首个自定义）
     _restoreModelValue(select) {
         const savedKey = 'aiModel_' + select.id;
-        const allModels = this.getAllAiModels();
-        // 优先该下拉自己的缓存，避免 select.value 被初始化为内置值后永远压制缓存
+        const allModels = this.getAllAiModels(); // 当前激活厂商的模型
+        // 仅「显式选择过」的缓存优先；否则一律回退到当前激活厂商的「首选」模型。
+        // 注意不能用 select.value 兜底：它首次解析后即被固定，会导致切换「首选」后下拉不再跟随。
         let cached = null;
         try { cached = localStorage.getItem(savedKey); } catch (e) {}
-        let savedValue = cached || select.value || '';
-        const lastUsed = this.getLastUsedModel();
-        // 无缓存/已选时取全局最近使用，否则首个自定义模型
-        let fallback = lastUsed;
-        if (!fallback) {
-            const custom = this.getAllCustomAiModels();
-            fallback = custom.length > 0 ? custom[0].value : '';
-        }
-        const candidate = (savedValue && allModels.some(m => m.value === savedValue)) ? savedValue : fallback;
+        let candidate = (cached && allModels.some(m => m.value === cached)) ? cached : '';
+        if (!candidate) candidate = this.getLastUsedModel() || '';
         select.value = allModels.some(m => m.value === candidate) ? candidate : '';
     }
 
@@ -31261,7 +31341,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         
         // 使用用户在翻译结果栏中选择的模型（默认取最近使用的自定义模型）
         const translateModelEl = document.getElementById('translateAiModel');
-        const translateModel = (translateModelEl && translateModelEl.value) || this.getLastUsedModel() || '';
+        const translateModel = this.resolveActiveModel(translateModelEl && translateModelEl.value);
 
         try {
             const translation = await AIService.callModel(translateModel, text, {
@@ -31294,7 +31374,7 @@ But little did she know, this was just the beginning of an extraordinary journey
     async queryText(text) {
         console.log('🔎 开始查询:', text);
         const translateModelEl = document.getElementById('translateAiModel');
-        const translateModel = (translateModelEl && translateModelEl.value) || this.getLastUsedModel() || '';
+        const translateModel = this.resolveActiveModel(translateModelEl && translateModelEl.value);
 
         const systemPrompt = [
             '你是一个博学的「查询」助手，目标是帮用户真正理解所查询的内容。请识别输入的语言与形态后灵活处理：',
@@ -31329,7 +31409,7 @@ But little did she know, this was just the beginning of an extraordinary journey
     async dictLookupTranslate(text, _zhRetried) {
         console.log('🌐 词典AI翻译:', text);
         const translateModelEl = document.getElementById('translateAiModel');
-        const translateModel = (translateModelEl && translateModelEl.value) || this.getLastUsedModel() || '';
+        const translateModel = this.resolveActiveModel(translateModelEl && translateModelEl.value);
         const isChinese = /[\u4e00-\u9fa5]/.test(text.trim());
         const systemPrompt = isChinese
             ? '你是一个中译英词典助手。用户输入中文，请返回其对应的英文翻译（英文单词、词组或习语，可有多个常用译法，用「 / 」分隔）。\n硬性要求：\n1. word 字段必须填写英文，禁止留空、禁止包含任何汉字\n2. meaning 字段用中文简要解释该英文词的含义（不是解释用户输入的中文词语）\n3. phonetic 填第一个英文词的音标\n请严格按以下 JSON 格式返回，不要添加任何额外内容：{"word":"英文翻译1 / 英文翻译2","phonetic":"音标","meaning":"中文释义"}'
@@ -31494,7 +31574,7 @@ But little did she know, this was just the beginning of an extraordinary journey
                             } else {
                                 // 使用用户在翻译结果栏中下拉选择的模型（含用户自定义模型）
                                 const translateModelEl = document.getElementById('translateAiModel');
-                                const translateModel = (translateModelEl && translateModelEl.value) || this.getLastUsedModel();
+                                const translateModel = this.resolveActiveModel(translateModelEl && translateModelEl.value);
                                 const enriched = await AIService.enrichWordsWithLight([{ word: selectedText }], null, null, translateModel);
                                 item = (enriched && enriched[0]) || null;
                                 this._lastDictCategory = '';

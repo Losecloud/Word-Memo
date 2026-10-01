@@ -10861,6 +10861,96 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: var(--primary-color);
 }
 
+/* 自定义模型列表项：点击设为首选，交互样式对齐 dict-picker-item */
+.model-picker-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-primary);
+    user-select: none;
+    -webkit-user-select: none;
+}
+.model-picker-item:hover { background: var(--hover-bg, #f4f4f5); }
+.model-picker-item-active {
+    background: var(--primary-light);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+.model-picker-item-active:hover { background: var(--primary-light); }
+.model-picker-item-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.model-picker-item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.model-picker-item-id {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* 编辑笔形 icon：默认隐藏，仅悬浮整行时浮出，无文字无边框 */
+.model-picker-item .model-picker-item-edit {
+    flex-shrink: 0;
+    display: none;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 0;
+    cursor: pointer;
+}
+.model-picker-item:hover .model-picker-item-edit { display: inline-flex; }
+.model-picker-item .model-picker-item-edit:hover {
+    background: var(--primary-light);
+    color: var(--primary-color);
+}
+/* 删除垃圾桶 icon：默认隐藏，仅悬浮整行时浮出，无文字无边框 */
+.model-picker-item .model-picker-item-delete {
+    flex-shrink: 0;
+    display: none;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    padding: 0;
+    cursor: pointer;
+}
+.model-picker-item:hover .model-picker-item-delete { display: inline-flex; }
+.model-picker-item .model-picker-item-delete:hover {
+    background: color-mix(in srgb, var(--error, #EF4444) 14%, transparent);
+    color: var(--error, #EF4444);
+}
+/* 最右固定状态小字：首选（星标）/ 已启用 */
+.model-picker-item-tag {
+    flex-shrink: 0;
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+}
+.model-picker-item-tag i { margin-right: 2px; }
+
 .setting-hint {
     font-size: 0.75rem;
     color: var(--text-tertiary);
@@ -19697,7 +19787,7 @@ i.dropdown-item-icon {
 .ld-section {
     background: var(--surface);
     border-radius: var(--radius-lg);
-    padding: 0 0 var(--spacing-xl) 0;
+    padding: var(--spacing-lg);
     margin-bottom: 0;
 }
 .ld-section-header {

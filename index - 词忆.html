@@ -4373,8 +4373,7 @@
                         </select>
                         <div class="setting-hint" style="margin-top: 8px;">
                             <div class="setting-hint" style="margin-top: 8px;">
-                                <div style="margin-bottom: 4px;"> <strong>兼容说明：</strong></div>
-                                <div style="padding-left: 20px; line-height: 1.8;">
+                                <div style="line-height: 1.8;">
                                     • OpenAI Chat Completions 格式适用于绝大多数平台（OpenAI、DeepSeek、硅基流动等）<br>
                                     • Anthropic Messages 格式适用于 Claude 系列模型<br>
                                 </div>
@@ -4382,26 +4381,22 @@
                         </div>
                     </div>
 
-                    <div class="setting-group" style="margin-top: 24px;">
+                    <div class="setting-group" style="margin-top: 16px;">
                         <label class="setting-label ai-setting-label">自定义请求地址<span style="color:var(--error); margin-top:4px;  margin-left: 5px;"> *</span></label>
                         <input type="text" class="setting-input" id="aiApiBaseUrl" placeholder="e.g. https://api.openai.com/v1">
                         <div class="setting-hint" style="margin-top: 8px;">
-                            <div style="margin-bottom: 4px;"><strong>填写说明：</strong></div>
-                            <div style="padding-left: 20px; line-height: 1.8;">
-                                1. 填写你使用的 AI 服务的基础地址（到 /v1 即可）<br>
-                                2. 留空时默认使用 OpenAI 官方地址（https://api.openai.com/v1）<br>
-                                3. 例如：使用硅基流动可填写 https://api.siliconflow.cn/v1<br>
+                            <div style=" line-height: 1.8;">
+                                填写 AI 服务的基础地址（到 /v1 即可），如 https://api.openai.com/v1<br>
                             </div>
                         </div>
                     </div>
 
-                    <div class="setting-group" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color);">
+                    <div class="setting-group" style="margin-top: 16px;">
                         <label class="setting-label ai-setting-label">API 密钥<span style="color:var(--error); margin-top:4px;  margin-left: 5px;"> *</span></label> 
                         <input type="password" class="setting-input" id="aiApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx">
                         <div class="setting-hint" style="margin-top: 8px;">
-                            <div style="padding-left: 20px; line-height: 1.8;">
-                                1. 从你的 AI 服务提供商处获取 API 密钥<br>
-                                2. 将密钥复制粘贴到上方输入框<br>
+                            <div style=" line-height: 1.8;">
+                                填写 AI 服务提供商 API 密钥<br>
                             </div>
                             <div style="margin-top: 6px; padding: 8px; background: none; font-size: 13px;">
                                 <i class="fi-rr-shield" style="color: var(--primary-color);"></i> <strong>安全提示：</strong>密钥仅保存在您的浏览器本地，不会上传到任何服务器
@@ -4560,11 +4555,11 @@
                             </button>
                             <div class="dict-picker-panel" id="settingsDictPickerPanel">
                                 <div class="dict-picker-section" data-zone="enabled">
-                                    <div class="dict-picker-section-title"><i class="fi-rr-check-circle"></i>已启用 · 点击设为首选 · 拖出禁用</div>
+                                    <div class="dict-picker-section-title"><i class="fi-rr-check-circle"></i>已启用 · 点击设为首选 · 拖出到下方禁用</div>
                                     <div class="dict-picker-list" id="settingsDictEnabled"></div>
                                 </div>
                                 <div class="dict-picker-section" data-zone="disabled">
-                                    <div class="dict-picker-section-title"><i class="fi-rr-ban"></i>已禁用 · 拖入启用</div>
+                                    <div class="dict-picker-section-title"><i class="fi-rr-ban"></i>已禁用 · 拖入上方启用</div>
                                     <div class="dict-picker-list" id="settingsDictDisabled"></div>
                                 </div>
                                 <div class="dict-picker-section" data-zone="downloadable" id="settingsDictDownloadSection">
@@ -5982,16 +5977,66 @@
             });
             return div;
         }
+        // 当前查词翻译实际使用的 AI 模型：优先「AI设置」里的翻译模型下拉，
+        // 其次当前激活厂商的「首选」模型（与 dictLookupTranslate 的取用口径一致）
+        function currentAiModelName() {
+            var candidate = '';
+            try {
+                var sel = document.getElementById('translateAiModel');
+                if (sel && sel.value && sel.value !== '__add_new__') candidate = sel.value;
+            } catch (e) { /* 忽略 */ }
+            try {
+                if (window.app && typeof window.app.resolveActiveModel === 'function') {
+                    var m = window.app.resolveActiveModel(candidate);
+                    if (m) return m;
+                }
+                if (window.app && typeof window.app.getLastUsedModel === 'function') {
+                    var m2 = window.app.getLastUsedModel();
+                    if (m2) return m2;
+                }
+            } catch (e) { /* 忽略 */ }
+            return candidate;
+        }
+        // AI 入口的副标题：显示具体调用的模型，未配置时退回通用文案
+        function aiEntryPreviewText() {
+            var m = currentAiModelName();
+            return m ? ('点击调用 [' + m + '] AI在线翻译') : '点击调用 AI 在线翻译';
+        }
         // 构建"AI在线翻译"入口行（点击进入 AI 翻译详情）
         function buildAiEntry(q) {
             var aiLookupItem = document.createElement('div');
-            aiLookupItem.className = 'dl-item';
-            aiLookupItem.innerHTML = '<span class="dl-w">' + q.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="dl-dict dl-dict-preferred">AI在线翻译</span><div class="dl-preview">点击调用 AI 在线翻译</div>';
+            aiLookupItem.className = 'dl-item dl-ai-entry';
+            aiLookupItem.innerHTML = '<span class="dl-w">' + q.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="dl-dict dl-dict-preferred">AI在线翻译</span>';
+            var prevEl = document.createElement('div');
+            prevEl.className = 'dl-preview';
+            prevEl.textContent = aiEntryPreviewText();
+            aiLookupItem.appendChild(prevEl);
             aiLookupItem.addEventListener('mousedown', function (e) {
                 e.preventDefault();
                 openAiDetail(q);
             });
             return aiLookupItem;
+        }
+        // 「AI在线翻译」入口固定占位：无论查询是否命中本地词典，都保证入口存在，
+        // 并始终钉在主结果区末尾（分隔线紧挨的上方、基础词典兜底之下，即清单倒数第 1 项）。
+        // 不同查询路径（同步渲染 / 形近词与逆向查词的异步回调）的插入顺序不一，
+        // 故统一在插入后按「分隔线」重新定位，保证次序稳定。
+        function ensureAiEntry(q) {
+            if (!q) return;
+            var entry = results.querySelector('.dl-ai-entry');
+            if (!entry) {
+                entry = buildAiEntry(q);
+            } else {
+                var wEl = entry.querySelector('.dl-w');
+                if (wEl) wEl.textContent = q;
+                // 模型可能已被切换，同步刷新副标题
+                var pv = entry.querySelector('.dl-preview');
+                if (pv) pv.textContent = aiEntryPreviewText();
+            }
+            entry.setAttribute('data-ai-word', q);
+            var divider = results.querySelector('.dl-alt-divider');
+            if (divider) results.insertBefore(entry, divider);
+            else results.appendChild(entry);
         }
         // 是否已配置 AI 的 API 密钥（未配置时不做在线翻译，避免抛出"请先配置"的警示）
         function hasAiApiKey() {
@@ -6084,7 +6129,7 @@
         // 仅在确无任何本地结果时才调用 AI 翻译，避免部分输入时打扰用户
         function aiTranslateIfEmpty(q) {
             if (!dropdownOpen || lastQuery !== q || dropdown.classList.contains('detail')) return;
-            if (results.querySelector('.dl-item')) return; // 已有本地结果：不打扰
+            if (results.querySelector('.dl-item:not(.dl-ai-entry)')) return; // 已有本地结果：不打扰（AI 入口本身不算本地结果）
             const hint = results.querySelector('.dl-empty');
             if (hint) hint.remove();
             autoAiTranslate(q);
@@ -6279,7 +6324,7 @@
                     if (!dropdownOpen || lastQuery !== q || dropdown.classList.contains('detail')) return;
                     if (hasExactLocalResult(q)) return; // 已启用词典/基础词典已精确命中：不提示
                     if (!hasAiApiKey()) { renderAiConfigHint(results); return; }
-                    if (!results.querySelector('.dl-item')) aiTranslateIfEmpty(q);
+                    if (!results.querySelector('.dl-item:not(.dl-ai-entry)')) aiTranslateIfEmpty(q);
                 };
                 if (!window.NebulaCover || typeof window.NebulaCover.similar !== 'function') { finish(); return; }
                 window.NebulaCover.similar(w, 8, function (sims) {
@@ -6627,6 +6672,9 @@
                 } else {
                     appendReverseWords(d.words, d.q);
                 }
+                // 兜底：保证「AI在线翻译」入口始终钉在主结果区末尾（分隔线上方）；
+                // 历史查询视图不追加（那是最近记录清单，不是某词的检索结果）
+                if (!d.recent) ensureAiEntry(d.q);
                 // Enter 直达：检索结果返回后自动打开（优先精确匹配项，否则打开首项），确保跳转的是最新输入的词
                 if (pendingEnter && d.q === pendingEnter) {
                     pendingEnter = null;
@@ -7073,6 +7121,9 @@
             const preferred = pickerData.preferred != null ? pickerData.preferred : getPreferred();
             const enabledList = dicts.filter(d => d.enabled);
             const disabledList = dicts.filter(d => !d.enabled);
+            // 首选置顶：将「首选」词库固定为「已启用」栏第一项
+            const prefIdx = enabledList.findIndex(d => d.varName === preferred);
+            if (prefIdx > 0) { const [p] = enabledList.splice(prefIdx, 1); enabledList.unshift(p); }
             const pref = dicts.find(d => d.varName === preferred) || enabledList[0] || null;
             if (triggerId) triggerId.textContent = pref ? pref.name : (dicts.length ? '未设置' : '未检测到词典');
             enabledBox.innerHTML = '';
