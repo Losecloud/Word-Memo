@@ -147,6 +147,7 @@ const Storage = {
         'workshopAppFavorites',         // AI 工坊收藏
         'wordListColWidths',            // 浏览词单列宽
         'enabledDicts', 'knownDicts', 'dictMetas', 'browseDictCur', 'baseDictDisabled', // 词典启用/清单/首选
+        'wordNotes',                    // 查词详情页「我的笔记」（按单词小写索引）
         'writingInputDebounce', 'cefrMarkEnabled', 'aiCorrectionEnabled' // AI 工坊写作设置
     ],
     MIRROR_KEY_PREFIXES: ['aiModel_'],  // AI 各下拉上次选中的模型 ID

@@ -1937,7 +1937,7 @@
                             <line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                     </button>
-                    <div class="completion-icon"><i class="fi-rr-confetti"></i></div>
+                    <div class="completion-icon">🎉</div>
                     <h2 class="completion-title">恭喜完成学习！</h2>
                     <div class="stats-summary">
                         <div class="stat-item">
@@ -4569,6 +4569,13 @@
                             </div>
                         </div>
                     </div>
+                    <div class="setting-group">
+                        <label class="setting-label">例句填充</label>
+                        <select class="setting-select" id="exampleFillDict"></select>
+                        <div class="setting-hint" id="exampleFillHint">
+                            练习时若单词缺少有效例句，自动从所选词典提取「第一个释义的第一个例句」补位。
+                        </div>
+                    </div>
                     <div class="setting-section-title">主题样式</div>
                     <div class="setting-group">
                         <label class="setting-label">
@@ -5692,11 +5699,163 @@
             if (!HOST) return false;
             return obDictLookupInSidebar !== false;
         }
+        // 插件「悬浮取词」开关（wm-ob-settings 下发，默认开启）
+        let obHoverLookup = true;
         // 宿主（Obsidian 插件）下发的功能开关
         window.addEventListener('message', function (ev) {
             const d = ev.data;
-            if (d && d.type === 'wm-ob-settings') obDictLookupInSidebar = d.dictLookupInSidebar !== false;
+            if (d && d.type === 'wm-ob-settings') {
+                obDictLookupInSidebar = d.dictLookupInSidebar !== false;
+                obHoverLookup = d.hoverLookup !== false;
+            }
         });
+
+        // —— 应用内悬浮取词：把 Obsidian 笔记里的「悬浮取词」搬进本应用 ——
+        // 文本层直接取词；无文本层时尝试图片 OCR（练习例句配图、阅读联想/文字游戏等插图）。
+        // 图片 OCR 需 Windows 系统能力，浏览器拿不到：把整图与光标坐标发给宿主插件执行（wm-ocr-hover）。
+        // 命中结果统一交右侧栏查词视图承接（showWordDetailInSidebar → keepFocus，不抢焦点）。
+        // 仅在「宿主 + 右侧栏查词开启」时生效，独立运行与侧栏自身都不触发。
+        const HOVER_DELAY = 500;  // 命中后停留多久才取词（与插件一致）
+        const HOVER_TICK = 80;    // 取词节流间隔，降低热路径开销
+        const HOVER_MOVE = 12;    // 已取景后再次取景所需的最小移动距离（像素）
+        const OCR_MIN_SIZE = 64;  // 显示尺寸小于它的图片视为 UI 图标，不 OCR
+        let hvTick = 0, hvTimer = 0, hvKey = '', hvX = 0, hvY = 0, hvId = 0;
+
+        function hoverLookupAvailable() {
+            return obHoverLookup !== false && useSidebarLookup();
+        }
+
+        // 光标下的英文单词（允许词内连字符/撇号）；非文本节点返回空
+        function appWordAtPoint(x, y) {
+            let range = null;
+            if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(x, y);
+            } else if (document.caretPositionFromPoint) {
+                const p = document.caretPositionFromPoint(x, y);
+                if (p && p.offsetNode) {
+                    range = document.createRange();
+                    range.setStart(p.offsetNode, p.offset);
+                    range.collapse(true);
+                }
+            }
+            if (!range) return '';
+            const node = range.startContainer;
+            if (!node || node.nodeType !== 3) return '';
+            const text = node.nodeValue || '';
+            const isW = function (c) { return /[A-Za-z'’-]/.test(c); };
+            let i = range.startOffset;
+            if (!isW(text.charAt(i)) && i > 0 && isW(text.charAt(i - 1))) i -= 1;
+            if (!isW(text.charAt(i))) return '';
+            let s = i, e = i;
+            while (s > 0 && isW(text.charAt(s - 1))) s -= 1;
+            while (e < text.length - 1 && isW(text.charAt(e + 1))) e += 1;
+            const w = text.slice(s, e + 1).replace(/^['’-]+|['’-]+$/g, '');
+            return /^[A-Za-z][A-Za-z'’-]*$/.test(w) ? w : '';
+        }
+
+        // 按钮/输入/菜单等 UI 装饰不作为取词对象
+        function hoverSkip(el) {
+            if (!el || !el.closest) return true;
+            return !!el.closest('button, a, input, textarea, select, option, label, [contenteditable="true"], [contenteditable=""],'
+                + ' .nav-item, .dropdown-menu, .dropdown-item, .user-dropdown, .dict-lookup-dropdown,'
+                + ' .ai-picker-panel, .dict-picker-panel, .model-picker-panel, .toast, .writing-bottom-nav');
+        }
+
+        // 光标下的可 OCR 图源：<img>（取自然尺寸像素）或 <canvas>
+        function appImageAtPoint(x, y) {
+            const el = document.elementFromPoint(x, y);
+            if (!el || !el.closest) return null;
+            const pick = function (tag) { return el.tagName === tag ? el : el.closest(tag.toLowerCase()); };
+            const img = pick('IMG');
+            if (img) {
+                // 封面/应用图标/关闭按钮等纯装饰图不参与识别
+                if (img.closest('.workshop-app-icon, .welcome-icon-img, .dropdown-menu, .app-icon')) return null;
+                const w = img.naturalWidth, h = img.naturalHeight;
+                const r = img.getBoundingClientRect();
+                if (!w || !h || Math.min(r.width, r.height) < OCR_MIN_SIZE) return null;
+                return { el: img, w: w, h: h };
+            }
+            const cv = pick('CANVAS');
+            if (cv) {
+                const r = cv.getBoundingClientRect();
+                if (!cv.width || !cv.height || Math.min(r.width, r.height) < OCR_MIN_SIZE) return null;
+                return { el: cv, w: cv.width, h: cv.height };
+            }
+            return null;
+        }
+
+        // 图源 → PNG dataURL（同源图片可安全导出；跨域污染时返回空串，静默跳过）
+        function sourceToDataUrl(src) {
+            try {
+                if (src.el.tagName === 'CANVAS') return src.el.toDataURL('image/png');
+                const cv = document.createElement('canvas');
+                cv.width = src.w;
+                cv.height = src.h;
+                cv.getContext('2d').drawImage(src.el, 0, 0, src.w, src.h);
+                return cv.toDataURL('image/png');
+            } catch (e) { return ''; }
+        }
+
+        function cancelAppHover() {
+            hvId += 1;
+            hvKey = '';
+            if (hvTimer) { clearTimeout(hvTimer); hvTimer = null; }
+        }
+
+        function onAppHoverMove(e) {
+            if (!hoverLookupAvailable() || e.buttons) return;
+            const now = Date.now();
+            if (now - hvTick < HOVER_TICK) return;
+            hvTick = now;
+            const sel = window.getSelection && window.getSelection();
+            if (sel && !sel.isCollapsed && String(sel).trim()) { cancelAppHover(); return; }
+            if (hoverSkip(e.target)) { cancelAppHover(); return; }
+
+            const word = appWordAtPoint(e.clientX, e.clientY);
+            if (word) {
+                if (word === hvKey) return; // 同一单词不重复触发、不重置计时
+                hvKey = word;
+                hvX = e.clientX; hvY = e.clientY;
+                if (hvTimer) clearTimeout(hvTimer);
+                hvTimer = setTimeout(function () {
+                    hvTimer = null;
+                    if (hoverLookupAvailable() && hvKey === word && typeof window.showWordDetailInSidebar === 'function') {
+                        window.showWordDetailInSidebar(word);
+                    }
+                }, HOVER_DELAY);
+                return;
+            }
+
+            // 文本层无词：可能是图片中的文字。抖动不重复取景，移动超过阈值才再次取景
+            const dx = e.clientX - hvX, dy = e.clientY - hvY;
+            if (dx * dx + dy * dy < HOVER_MOVE * HOVER_MOVE) return;
+            hvX = e.clientX; hvY = e.clientY;
+            const src = appImageAtPoint(e.clientX, e.clientY);
+            if (!src) { cancelAppHover(); return; }
+            const rect = src.el.getBoundingClientRect();
+            if (!rect.width || !rect.height) { cancelAppHover(); return; }
+            const ix = Math.round((e.clientX - rect.left) / rect.width * src.w);
+            const iy = Math.round((e.clientY - rect.top) / rect.height * src.h);
+            if (ix < 0 || iy < 0 || ix >= src.w || iy >= src.h) { cancelAppHover(); return; }
+            const key = src.w + 'x' + src.h + '@' + ix + ',' + iy;
+            if (key === hvKey) return;
+            hvKey = key;
+            hvId += 1;
+            const id = hvId;
+            if (hvTimer) clearTimeout(hvTimer);
+            hvTimer = setTimeout(function () {
+                hvTimer = null;
+                if (!hoverLookupAvailable() || hvKey !== key || id !== hvId) return;
+                const dataUrl = sourceToDataUrl(src);
+                if (!dataUrl) return;
+                try {
+                    window.parent.postMessage({ type: 'wm-ocr-hover', dataUrl: dataUrl, ix: ix, iy: iy }, '*');
+                } catch (err) { /* 忽略 */ }
+            }, HOVER_DELAY);
+        }
+
+        document.addEventListener('mousemove', onAppHoverMove);
+        window.addEventListener('blur', cancelAppHover);
         // 侧栏模式常驻跟随宿主（Obsidian）主题：URL 参数避免首屏闪烁，后续由插件推送
         if (SIDEBAR) {
             const wmTheme = new URLSearchParams(location.search).get('wmTheme');
@@ -5753,6 +5912,54 @@
         function post(obj) {
             try { frame.contentWindow.postMessage(Object.assign({ __dictLookup: 1 }, obj), '*'); } catch (e) { /* 忽略 */ }
         }
+        // 「我的笔记」：按单词（小写）取值，存于 localStorage 镜像键 wordNotes，随用户配置（extras）持久化。
+        // 存储格式 { <word>: { text, ts } }；兼容旧格式（值为纯字符串，无时间戳）
+        function readWordNotes() {
+            try {
+                const raw = JSON.parse(localStorage.getItem('wordNotes') || '{}');
+                return (raw && typeof raw === 'object') ? raw : {};
+            } catch (e) { return {}; }
+        }
+        function getWordNoteMeta(word) {
+            const k = String(word == null ? '' : word).toLowerCase().trim();
+            if (!k) return { text: '', ts: 0 };
+            const v = readWordNotes()[k];
+            if (v == null) return { text: '', ts: 0 };
+            if (typeof v === 'string') return { text: v, ts: 0 };
+            return { text: String(v.text || ''), ts: Number(v.ts) || 0 };
+        }
+        function getWordNote(word) {
+            return getWordNoteMeta(word).text;
+        }
+        // 写入单词笔记，返回记录时间戳（0 表示已清空/未写入）
+        function saveWordNote(word, text) {
+            const k = String(word == null ? '' : word).toLowerCase().trim();
+            if (!k) return 0;
+            const notes = readWordNotes();
+            const t = String(text == null ? '' : text);
+            let ts = 0;
+            if (t.trim()) { ts = Date.now(); notes[k] = { text: t, ts: ts }; }
+            else delete notes[k];
+            try { localStorage.setItem('wordNotes', JSON.stringify(notes)); } catch (e) { /* 忽略 */ }
+            return ts;
+        }
+        // 「添加笔记」外部入口（如记忆方法卡片）：把一段内容追加到当前单词的笔记末尾
+        window.appendToWordNote = function (word, addition) {
+            const k = String(word == null ? '' : word).toLowerCase().trim();
+            const add = String(addition == null ? '' : addition).trim();
+            if (!k || !add) return '';
+            const cur = getWordNoteMeta(k).text;
+            // 新笔记另起一行（不空行）
+            const next = cur.trim() ? (cur.replace(/\s+$/, '') + '\n' + add) : add;
+            const ts = saveWordNote(k, next);
+            // 详情 iframe 正展示该词时，实时刷新其笔记区（含日期）
+            try { post({ cmd: 'set-note', word: k, note: next, ts: ts }); } catch (e) { /* 忽略 */ }
+            // Obsidian 宿主：右侧栏查词视图可能正展示该词详情，经插件转发刷新（侧栏未展示该词时引擎自会忽略）
+            if (useSidebarLookup()) {
+                try { window.parent.postMessage({ type: 'wm-dict-note', word: k, note: next, ts: ts }, '*'); } catch (e) { /* 忽略 */ }
+            }
+            return next;
+        };
         // 显示下拉：侧栏模式用 flex 撑满剩余空间（配合 CSS），主界面沿用绝对定位浮层
         function showDropdown() {
             dropdown.style.display = SIDEBAR ? 'flex' : 'block';
@@ -6404,7 +6611,8 @@
                     });
                 });
             }
-            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, favorited: favorited, cands: dictCandidates(it.w) });
+            const itNote = getWordNoteMeta(it.w);
+            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, favorited: favorited, cands: dictCandidates(it.w), note: itNote.text, noteTs: itNote.ts });
             input.blur();
             sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦，如由主页转交的请求）
         }
@@ -6418,9 +6626,18 @@
             try {
                 const doc = frame.contentDocument || frame.contentWindow.document;
                 if (doc) {
-                    const box = doc.getElementById ? doc.getElementById('detail') : null;
-                    const sh = box ? box.scrollHeight : (doc.body ? doc.body.scrollHeight : 0);
-                    if (sh > h) h = sh;
+                    // #detail 现为 overflow:hidden 弹性容器，其 scrollHeight 不再反映被裁剪内容；
+                    // 自然高度 = 上方词条滚动区内容高度 + 底部固定笔记区高度
+                    const scrollBox = doc.querySelector ? doc.querySelector('.detail-scroll') : null;
+                    const noteBox = doc.querySelector ? doc.querySelector('.word-note') : null;
+                    if (scrollBox) {
+                        const sh = scrollBox.scrollHeight + (noteBox ? noteBox.offsetHeight : 0);
+                        if (sh > h) h = sh;
+                    } else {
+                        const box = doc.getElementById ? doc.getElementById('detail') : null;
+                        const sh = box ? box.scrollHeight : (doc.body ? doc.body.scrollHeight : 0);
+                        if (sh > h) h = sh;
+                    }
                 }
             } catch (e) { /* 跨域/未加载时忽略 */ }
             if (h <= 0) return;
@@ -6744,6 +6961,13 @@
                 }
                 return;
             }
+            if (d.type === 'note-change') {
+                // 查词详情页「我的笔记」即时编辑：写入镜像键 wordNotes（含时间戳），随用户配置（extras）持久化
+                const noteWord = String(d.word || '').toLowerCase().trim();
+                if (!noteWord) return;
+                saveWordNote(noteWord, d.note);
+                return;
+            }
             if (d.type === 'favorite') {
                 // 查词详情页收藏/取消收藏单词（全局收藏词单）
                 const word = d.word;
@@ -6858,12 +7082,25 @@
             if (!ready) {
                 // 引擎未就绪：缓存 open 命令，就绪后自动补发（沿用设置页 pending 机制）
                 const pend = window.__dictLookupPending || (window.__dictLookupPending = []);
-                pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q) });
+                const qNote = getWordNoteMeta(q);
+                pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q), note: qNote.text, noteTs: qNote.ts });
             }
             openWord({ w: q, disp: disp, q: q, dict: dict }, true);
             // 同时检索该词，填充下拉结果列表（多本词典释义列表，首选词典优先）：
             // 详情模式下列表保持隐藏，点击 header 折叠返回时即可展示，无需重新输入
             if (ready) post({ cmd: 'search', q: q });
+        };
+        // 记忆辅助入口（练习时点「不知道 / 不记得」）：把当前背诵单词推到右侧栏展示词典释义，辅助记忆。
+        // 仅在 Obsidian 宿主且开启「右侧窗口查词」时生效（返回 true 表示已交由侧栏承接）；
+        // 网页端或关闭该开关时返回 false，由调用方决定是否另作处理。
+        // keepFocus=true：只展开侧栏展示释义，不把焦点抢到侧栏——否则主页 iframe 失焦后，
+        // 网页内快捷键（如「如何记忆？」热键）将收不到按键，需再点一下页面才恢复
+        window.showWordDetailInSidebar = function (word) {
+            if (!useSidebarLookup()) return false;
+            const disp = String(word == null ? '' : word).trim();
+            if (!disp) return false;
+            try { window.parent.postMessage({ type: 'wm-dict-lookup', word: disp, keepFocus: true }, '*'); } catch (e) { /* 忽略 */ }
+            return true;
         };
         // 侧栏模式：接收宿主转发的「查看词典详情」请求（主页背单词模式点击单词等入口），
         // 在侧栏中展开该词的详情，主页因此保持无弹窗覆盖
@@ -6874,6 +7111,9 @@
                 if (d.type === 'wm-dict-word' && d.word) {
                     setDictStatus(true, '查询中'); // 悬浮取词命中：提示查询进行中
                     if (typeof window.openDictLookupWord === 'function') window.openDictLookupWord(d.word);
+                } else if (d.type === 'wm-dict-note' && d.word) {
+                    // 主页「添加笔记」写入后经插件转发：若本栏正展示同一单词，刷新其笔记区与日期
+                    try { post({ cmd: 'set-note', word: String(d.word).toLowerCase().trim(), note: d.note, ts: d.ts }); } catch (e) { /* 忽略 */ }
                 } else if (d.type === 'wm-dict-status') {
                     // 图片取词（OCR）：'识别中' 常驻；'识别成功/识别失败' 由 autoHide(ms) 后淡出
                     if (!d.text) setDictStatus(false);
@@ -6951,8 +7191,10 @@
         });
         // 背单词模式：点击主词（wordText / 记得么 rememberWordText），在查词下拉中展开首选词典的详细释义
         
-        // 从词典引擎查询单词的例句（异步，返回 Promise）
-        window.lookupExampleFromDict = function (word) {
+        // 从词典引擎查询单词的例句（异步，返回 Promise）。
+        // dict 为可选词典变量名（「例句填充」选定词典）：传入时只在那一本里取
+        // 「第一个释义的第一个例句」，否则跨词典搜索
+        window.lookupExampleFromDict = function (word, dict) {
             return new Promise(function (resolve) {
                 if (!word) { resolve(''); return; }
                 // 初始化回调存储
@@ -6970,7 +7212,9 @@
                 const frame = document.getElementById('dictLookupFrame');
                 if (frame && frame.contentWindow) {
                     try {
-                        frame.contentWindow.postMessage({ __dictLookup: 1, cmd: 'lookup-example', word: word }, '*');
+                        const msg = { __dictLookup: 1, cmd: 'lookup-example', word: word };
+                        if (dict) msg.dict = dict;
+                        frame.contentWindow.postMessage(msg, '*');
                     } catch (e) {
                         clearTimeout(timer);
                         delete window.__exampleLookupCallbacks[word];
@@ -7074,6 +7318,9 @@
                 .map(x => ({ varName: x.varName, name: x.name, enabled: !!x.enabled }))
                 .filter(x => !hiddenVars.has(x.varName));
             renderPicker();
+            // 同步「例句填充」下拉：仅列出能提供例句的已启用词典
+            window.__dictPickerList = pickerData.list;
+            if (typeof window.renderExampleFillOptions === 'function') window.renderExampleFillOptions(pickerData.list);
         }
         // 监听引擎广播的词库状态（首次就绪、启用/禁用、设首选、重命名后都会推送）
         window.addEventListener('message', function (ev) {
@@ -7420,6 +7667,45 @@
         notify('get-state'); // 初始渲染后向引擎请求一次状态（引擎就绪后会广播）
         return { refresh: function () { renderPicker(); notify('get-state'); } };
     }
+
+    // ===== 「例句填充」下拉：仅列出「能提供例句」的已启用词典 =====
+    // 目前词忆官方仅「柯林斯高阶 Collins COBUILD」具备成句例句可稳定提取，故在此白名单登记；
+    // 未安装/未启用时保持仅「关闭」项，并提示前往下载，避免出现选了却填不出的空档。
+    const EXAMPLE_FILL_VARS = { COLLINS_DICT: true };
+    window.renderExampleFillOptions = function (list) {
+        const sel = document.getElementById('exampleFillDict');
+        if (!sel) return;
+        const src = list || window.__dictPickerList || [];
+        const capable = src.filter(x => EXAMPLE_FILL_VARS[x.varName] && x.enabled);
+        const saved = (window.app && window.app.settings && window.app.settings.exampleFillDict) || '';
+        let html = '<option value="">关闭（不填充）</option>';
+        capable.forEach(x => {
+            html += '<option value="' + x.varName + '">' + String(x.name || x.varName).replace(/</g, '&lt;') + '</option>';
+        });
+        sel.innerHTML = html;
+        // 仅在已安装该词典时回填；否则回落「关闭」，避免保留一个取不到数据的悬空选择
+        sel.value = capable.some(x => x.varName === saved) ? saved : '';
+        sel.dataset.synced = '1';
+        const hint = document.getElementById('exampleFillHint');
+        if (hint) {
+            hint.innerHTML = capable.length
+                ? '练习时若单词缺少有效例句，自动从所选词典提取「第一个释义的第一个例句」补位。'
+                : '暂未检测到可用于例句填充的词典，建议下载并启用「<i class="fi-rr-cloud-download"></i> 柯林斯高阶 Collins COBUILD」。';
+        }
+        // 选项已重建：同步自绘下拉的触发器文字与面板（若已构建）
+        if (window.app && typeof window.app.refreshSettingPicker === 'function') window.app.refreshSettingPicker(sel);
+    };
+    // 选择即时生效并落盘（与「看单词选释义 Pro」一致，无需再点「保存」）
+    (function () {
+        const sel = document.getElementById('exampleFillDict');
+        if (!sel) return;
+        sel.addEventListener('change', function () {
+            if (window.app && window.app.settings) {
+                window.app.settings.exampleFillDict = sel.value || '';
+                if (typeof window.app.persistExampleFillDict === 'function') window.app.persistExampleFillDict();
+            }
+        });
+    })();
 
     // 实例一：设置页「首选查词词典」下拉（固定定位跟随 trigger，适配弹窗滚动）
     (function () {

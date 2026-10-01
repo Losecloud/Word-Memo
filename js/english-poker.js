@@ -2902,6 +2902,8 @@
         function add(word, attempts, wrong, example) {
             var k = String(word || '').trim().toLowerCase();
             if (!k || !/^[a-z]+$/.test(k)) return;
+            // 词书里缺例句时，取「例句填充」预热到全局缓存的例句（炸弹锦囊出拼写题用）
+            if (!example && window.__exFillCache && window.__exFillCache[k]) example = window.__exFillCache[k];
             var p = out[k];
             if (!p) { out[k] = { attempts: attempts || 0, wrong: wrong || 0, example: example || '' }; return; }
             p.attempts += attempts || 0;
@@ -3391,6 +3393,43 @@
         });
     }
 
+    /* ============================ 对局记录 ============================ */
+
+    // 例句填充：为所选词书里缺例句的词，从「页面设置-例句填充」所选词典补位（后台预热）。
+    // 词书经 Storage.loadBooks 每次重新解析，填充结果无法靠对象引用保留，故写入
+    // window.__exFillCache 供 bookStatMap 兜底读取；预热完成后清空锦囊缓存并重绘。
+    function warmBookExamples() {
+        var app = window.app;
+        var dictVar = app && app.settings && app.settings.exampleFillDict;
+        if (!dictVar || !app || typeof app.fillMissingExample !== 'function') return;
+        var ids = (S.cfg && S.cfg.bookIds) || [];
+        var words = [];
+        try {
+            var books = (window.Storage && Storage.loadBooks) ? (Storage.loadBooks() || []) : [];
+            books.forEach(function (b) {
+                if (ids.indexOf(String(b.id)) < 0) return;
+                (b.words || []).forEach(function (w) { if (w && w.word) words.push(w); });
+            });
+        } catch (e) { return; }
+        var pending = words.filter(function (w) {
+            var defs = w.definitions || [];
+            var ex = (defs[0] && defs[0].example) || w.example || '';
+            return !/[a-zA-Z]/.test(String(ex).trim());
+        });
+        if (!pending.length) return;
+        var CAP = 200; // 上限，避免超长词书长时间占用
+        var done = 0;
+        (function run(i) {
+            if (i >= pending.length || done >= CAP) {
+                charmCache.key = ''; charmCache.list = null; // 例句可能变多：清缓存让锦囊重新计算
+                if (S.dataReady) render();
+                return;
+            }
+            done++;
+            app.fillMissingExample(pending[i]).then(function () { run(i + 1); }, function () { run(i + 1); });
+        })(0);
+    }
+
     /* ============================ 对外接口 ============================ */
     var EnglishPoker = {
         open: function () {
@@ -3404,6 +3443,7 @@
                 refreshBookPool();
                 bind();
                 render();
+                warmBookExamples(); // 例句填充：为缺例句的炸弹词预热，供锦囊出拼写题
             });
             bind();
             render();

@@ -2933,6 +2933,17 @@ class WordMemoryApp {
             this.closeMemoryAid();
         });
 
+        // 记忆方法「添加笔记」按钮：事件委托（PC 卡片与移动弹窗共用同一份渲染 HTML）
+        if (!this._memoryNoteBound) {
+            this._memoryNoteBound = true;
+            document.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('.memory-add-note-btn') : null;
+                if (!btn) return;
+                e.stopPropagation();
+                this.addMemoryMethodToNote(btn.dataset.methodType, btn.dataset.methodContent);
+            });
+        }
+
         // 记忆方法 refresh 按钮（PC端卡片 + 移动端弹窗）：跳过缓存强制重新请求AI
         const refreshPcBtn = document.getElementById('refreshMemoryAidBtn');
         if (refreshPcBtn) {
@@ -6234,6 +6245,8 @@ class WordMemoryApp {
         // 选择本次学习的单词
         const wordsPerSession = parseInt(this.settings.wordsPerSession);
         this.sessionWords = this.words.slice(0, Math.min(wordsPerSession, this.words.length));
+        // 例句填充：后台为缺例句的单词预热（上限 100 个，避免超长词书拖慢）
+        this.prefillExamples(this.sessionWords.slice(0, 100));
         this.currentWordIndex = 0;
         this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
         this.hintUsedForWords = []; // 重置提示使用记录
@@ -6346,6 +6359,13 @@ class WordMemoryApp {
 
     // 启动每题计时（如果已设置）
     this._startAnswerTimer();
+
+    // 新题渲染完成：以「此刻」为起点锁住作答区（与手动快速切题同一套缓冲）。
+    // 锚点必须是「渲染完成」而非点击切题/异步取数开始——后者会把渲染耗时（尤其
+    // Pro 形近词异步取池）算进缓冲，等选项真正出现时缓冲已被吃掉，表现为新题一
+    // 出现点击即生效。此前记得么/拼写模式的正常答题路径根本没有落锁，故连点第二
+    // 击会直接作用到新题；此处统一补齐。
+    this._lockInputBriefly();
     }
 
     // 自动切换下一题的秒数：词书独有设定优先，其次记得么模式默认 3 秒，最后全局设置
@@ -6499,11 +6519,13 @@ class WordMemoryApp {
                 this._updateCurrentSegmentUnknown();
                 this.playAnimation('neutral');
             }
-            // 先更新统计（答错/不知道均计为答错）
-            this.updateWordStats(word, false);
-            this.updateWrongWordToBook(word);
-            this.updateBookProgress();
-            this.updateStatsRealtime();
+            // 先完成视觉反馈，再把统计落盘/错题写入延后到渲染之后
+            this._deferAfterPaint(() => {
+                this.updateWordStats(word, false, idx);
+                this.updateWrongWordToBook(word);
+                this.updateBookProgress(idx);
+                this.updateStatsRealtime();
+            });
             return true;
         }
         // 已判定过：仅在升级为「错误」时更新（不回退为黄色）
@@ -6806,6 +6828,11 @@ class WordMemoryApp {
         
         // 调整选项文本大小以保持一致高度
         this.adjustOptionTextSizes();
+
+        // Pro 版干扰项是「异步取池后再渲染」：选项真正出现时再落一次缓冲，
+        // 弥补 showWord 结束时（选项尚未渲染）过早起算的部分。普通模式此处与
+        // showWord 末尾几乎同时，等价于一次，无副作用。
+        this._lockInputBriefly();
     }
 
     // Pro 版干扰项池：词与释义一律取自「基础词典」——先形近词（形近度高者优先），
@@ -7112,7 +7139,7 @@ class WordMemoryApp {
             
             // 高亮显示当前单词的例句，根据类型应用不同样式
             const highlightedExample = this.highlightWordInExample(example, currentWord.word, type);
-            exampleText.innerHTML = highlightedExample;
+            exampleText.innerHTML = highlightedExample + this.exampleSourceSuffix(def);
             
             // 移除之前的类型类，添加新的类型类
             exampleContainer.classList.remove('example-wrong', 'example-unknown', 'example-correct');
@@ -7145,6 +7172,87 @@ class WordMemoryApp {
         this.speak(this.currentExample);
     }
 
+    // 例句是否「有效」：非空、非占位符 '-'，且至少含英文字母（空串/null/纯符号均视为无效）。
+    // 传入 word 时进一步要求「成句」：不能只是该词本身（如 "projector."），
+    // 也不能是过短的短语搭配（有效例句应为包裹该词的完整句子，词数 > 5），
+    // 否则视为缺例句，交由「例句填充」从所选词典补位。
+    isValidExample(ex, word) {
+        const s = String(ex == null ? '' : ex).trim();
+        if (!s || s === '-') return false;
+        if (!/[a-zA-Z]/.test(s)) return false;
+        if (!word) return true;
+        const strip = (t) => String(t).toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, '');
+        const bare = strip(s);
+        const w = strip(word);
+        if (w && bare === w) return false; // 仅是该词本身，如 "projector."
+        const wc = s.split(/\s+/).filter(t => /[a-zA-Z]/.test(t)).length;
+        return wc > 5; // 过短视为短语搭配，不算有效例句
+    }
+
+    // 「例句填充」来源词典的展示名（例句末标注「——柯林斯高阶」用）
+    exampleFillLabel(dictVar) {
+        const map = { COLLINS_DICT: '柯林斯高阶' };
+        const v = String(dictVar || '');
+        return map[v] || v.replace(/_?DICT_?$/i, '').replace(/[_-]+/g, ' ').trim() || '词典';
+    }
+
+    // 例句来源后缀（仅供展示，不写进例句正文，避免被发音引擎读出、污染锦囊填空句）
+    exampleSourceSuffix(def) {
+        const src = def && def.exampleSource ? String(def.exampleSource).trim() : '';
+        return src ? `<span class="example-source">——${src}</span>` : '';
+    }
+
+    /**
+     * 「例句填充」：单词缺少有效例句时，从「页面设置-例句填充」所选词典取其
+     * 「第一个释义的第一个例句」补位（写入 definitions[0].example）。成功返回 true。
+     * 未启用该功能、未选词典或取不到时返回 false，不改动原数据。
+     */
+    async fillMissingExample(wordObj) {
+        const dictVar = (this.settings && this.settings.exampleFillDict) || '';
+        if (!dictVar || !wordObj || !wordObj.word) return false;
+        const def = wordObj.definitions && wordObj.definitions[0];
+        if (def && this.isValidExample(def.example, wordObj.word)) return false;
+        if (typeof window.lookupExampleFromDict !== 'function') return false;
+        let ex = '';
+        try {
+            ex = await window.lookupExampleFromDict(wordObj.word, dictVar);
+        } catch (e) {
+            return false;
+        }
+        if (!this.isValidExample(ex, wordObj.word)) return false;
+        if (!wordObj.definitions || !wordObj.definitions.length) {
+            wordObj.definitions = [{ pos: '', meaning: '', example: '' }];
+        }
+        wordObj.definitions[0].example = ex;
+        // 顶层 example 字段（熟词僻义等部分视图读取 word.example）：一并补位
+        if (!this.isValidExample(wordObj.example, wordObj.word)) wordObj.example = ex;
+        // 记录例句来源词典（仅用于展示时标注「——柯林斯高阶」，不写进例句正文）
+        wordObj.definitions[0].exampleSource = this.exampleFillLabel(dictVar);
+        // 同时写入全局例句缓存：供「读不到对象引用」的消费方（如英文扑克锦囊）取用
+        try { (window.__exFillCache = window.__exFillCache || {})[String(wordObj.word).toLowerCase()] = ex; } catch (e) { /* 忽略 */ }
+        return true;
+    }
+
+    // 批量补缺（会话开始时后台预热）：逐词串行，避免同时向词典引擎发大量请求。
+    // 词典（尤其柯林斯 60MB）可能仍在后台加载，首轮取空后延迟再补一轮。
+    async prefillExamples(words) {
+        if (!this.settings || !this.settings.exampleFillDict) return;
+        const list = (words || []).filter(Boolean);
+        let done = 0;
+        for (const w of list) {
+            if (await this.fillMissingExample(w)) done++;
+        }
+        // 首轮有未补齐的（多半是词典数据尚未就绪）：稍后对仍缺例句的词再补一轮
+        if (done < list.length) {
+            const pending = list.filter(w => {
+                const d = w.definitions && w.definitions[0];
+                return !this.isValidExample(d && d.example, w.word);
+            });
+            if (!pending.length) return;
+            setTimeout(() => { pending.forEach(w => this.fillMissingExample(w)); }, 3000);
+        }
+    }
+
     // 记得么模式空白热区：浮现例句提示（不发音），辅助用户由例句回想释义
     // force=true 时即使已在显示也强制换成当前词的例句（切词后延续显示用）
     showRememberHint(force) {
@@ -7156,11 +7264,12 @@ class WordMemoryApp {
         if (display && !display.classList.contains('hidden')) return;
         const word = this.sessionWords[this.currentWordIndex];
         if (!word) return;
-        const example = word.definitions?.[0]?.example || '';
+        const _hintDef = word.definitions?.[0];
+        const example = _hintDef?.example || '';
         const el = document.getElementById('rememberHintExample');
         if (el) {
             el.innerHTML = example
-                ? this.highlightWordInExample(example, word.word, 'unknown')
+                ? this.highlightWordInExample(example, word.word, 'unknown') + this.exampleSourceSuffix(_hintDef)
                 : '（该单词暂无例句）';
         }
         zone.classList.add('show');
@@ -7183,7 +7292,28 @@ class WordMemoryApp {
 
     // 记得么模式"如何记忆？"：仅请求AI记忆方法（释义已在点“不记得”时显示，不再重复显示）
     showRememberMeaningAid() {
-        this.showMemoryAid();
+        // 已为该词（当前模型）生成过记忆方法时，再次点击「如何记忆？」或按快捷键触发，
+        // 等同于点「重新生成」（btn-refresh-memory）：强制重新请求 AI，而不是回显缓存
+        const currentWord = this.sessionWords[this.currentWordIndex];
+        let forceRefresh = false;
+        if (currentWord) {
+            const model = this.getActiveMemoryModel();
+            const cacheKey = `${currentWord.word.replace(/\|/g, '')}|${model}`;
+            forceRefresh = !!(this.memoryAidCache && this.memoryAidCache[cacheKey]);
+        }
+        this.showMemoryAid(forceRefresh);
+    }
+
+    // 把当前背诵单词的词典详情推到右侧栏展示（Obsidian 试行）。
+    // 由「不知道/不记得」作答触发，辅助记忆；网页端或未开启「右侧窗口查词」时静默跳过。
+    // 注意：与「如何记忆？」解耦——「如何记忆？」只请求 AI，不再联动右侧栏。
+    // word 可选：延后调用时传入作答当时的单词，避免用户已切题导致推送错词
+    pushCurrentWordDetailToSidebar(word) {
+        const w = word || (this.sessionWords && this.sessionWords[this.currentWordIndex]);
+        const text = w && w.word ? String(w.word).trim() : '';
+        if (text && typeof window.showWordDetailInSidebar === 'function') {
+            window.showWordDetailInSidebar(text);
+        }
     }
 
     // 显示记忆方法（forceRefresh=true 时绕过缓存并使其失效，强制重新请求AI）
@@ -7418,6 +7548,38 @@ ${example ? `- 例句：${example}` : ''}
         return '💡';
     }
     
+    // HTML 属性转义（记忆方法内容可能含引号/尖括号，写入 data-* 前必须转义）
+    _escapeAttr(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 记忆方法「添加笔记」按钮：data-* 携带纯文本，点击后追加到当前单词的「我的笔记」
+    _memoryNoteButton(type, content) {
+        return '<button type="button" class="memory-add-note-btn" title="添加笔记"'
+            + ' data-method-type="' + this._escapeAttr(type) + '"'
+            + ' data-method-content="' + this._escapeAttr(content) + '">'
+            + '<i class="fi-rr-octagon-plus"></i> 添加笔记</button>';
+    }
+
+    // 把一条记忆方法追加到当前单词的「我的笔记」（供记忆方法卡片按钮调用）
+    addMemoryMethodToNote(type, content) {
+        const w = this.sessionWords && this.sessionWords[this.currentWordIndex];
+        const word = w && w.word ? String(w.word).split('|')[0].trim() : '';
+        const text = String(content == null ? '' : content).trim();
+        if (!word) { this.showToast('未获取到当前单词，无法添加笔记', 'error'); return; }
+        if (!text) return;
+        const t = String(type == null ? '' : type).trim() || '记忆方法';
+        // 复用该记忆方法区块的图标，拼接为简约版：「🌱 词根词缀法：内容」
+        const icon = this.getMemoryMethodIcon(t);
+        const line = icon + ' ' + t + '：' + text;
+        if (typeof window.appendToWordNote === 'function') {
+            window.appendToWordNote(word, line);
+        }
+        this.showToast('已添加到「我的笔记」', 'success');
+    }
+
     // 格式化记忆方法内容
     formatMemoryAidContent(content) {
         try {
@@ -7469,6 +7631,7 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon">${icon}</span>
                             <span class="memory-type">${type}</span>
+                            ${this._memoryNoteButton(type, content)}
                         </div>
                         <div class="memory-method-content">
                             ${this.formatContentText(content)}
@@ -7564,6 +7727,7 @@ ${example ? `- 例句：${example}` : ''}
                                 <div class="memory-method-title">
                                     <span class="memory-icon">${icon}</span>
                                     <span class="memory-type">${type}</span>
+                                    ${this._memoryNoteButton(type, content)}
                                 </div>
                                 <div class="memory-method-content">
                                     ${this.formatContentText(content)}
@@ -7598,6 +7762,7 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon">${icon}</span>
                             <span class="memory-type">${type}</span>
+                            ${this._memoryNoteButton(type, content)}
                         </div>
                         <div class="memory-method-content">
                             ${this.formatContentText(content)}
@@ -7636,6 +7801,7 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon"><i class="fi-rr-bulb"></i></span>
                             <span class="memory-type">记忆提示 ${index + 1}</span>
+                            ${this._memoryNoteButton('记忆提示 ' + (index + 1), para.replace(/<[^>]+>/g, ''))}
                         </div>
                         <div class="memory-method-content">
                             ${para.replace(/\n/g, '<br>')}
@@ -7779,6 +7945,8 @@ ${example ? `- 例句：${example}` : ''}
                 document.getElementById('nextBtn').disabled = false;
             }
         } else if (isUnknown) {
+            // 「不知道/不记得」：先渲染视觉反馈，再把「当前单词详情推到右侧栏」等
+            // 非关键工作延后（见本分支末尾）
             // 不知道，显示正确答案但不禁用所有按钮
             buttons.forEach(btn => {
                 const btnOption = btn.dataset.option;
@@ -7801,22 +7969,7 @@ ${example ? `- 例句：${example}` : ''}
                 }
             }
             
-            // 如果是首次答题，记录首次结果
-            if (!this.wordFirstResults[this.currentWordIndex]) {
-                this.wordFirstResults[this.currentWordIndex] = 'unknown';
-                this.sessionResults.unknown++;
-                
-                // ✅ 先更新统计（答错）
-                this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
-                
-                // 实时更新错题到词书并更新待复习数量
-                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
-                
-                // 首次作答，更新词书进度和今日统计
-                this.updateBookProgress();
-                this.updateStatsRealtime();
-            }
-            
+            // ===== 先完成视觉反馈（动画/音效/例句/按钮态），再做统计落盘等重后台工作 =====
             this.wordResults[this.currentWordIndex] = 'unknown';
             
             // 播放中性（黄色）动画和答错音效
@@ -7851,6 +8004,25 @@ ${example ? `- 例句：${example}` : ''}
                 clearTimeout(this.autoNextTimer);
                 this.autoNextTimer = null;
             }
+            
+            // 首次答题：结果先同步记账，统计落盘/错题写入/侧栏推送延后到渲染之后
+            const answerIdx = this.currentWordIndex;
+            const unknownWord = this.sessionWords[answerIdx];
+            const isFirstUnknown = !this.wordFirstResults[answerIdx];
+            if (isFirstUnknown) {
+                this.wordFirstResults[answerIdx] = 'unknown';
+                this.sessionResults.unknown++;
+            }
+            this._deferAfterPaint(() => {
+                if (isFirstUnknown) {
+                    this.updateWordStats(unknownWord, false, answerIdx);
+                    this.updateWrongWordToBook(unknownWord);
+                    this.updateBookProgress(answerIdx);
+                    this.updateStatsRealtime();
+                }
+                // 把当前单词的词典详情推到右侧栏（Obsidian 试行），也放到渲染之后
+                this.pushCurrentWordDetailToSidebar(unknownWord);
+            });
         } else {
             // 答错了，只标记错误选项，其他选项可以继续选择
             let wrongButton = null;
@@ -7873,29 +8045,18 @@ ${example ? `- 例句：${example}` : ''}
                 }
             });
             
-            // 如果是首次答题，记录首次结果
-            if (!this.wordFirstResults[this.currentWordIndex]) {
-                this.wordFirstResults[this.currentWordIndex] = 'wrong';
-                this._updateCurrentSegmentWrong();
+            // ===== 先完成视觉反馈（进度段/动画/音效/例句/原词浮出），再做统计落盘等重后台工作 =====
+            const wrongIdx = this.currentWordIndex;
+            const wrongWordObj = this.sessionWords[wrongIdx];
+            const alreadyAnswered = !!this.wordFirstResults[wrongIdx];
+            if (!alreadyAnswered) {
+                this.wordFirstResults[wrongIdx] = 'wrong';
                 this.sessionResults.wrong++;
-                
-                // ✅ 先更新统计（答错）
-                this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
-                
-                // 实时更新错题到词书并更新待复习数量
-                this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
-                
-                // 首次作答（答错），更新词书进度
-                this.updateBookProgress();
-                
-                // 实时更新今日统计
-                this.updateStatsRealtime();
-            } else if (this.wordFirstResults[this.currentWordIndex] === 'unknown') {
-                // 已超时后答错：切换为红色闪烁
-                this._updateCurrentSegmentWrong();
             }
+            // 进度段标红（视觉，留在渲染前段）
+            this._updateCurrentSegmentWrong();
             
-            this.wordResults[this.currentWordIndex] = 'wrong';
+            this.wordResults[wrongIdx] = 'wrong';
             this.playAnimation(false);
             
             // 播放答错音效
@@ -7915,6 +8076,16 @@ ${example ? `- 例句：${example}` : ''}
             if (this.autoNextTimer) {
                 clearTimeout(this.autoNextTimer);
                 this.autoNextTimer = null;
+            }
+            
+            // 首次答错：统计落盘/错题写入/今日统计延后到渲染之后
+            if (!alreadyAnswered) {
+                this._deferAfterPaint(() => {
+                    this.updateWordStats(wrongWordObj, false, wrongIdx);
+                    this.updateWrongWordToBook(wrongWordObj);
+                    this.updateBookProgress(wrongIdx);
+                    this.updateStatsRealtime();
+                });
             }
         }
         
@@ -8127,6 +8298,22 @@ ${example ? `- 例句：${example}` : ''}
         if (isRemember) {
             // 已判定为“不记得”后再点“记得”：视为确认继续，直接进入下一题
             if (this.wordFirstResults[this.currentWordIndex]) {
+                // 区分「计时超时」与「已点不记得」两种已判定情形：
+                // 已点不记得时释义已揭示（“记得”也已转为“下一个”），此时点按视为确认切题；
+                // 而计时超时只会把结果记为 unknown，释义尚未揭示。此时再点“记得”不应直接
+                // 跳过反馈，仍要以警示（warning/unknown）主题揭示答案，并等自动切换时间到再切题。
+                const display = document.getElementById('rememberMeaningDisplay');
+                const revealed = display && !display.classList.contains('hidden');
+                if (!revealed) {
+                    this.showRememberAnswerReveal('unknown');
+                    // 复用“不记得”的反悔窗口计时：到点后正式切题（结果已由超时记为 unknown，
+                    // commitRememberCorrect 会因已有首次结果而跳过，不会改写）
+                    if (this.settings.autoNext) {
+                        this._rememberPending = true;
+                        this.startRememberCountdown();
+                    }
+                    return;
+                }
                 this.hideRememberHint();
                 this._lockInputBriefly(); // 手动提前切题：锁住下一题作答区 1s
                 this.nextWord();
@@ -8182,7 +8369,7 @@ ${example ? `- 例句：${example}` : ''}
         const exampleTextElem = document.getElementById('rememberExampleText');
         if (example) {
             this.currentExample = example; // 保存当前例句，供点击重放
-            exampleTextElem.innerHTML = this.highlightWordInExample(example, word.word, type);
+            exampleTextElem.innerHTML = this.highlightWordInExample(example, word.word, type) + this.exampleSourceSuffix(def);
         } else {
             this.currentExample = '';
             exampleTextElem.textContent = '（该单词暂无例句）';
@@ -8320,6 +8507,11 @@ ${example ? `- 例句：${example}` : ''}
             });
         }
         document.getElementById('exampleSentence').textContent = exampleText;
+        if (exampleText) {
+            const _spEl = document.getElementById('exampleSentence');
+            const _spSuffix = this.exampleSourceSuffix(def);
+            if (_spSuffix) _spEl.insertAdjacentHTML('beforeend', _spSuffix);
+        }
 
         // 生成字母槽
         this.generateLetterSlots(word.word);
@@ -8627,24 +8819,18 @@ ${example ? `- 例句：${example}` : ''}
 
     // 拼写模式：不知道
     skipSpellWord() {
+        // 「不知道」：先渲染视觉反馈，再把统计落盘/错题写入与侧栏推送延后
+        const idx = this.currentWordIndex;
+        const word = this.sessionWords[idx];
         // 如果是首次答题，记录首次结果
-        if (!this.wordFirstResults[this.currentWordIndex]) {
+        const isFirstSkip = !this.wordFirstResults[idx];
+        if (isFirstSkip) {
             this._stampAnswerTime();
-            this.wordFirstResults[this.currentWordIndex] = 'unknown';
+            this.wordFirstResults[idx] = 'unknown';
             this.sessionResults.unknown++;
-            
-            // ✅ 先更新统计（答错）
-            this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
-            
-            // 实时更新错题到词书并更新待复习数量
-            this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
-            
-            // 首次作答，更新词书进度和今日统计
-            this.updateBookProgress();
-            this.updateStatsRealtime();
         }
         
-        this.wordResults[this.currentWordIndex] = 'unknown';
+        this.wordResults[idx] = 'unknown';
         
         // 播放答错音效（不知道也算错）
         this.playWrongSound();
@@ -8661,6 +8847,16 @@ ${example ? `- 例句：${example}` : ''}
         } else {
             document.getElementById('nextBtn').disabled = false;
         }
+        
+        this._deferAfterPaint(() => {
+            if (isFirstSkip) {
+                this.updateWordStats(word, false, idx);
+                this.updateWrongWordToBook(word);
+                this.updateBookProgress(idx);
+                this.updateStatsRealtime();
+            }
+            this.pushCurrentWordDetailToSidebar(word);
+        });
         
         // 重新聚焦输入框（避免焦点丢失）
         setTimeout(() => this.refocusSpellInput(), 100);
@@ -8751,6 +8947,7 @@ ${example ? `- 例句：${example}` : ''}
                 result: currentFirstResult, // 'correct', 'wrong', 'unknown' - 使用首次结果
                 favorite: this.getFavoriteTargetList() ? this.isFavoriteInTarget(currentWord.word) : (currentWord.favorite || false), // 收藏状态
                 originalIndex: currentWord.originalIndex, // 原始索引，用于收藏功能
+                bookId: currentWord._bookId || (this.currentBook && this.currentBook.id), // 所属词书，跨词书复习时定位正确词书
                 mode: this.currentMode, // 本次答题使用的模式，返回上一题时沿用
                 // tooltip 所需字段
                 phonetic: currentWord.phonetic || '',
@@ -8870,14 +9067,24 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 快速切题（自动切换时间未到、用户主动再点正确答案）时调用：
-    // 从此刻起对作答区上锁 1s，避免连点的第二下误选下一题、或下一题尚未渲染完全
-    _lockInputBriefly(ms = 1000) {
+    // 从此刻起对作答区上锁 600ms，避免连点的第二下误选下一题、或下一题尚未渲染完全
+    _lockInputBriefly(ms = 600) {
         this._inputLockUntil = Date.now() + ms;
     }
 
     // 作答区是否仍在防误触缓冲期内
     _isInputLocked() {
         return Date.now() < this._inputLockUntil;
+    }
+
+    // 延后到「本帧渲染完成」后再执行：用于把统计落盘、错题写入、侧栏推送等
+    // 重后台工作挪到视觉反馈之后，避免答错/不知道时被同步 I/O 拖慢观感。
+    // 带超时兜底：窗口隐藏/后台时 rAF 可能不触发，需保证工作最终一定执行
+    _deferAfterPaint(fn) {
+        let done = false;
+        const run = () => { if (done) return; done = true; fn(); };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
+        setTimeout(run, 150);
     }
 
     // 暂停当前单词答题计时（如查询词典时）
@@ -8897,24 +9104,25 @@ ${example ? `- 例句：${example}` : ''}
 
     // 跳过单词
     skipWord() {
-        // 如果是首次答题，记录首次结果
-        if (!this.wordFirstResults[this.currentWordIndex]) {
+        // 如果是首次答题，记录首次结果（统计落盘延后到切题渲染之后）
+        const idx = this.currentWordIndex;
+        const word = this.sessionWords[idx];
+        const isFirstSkip = !this.wordFirstResults[idx];
+        if (isFirstSkip) {
             this._stampAnswerTime();
-            this.wordFirstResults[this.currentWordIndex] = 'unknown';
+            this.wordFirstResults[idx] = 'unknown';
             this.sessionResults.unknown++;
-            
-            // ✅ 先更新统计（答错）
-            this.updateWordStats(this.sessionWords[this.currentWordIndex], false);
-            
-            // 实时更新错题到词书并更新待复习数量
-            this.updateWrongWordToBook(this.sessionWords[this.currentWordIndex]);
-            
-            // 首次作答，更新词书进度和今日统计
-            this.updateBookProgress();
-            this.updateStatsRealtime();
         }
         
-        this.wordResults[this.currentWordIndex] = 'unknown';
+        this.wordResults[idx] = 'unknown';
+        
+        this._deferAfterPaint(() => {
+            if (!isFirstSkip) return;
+            this.updateWordStats(word, false, idx);
+            this.updateWrongWordToBook(word);
+            this.updateBookProgress(idx);
+            this.updateStatsRealtime();
+        });
         
         this.nextWord();
     }
@@ -9019,33 +9227,27 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 实时更新词书进度（每答完一题后调用）
-    updateBookProgress() {
+    // answerIdx 可选：作答当时的题号（延后调用场景），避免用户已切题导致进度写错
+    updateBookProgress(answerIdx) {
         if (this.currentBook) {
             // ⚠️ 复习模式下不更新currentIndex，只在学习模式下更新
-            if (this.isReviewMode) {
-                console.log('📝 [复习模式] 跳过currentIndex更新');
-                return;
-            }
+            if (this.isReviewMode) return;
 
             // 重练模式：不更新进度
-            if (this._isRetryMode) {
-                console.log('🔄 重练模式：跳过书签进度更新');
-                return;
-            }
+            if (this._isRetryMode) return;
 
             // 复习轮：不推进书签进度（复习不计入练习记录）
             if (this._isReviewRound) return;
             
+            const idx = (answerIdx === undefined) ? this.currentWordIndex : answerIdx;
             // 实时进度 = 本次开始索引 + 当前已答题数（包含答对和答错）
             // 这样用户可以实时看到学习进度
-            const newIndex = this.sessionStartIndex + this.currentWordIndex + 1;
+            const newIndex = this.sessionStartIndex + idx + 1;
             
             Storage.updateBookProgress(this.currentBook.id, { 
                 currentIndex: newIndex,
                 lastPracticeAt: new Date().toISOString()
             });
-            
-            console.log(`📊 [学习模式] 更新进度: currentIndex → ${newIndex}`);
             
             // 重新渲染词书列表以显示更新
             this.loadBooks();
@@ -9072,7 +9274,8 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 更新单词练习次数统计（答对或答错都会调用）
-    updateWordStats(word, isCorrect) {
+    // answerIdx 可选：作答题号；延后调用时传入作答当时的题号，避免用户已切题导致 SM-2 取错上下文
+    updateWordStats(word, isCorrect, answerIdx) {
         if (!word) {
             console.error(`❌ updateWordStats 失败: word 为空`);
             return;
@@ -9138,25 +9341,9 @@ ${example ? `- 例句：${example}` : ''}
         // 计算正确率
         const accuracyRate = Math.round(((wordInBook.totalAttempts - wordInBook.wrongTimes) / wordInBook.totalAttempts) * 100);
         
-        const mode = this.isReviewMode ? '复习' : '学习';
-        console.log(`📊 [${mode}] "${word.word}" 统计更新:`);
-        console.log(`   ${isCorrect ? '✓答对' : '✗答错'} | 练习 ${beforeAttempts}→${afterAttempts}次 | 错误 ${beforeWrong}→${afterWrong}次 | 正确率${accuracyRate}%`);
-        
-        // 🔥 关键修复：正确调用 Storage.updateBook
-        // updateBook 的签名是 (bookId, updates)
+        // 落盘词书统计（updateBook 的签名是 (bookId, updates)）
         const updatedBook = Storage.updateBook(bookId, book);
-        if (updatedBook) {
-            console.log(`✅ 词书已保存 (bookId: ${bookId})`);
-            
-            // 验证保存是否成功 - 重新从storage读取
-            const verifyBook = Storage.getBook(bookId);
-            const verifyWord = verifyBook.words[wordIndex];
-            console.log(`🔍 验证: 练习${verifyWord.totalAttempts || 0}次 | 错误${verifyWord.wrongTimes || 0}次`);
-            
-            if (verifyWord.totalAttempts !== afterAttempts) {
-                console.error(`❌ 验证失败！期望${afterAttempts}次，实际${verifyWord.totalAttempts || 0}次`);
-            }
-        } else {
+        if (!updatedBook) {
             console.error(`❌ 词书保存失败！bookId: ${bookId}`);
         }
         
@@ -9169,7 +9356,10 @@ ${example ? `- 例句：${example}` : ''}
         this.updateWordStatsDisplay(word);
         
         // ===== SM-2 艾宾浩斯记忆状态更新 =====
-        this._updateSm2Memory(word, isCorrect, bookId);
+        this._updateSm2Memory(word, isCorrect, bookId, answerIdx);
+        
+        const mode = this.isReviewMode ? '复习' : '学习';
+        console.log(`📊 [${mode}] "${word.word}" ${isCorrect ? '✓答对' : '✗答错'} | 练习 ${beforeAttempts}→${afterAttempts}次 | 错误 ${beforeWrong}→${afterWrong}次 | 正确率${accuracyRate}%`);
     }
 
     // 累积单词的平均练习时间（按模式系数折算为「联想时间」）
@@ -9206,20 +9396,22 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     /** SM-2: 更新单词记忆状态 */
-    _updateSm2Memory(word, isCorrect, bookId) {
+    _updateSm2Memory(word, isCorrect, bookId, answerIdx) {
         try {
             if (!word || !bookId) return;
             const wordText = word.word || '';
             if (!wordText) return;
+            // 作答题号：优先取显式传入（延后调用场景），否则回退当前题号
+            const idx = (answerIdx === undefined) ? this.currentWordIndex : answerIdx;
             
             // 判断是否使用了提示
-            const usedHint = this.hintUsedForWords && this.hintUsedForWords[this.currentWordIndex];
+            const usedHint = this.hintUsedForWords && this.hintUsedForWords[idx];
             // 判断是否超时（unknown = 超时或跳过）
-            const wasTimeout = this.wordFirstResults && this.wordFirstResults[this.currentWordIndex] === 'unknown';
+            const wasTimeout = this.wordFirstResults && this.wordFirstResults[idx] === 'unknown';
             // 慢速判断：如果有计时器且当前单词有_firstResult，看是否接近超时
             // 实际上wasSlow = 是否在最后一个选项前犹豫，这里简单用是否有其他错误选项判断
-            const hadWrongOptions = this.wordWrongOptions && this.wordWrongOptions[this.currentWordIndex] && 
-                                    this.wordWrongOptions[this.currentWordIndex].length > 0;
+            const hadWrongOptions = this.wordWrongOptions && this.wordWrongOptions[idx] && 
+                                    this.wordWrongOptions[idx].length > 0;
             
             const quality = Storage.mapQuality(isCorrect, usedHint, wasTimeout || hadWrongOptions);
             // 模式加分权重：Pro 由「看单词选释义」派生，取 selectPro 权重
@@ -9272,7 +9464,6 @@ ${example ? `- 例句：${example}` : ''}
                 wrongAt: new Date().toISOString(),
                 reviewCount: (existingWrong[existingIndex].reviewCount || 0)
             };
-            console.log(`❌ 答错单词 "${word.word}" (已存在，更新时间)`);
         } else {
             // 添加新错题
             existingWrong.push({
@@ -9280,7 +9471,6 @@ ${example ? `- 例句：${example}` : ''}
                 wrongAt: new Date().toISOString(),
                 reviewCount: 0
             });
-            console.log(`❌ 答错单词 "${word.word}" (新增)，当前错题总数: ${existingWrong.length}`);
         }
 
         // 保存更新后的错题列表
@@ -9749,7 +9939,7 @@ ${example ? `- 例句：${example}` : ''}
         
         if (this._isSm2Review) {
             // 艾宾浩斯复习：完成后继续复习剩余到期单词
-            completionIcon.innerHTML = '<i class="fi-rr-brain"></i>';
+            completionIcon.textContent = '🧠';
             completionTitle.textContent = '本轮复习完成！';
             // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
@@ -9862,6 +10052,7 @@ ${example ? `- 例句：${example}` : ''}
         // 遵循词书独立「每次学习数量」（留空回退全局设置；-1 表示不限、全量复习）
         const perSession = this.resolveWordsPerSession(book);
         this.sessionWords = perSession === -1 ? pending : pending.slice(0, perSession);
+        this.prefillExamples(this.sessionWords.slice(0, 100)); // 错题复习词同样补例句
         this.currentWordIndex = 0;
         this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
         this.wordResults = [];
@@ -11484,7 +11675,8 @@ ${example ? `- 例句：${example}` : ''}
             obWereadProxy: String(this.settings.obWereadProxy || ''), // 已移至「微信读书设置」弹窗，此处仅沿用
             wreWereadKey: String(this.settings.wreWereadKey || ''), // 微信读书划线导出专用 Key（在「微信读书设置」弹窗维护，此处仅沿用）
             wreKeyConfirmed: !!this.settings.wreKeyConfirmed, // 是否已确认沿用原著榜 Key（同上）
-            selectProMode: !!this.settings.selectProMode // 「看单词选释义」Pro 版（由栏右侧刷新图标即时切换，此处仅沿用）
+            selectProMode: !!this.settings.selectProMode, // 「看单词选释义」Pro 版（由栏右侧刷新图标即时切换，此处仅沿用）
+            exampleFillDict: String(this.settings.exampleFillDict || '') // 「例句填充」选定词典变量名（页面设置下拉即时落盘，此处仅沿用）
         };
 
         Storage.saveSettings(this.settings);
@@ -11509,6 +11701,11 @@ ${example ? `- 例句：${example}` : ''}
         // 正在作答「看单词选释义」时按新口径重算当前题选项（已作答状态不受影响）
         const word = this.sessionWords && this.sessionWords[this.currentWordIndex];
         if (this.currentMode === 'select' && word) this.generateOptions(word);
+    }
+
+    // 「例句填充」选定词典变更即落盘（页面设置下拉切换时调用）
+    persistExampleFillDict() {
+        Storage.saveSettings(this.settings);
     }
 
     // 绑定单个「学习模式」按钮的交互：单击切换选中（多选，至少保留一种）；
@@ -11691,6 +11888,7 @@ ${example ? `- 例句：${example}` : ''}
                 autoNext: true,
                 autoNextTime: 1,
                 selectProMode: false, // 「看单词选释义」Pro 版：默认关闭
+                exampleFillDict: '', // 「例句填充」选定词典变量名：默认关闭
                 aiApiFormat: 'openai', // AI API 格式（openai/anthropic）
                 aiApiBaseUrl: '', // AI API 自定义请求地址
                 aiApiKey: '', // 默认为空，用户需要自己配置
@@ -11969,11 +12167,8 @@ ${example ? `- 例句：${example}` : ''}
                     wrongCount: wrongWords.length
                 });
                 totalWrongWords += wrongWords.length;
-                console.log(`📚 词书 "${book.name}" (${book.icon || '无图标'}) 有 ${wrongWords.length} 个错题`);
             }
         });
-        
-        console.log(`✅ 待复习单词总数: ${totalWrongWords}`);
         
         // 渲染复习词书列表
         this.renderReviewBooksList(booksWithWrong, totalWrongWords);
@@ -12937,6 +13132,7 @@ ${example ? `- 例句：${example}` : ''}
 
         // 进入复习模式
         this.sessionWords = reviewWords;
+        this.prefillExamples(this.sessionWords.slice(0, 100)); // 复习词同样补例句
         this.currentWordIndex = 0;
         this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
         this.wordResults = [];
@@ -17384,6 +17580,29 @@ ${example ? `- 例句：${example}` : ''}
         }
     }
 
+    // 在词书中定位单词：originalIndex 可能因词书被编辑/重新导入，或跨词书复习时
+    // currentBook 非该词所属词书而失效。此时退回按单词名查找，避免「找不到单词」导致收藏失效
+    _resolveBookWord(bookId, originalIndex, wordName) {
+        let book = bookId ? Storage.getBook(bookId) : null;
+        const pick = (bk) => {
+            if (!bk || !Array.isArray(bk.words)) return { word: null, index: -1 };
+            let idx = Number.isInteger(originalIndex) ? originalIndex : -1;
+            let word = idx >= 0 ? bk.words[idx] : null;
+            if (!word || (wordName && word.word !== wordName)) {
+                idx = bk.words.findIndex(w => w && w.word === wordName);
+                word = idx >= 0 ? bk.words[idx] : null;
+            }
+            return { word, index: idx };
+        };
+        let r = pick(book);
+        // 存储副本可能落后于内存中的当前词书（如文件配置较新而本地缓存较旧）：再以内存的当前词书兜底
+        if (!r.word && this.currentBook && this.currentBook.id === bookId) {
+            const r2 = pick(this.currentBook);
+            if (r2.word) { book = this.currentBook; r = r2; }
+        }
+        return { book, word: r.word, index: r.index };
+    }
+
     // 切换当前学习单词的收藏状态
     toggleFavorite() {
         if (this.currentWordIndex >= this.sessionWords.length) {
@@ -17405,18 +17624,19 @@ ${example ? `- 例句：${example}` : ''}
         
         // 艾宾浩斯复习跨词书，按词自己的 _bookId 取词书；常规学习用 currentBook
         const bookId = sessionWord._bookId || (this.currentBook && this.currentBook.id);
-        const book = Storage.getBook(bookId);
+        const { book, word, index } = this._resolveBookWord(bookId, originalIndex, sessionWord.word);
         
         if (!book) {
             console.error('❌ 无法切换收藏：找不到词书', bookId);
             return;
         }
         
-        const word = book.words[originalIndex];
         if (!word) {
             console.error('❌ 无法切换收藏：找不到单词', originalIndex);
             return;
         }
+        // 按名回退命中时同步索引，保证后续（返回上一题等）定位一致
+        if (index !== originalIndex) sessionWord.originalIndex = index;
         
         // 首选为自建收藏词单时，收藏写入该词单（不再写入默认收藏/词书标记）
         if (this.getFavoriteTargetList()) {
@@ -17472,18 +17692,20 @@ ${example ? `- 例句：${example}` : ''}
             return;
         }
         
-        const book = Storage.getBook(this.currentBook.id);
+        // 跨词书复习时按 lastWordInfo 记录的 bookId 取词书；常规学习回落到 currentBook
+        const bookId = this.lastWordInfo.bookId || this.currentBook.id;
+        const { book, word, index } = this._resolveBookWord(bookId, originalIndex, this.lastWordInfo.word);
         
         if (!book) {
-            console.error('❌ 无法切换收藏：找不到词书', this.currentBook.id);
+            console.error('❌ 无法切换收藏：找不到词书', bookId);
             return;
         }
         
-        const word = book.words[originalIndex];
         if (!word) {
             console.error('❌ 无法切换收藏：找不到单词', originalIndex);
             return;
         }
+        if (index !== originalIndex) this.lastWordInfo.originalIndex = index;
         
         // 首选为自建收藏词单时，收藏写入该词单（不再写入默认收藏/词书标记）
         if (this.getFavoriteTargetList()) {
@@ -17513,13 +17735,13 @@ ${example ? `- 例句：${example}` : ''}
         // 如果上一题和当前题是同一个单词，也要更新 sessionWord
         if (this.currentWordIndex > 0) {
             const prevSessionWord = this.sessionWords[this.currentWordIndex - 1];
-            if (prevSessionWord && prevSessionWord.originalIndex === originalIndex) {
+            if (prevSessionWord && prevSessionWord.originalIndex === index) {
                 prevSessionWord.favorite = word.favorite;
             }
         }
         
         // 保存到存储
-        Storage.updateBook(this.currentBook.id, book);
+        Storage.updateBook(bookId, book);
 
         // 收藏变化：触发欧路词典增量同步（防抖）
         this.scheduleEudicSync();

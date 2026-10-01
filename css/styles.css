@@ -4400,6 +4400,18 @@ body.nebula-word-themed .nebula-card {
     min-height: 1.6em;
 }
 
+/* 例句来源标注（如「——柯林斯高阶」）：仅当例句由「例句填充」补位时追加，
+   弱化配色、不随例句斜体，不喧宾夺主（深浅主题均走 --text-tertiary） */
+.example-source {
+    display: inline-block;
+    margin-left: 0.4em;
+    font-size: 0.75rem;
+    font-style: normal;
+    font-weight: 400;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
 /* ============================================
    记忆方法卡片（PC端）
    ============================================ */
@@ -4587,6 +4599,43 @@ body.nebula-word-themed .nebula-card {
 .memory-type {
     font-weight: 700;
     letter-spacing: 0.3px;
+}
+
+/* 「添加笔记」按钮：置于记忆方法标题行最右侧，弱化展示、悬浮高亮 */
+.memory-add-note-btn {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--text-tertiary, #8a8f98);
+    background: transparent;
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.memory-add-note-btn:hover {
+    color: #EA580C;
+    border-color: #EA580C;
+    background: rgba(234, 88, 12, 0.08);
+}
+
+[data-theme="dark"] .memory-add-note-btn {
+    color: #9aa0a8;
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="dark"] .memory-add-note-btn:hover {
+    color: #FB923C;
+    border-color: #FB923C;
+    background: rgba(251, 146, 60, 0.12);
 }
 
 .memory-method-content {
