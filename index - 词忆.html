@@ -456,6 +456,40 @@
             margin: 5px 10px;
         }
         [data-theme="dark"] .dl-alt-divider { background: #3a3f4b; }
+        /* 「我的笔记」：复用 tools/browse-dict.html 详情页底部笔记区的统一外观（同一组类名，
+           仅按宿主变量适配配色与下拉内边距），用于清单页就地记笔记 */
+        .word-note {
+            flex: 0 0 auto;
+            height: 140px;
+            box-sizing: border-box;
+            padding: 12px 4px 12px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: var(--surface);
+            border-top: 1px solid var(--border-color);
+        }
+        .word-note-head { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; font-size: 0.95rem; font-weight: 600; color: #8a8f98; }
+        [data-theme="dark"] .word-note-head { color: #9aa0a8; }
+        /* 笔记记录日期：标题行最右侧，弱化展示 */
+        .word-note-date { margin-left: auto; font-weight: 400; color: #8a8f98; white-space: nowrap; font-size: 0.75rem; }
+        .word-note-input {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            box-sizing: border-box;
+            resize: none;
+            border: none;
+            outline: none;
+            background: transparent;
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            padding: 0 4px 0 0;
+        }
+        .word-note-input::placeholder { color: #b3b7bd; }
+        [data-theme="dark"] .word-note-input::placeholder { color: #6b7078; }
         /* ===== Obsidian 右侧栏模式（?wmView=dict）：特化为「上方输入框 + 下方结果列」两块内容 ===== */
         html.wm-sidebar-mode,
         html.wm-sidebar-mode body {
@@ -1088,6 +1122,11 @@
                             </span>
                         </div>
                         <div class="dl-ai-detail-body"></div>
+                    </div>
+                    <!-- 清单页「我的笔记」：单词/短语查不到详情时停留清单，可就地记笔记（ob 侧栏亦适用） -->
+                    <div class="word-note hidden" id="dictLookupNote">
+                        <div class="word-note-head"><i class="fi-rr-comment-pen"></i> 我的笔记<span class="word-note-date"></span></div>
+                        <textarea class="word-note-input" placeholder="暂无笔记" spellcheck="false"></textarea>
                     </div>
                 </div>
             </div>
@@ -4220,17 +4259,18 @@
                 <div class="setting-group" id="autoNextTimeGroup">
                     <label class="setting-label">
                         <span>自动切换时间</span>
-                        <span class="time-value"><span id="autoNextTimeValue">0.5</span>秒</span>
+                        <span class="time-value"><span id="autoNextTimeValue">0.5</span><span id="autoNextTimeUnit">秒</span></span>
                     </label>
                     <input type="range" class="setting-slider" id="autoNextTime" 
-                           min="0" max="10" step="0.1" value="1">
+                           min="-1" max="10" step="0.1" value="1">
                     <div class="slider-marks">
-                        <span>0s</span>
+                        <span>-∞</span>
                         <span>2.5s</span>
                         <span>5s</span>
                         <span>7.5s</span>
                         <span>10s</span>
                     </div>
+                    <div class="setting-hint">滑杆拉到最左端 -∞ 表示不自动切换：答对后需手动再次点击正确选项（或点「下一题」）才会切到下一题。</div>
                 </div>
                 </section>
                 <!-- 发音与音效 -->
@@ -5041,6 +5081,33 @@
         </div>
     </div>
 
+    <!-- 退出练习确认弹窗（三选一：就练到这里 / 取消 / 直接退出） -->
+    <div class="modal hidden" id="exitPracticeModal" style="z-index: 9999;">
+        <div class="modal-overlay" style="backdrop-filter: blur(5px);" data-close-modal="exitPracticeModal"></div>
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>退出练习</h3>
+                <button class="btn-icon" data-close-modal="exitPracticeModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" style="text-align: center; padding: 8px 0 16px;">
+                <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.6; margin: var(--spacing-md);">
+                    确定要结束当前练习吗？<br>
+                    <span style="font-size: 13px;">练习记录已即时保存，点击 [就练到这里] 跳转结算画面，[直接退出] 回到菜单页 </span>
+                </p>
+            </div>
+            <div class="modal-footer exit-practice-actions">
+                <button class="btn-primary" id="exitPracticeFinishBtn"><i class="fi-rr-face-eyes-xmarks"></i> 就练到这里</button>
+                <button class="btn-secondary" data-close-modal="exitPracticeModal"><i class="fi-rr-undo"></i> 取消</button>
+                <button class="btn-secondary" id="exitPracticeDirectBtn" style="color: var(--error);"><i class="fi-rr-exit"></i> 直接退出</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 换个模式练习弹窗（整轮学习结束后可选，建议换模式加深巩固） -->
     <div class="modal hidden" id="switchModeModal" style="z-index: 9999;">
         <div class="modal-overlay" data-close-modal="switchModeModal"></div>
@@ -5701,12 +5768,15 @@
         }
         // 插件「悬浮取词」开关（wm-ob-settings 下发，默认开启）
         let obHoverLookup = true;
+        // 插件「背单词模式 → 右侧查词」作答时详情显示时机（none=均不显示 / wrong=答错显示 / all=答对答错均显示）
+        window.__obAnswerLookupMode = 'wrong';
         // 宿主（Obsidian 插件）下发的功能开关
         window.addEventListener('message', function (ev) {
             const d = ev.data;
             if (d && d.type === 'wm-ob-settings') {
                 obDictLookupInSidebar = d.dictLookupInSidebar !== false;
                 obHoverLookup = d.hoverLookup !== false;
+                window.__obAnswerLookupMode = d.answerLookup || 'wrong';
             }
         });
 
@@ -5878,6 +5948,8 @@
         let pendingEnter = null; // Enter 直达：检索结果返回后要自动打开的查询词（null 表示无待打开）
         let pendingDetail = false; // 详情过渡中：清单保持显示，等引擎渲染完成（opened）再切换到详情，避免闪烁
         let pendingDetailAuto = false; // 本次过渡是否为自动展开（词卡/Enter 直达）：首选词典无释义时改为留在清单
+        let pendingWord = ''; // 本次打开的词（小写），无详情停留清单时供清单页笔记使用
+        let pendingDisp = ''; // 本次打开的展示用词形
         let altDividerAdded = false; // 是否已在主（精准）与次（近似/形近）分界处画过分隔线
         let wordSourceMap = null; // 词书来源索引（词→词书/收藏词单名称），每次下拉重渲染时重建
 
@@ -5943,6 +6015,69 @@
             try { localStorage.setItem('wordNotes', JSON.stringify(notes)); } catch (e) { /* 忽略 */ }
             return ts;
         }
+        // ===== 清单页「我的笔记」：单词/短语查不到详情时停留清单，可就地记笔记（ob 侧栏适用）=====
+        // 与详情页共享同一镜像键 wordNotes（随用户配置持久化），故两处内容一致
+        const listNoteEl = document.getElementById('dictLookupNote');
+        let listNoteWord = ''; // 当前清单页笔记对应的词（小写）
+        let listNoteDisp = ''; // 展示用词形
+        let listNoteTimer = 0;
+        function formatListNoteDate(ts) {
+            const n = Number(ts);
+            if (!n) return '';
+            const dt = new Date(n);
+            const p = function (x) { return (x < 10 ? '0' : '') + x; };
+            return '最近编辑于：' + dt.getFullYear() + '/' + p(dt.getMonth() + 1) + '/' + p(dt.getDate()) + ' ' + p(dt.getHours()) + ':' + p(dt.getMinutes());
+        }
+        function listNoteVisible() {
+            return !!(listNoteEl && !listNoteEl.classList.contains('hidden'));
+        }
+        // 在清单页展示某词/短语的笔记
+        function showListNote(word, disp) {
+            if (!listNoteEl) return;
+            const k = String(word == null ? '' : word).toLowerCase().trim();
+            if (!k) return;
+            listNoteWord = k;
+            listNoteDisp = String(disp == null || disp === '' ? word : disp);
+            const meta = getWordNoteMeta(k);
+            const ta = listNoteEl.querySelector('.word-note-input');
+            if (ta) {
+                ta.dataset.word = k; // 与详情页一致：回传宿主时据此定位词条
+                ta.value = meta.text || '';
+            }
+            const dateEl = listNoteEl.querySelector('.word-note-date');
+            if (dateEl) dateEl.textContent = (meta.text && meta.text.trim()) ? formatListNoteDate(meta.ts) : '';
+            listNoteEl.classList.remove('hidden');
+        }
+        function hideListNote() {
+            if (!listNoteEl) return;
+            listNoteEl.classList.add('hidden');
+            listNoteWord = '';
+            listNoteDisp = '';
+        }
+        // 外部写入（详情页编辑 / 记忆方法「添加笔记」）时，若清单页正展示同词笔记则同步刷新
+        function refreshListNote(word, note, ts) {
+            if (!listNoteVisible()) return;
+            const k = String(word == null ? '' : word).toLowerCase().trim();
+            if (!k || k !== listNoteWord) return;
+            const text = note == null ? '' : String(note);
+            const ta = listNoteEl.querySelector('.word-note-input');
+            if (ta && document.activeElement !== ta) ta.value = text;
+            const dateEl = listNoteEl.querySelector('.word-note-date');
+            if (dateEl) dateEl.textContent = text.trim() ? formatListNoteDate(ts || Date.now()) : '';
+        }
+        if (listNoteEl) {
+            const ta = listNoteEl.querySelector('.word-note-input');
+            const dateEl = listNoteEl.querySelector('.word-note-date');
+            if (ta) ta.addEventListener('input', function () {
+                if (dateEl) dateEl.textContent = ta.value.trim() ? formatListNoteDate(Date.now()) : '';
+                if (listNoteTimer) clearTimeout(listNoteTimer);
+                const text = ta.value;
+                listNoteTimer = setTimeout(function () {
+                    if (!listNoteWord) return;
+                    saveWordNote(listNoteWord, text);
+                }, 300);
+            });
+        }
         // 「添加笔记」外部入口（如记忆方法卡片）：把一段内容追加到当前单词的笔记末尾
         window.appendToWordNote = function (word, addition) {
             const k = String(word == null ? '' : word).toLowerCase().trim();
@@ -5954,6 +6089,8 @@
             const ts = saveWordNote(k, next);
             // 详情 iframe 正展示该词时，实时刷新其笔记区（含日期）
             try { post({ cmd: 'set-note', word: k, note: next, ts: ts }); } catch (e) { /* 忽略 */ }
+            // 清单页正展示该词笔记时同步刷新
+            refreshListNote(k, next, ts);
             // Obsidian 宿主：右侧栏查词视图可能正展示该词详情，经插件转发刷新（侧栏未展示该词时引擎自会忽略）
             if (useSidebarLookup()) {
                 try { window.parent.postMessage({ type: 'wm-dict-note', word: k, note: next, ts: ts }, '*'); } catch (e) { /* 忽略 */ }
@@ -5968,7 +6105,7 @@
         // 侧栏模式：输入框未聚焦、且未处于详情态时，隐藏下方结果列，保持侧栏留白无干扰
         function sidebarIdle() {
             if (!SIDEBAR) return;
-            const busy = dropdown.classList.contains('detail') || pendingDetail || !aiDetail.classList.contains('hidden');
+            const busy = dropdown.classList.contains('detail') || pendingDetail || !aiDetail.classList.contains('hidden') || listNoteVisible();
             const active = document.activeElement;
             const inLookup = active === input || (!!active && wrap.contains(active));
             wrap.classList.toggle('dict-lookup-idle', !busy && !inLookup);
@@ -6013,6 +6150,7 @@
         function doSearch() {
             lastQueryDisp = input.value.trim(); // 展示保留用户输入的原貌
             lastQuery = normWord(lastQueryDisp); // 检索键统一小写
+            hideListNote(); // 新检索：先收起上次的清单页笔记，结果返回后按是否有本地词条决定
             if (!ready) return; // 引擎就绪后自动补发
             post({ cmd: 'search', q: lastQuery });
         }
@@ -6021,6 +6159,7 @@
             lastQueryDisp = '';
             pendingEnter = null;
             dropdownOpen = true;
+            hideListNote(); // 最近查词视图不展示笔记
             if (dropdown.classList.contains('detail')) exitDetail(); // 回到结果列表视图
             if (ready) post({ cmd: 'recent' });
         }
@@ -6584,6 +6723,10 @@
         function openWord(it, auto) {
             dropdownOpen = true;
             showDropdown();
+            // 本次打开的词：无详情停留清单时，供清单页笔记使用（记住展示用词形）
+            pendingWord = String(it.w == null ? '' : it.w).toLowerCase();
+            pendingDisp = it.disp || lastQueryDisp || it.w;
+            hideListNote(); // 尝试进入详情：先收起清单页笔记，无详情停留清单时再展开
             // 过渡优化：iframe 立即渲染但视觉隐藏（悬浮于清单之上，保持布局使引擎测高准确），
             // 等引擎渲染完成（opened 消息）再撤掉隐藏、隐藏清单，实现"清单→详情"无闪烁切换
             pendingDetail = true;
@@ -6657,6 +6800,7 @@
             frame.style.display = 'none';
             aiDetail.classList.add('hidden');
             results.style.display = '';
+            hideListNote();
         }
 
         // AI 返回内容按 Markdown 渲染（复用 app.renderMarkdown，其内部已做 HTML 转义）；
@@ -6678,6 +6822,7 @@
             results.style.display = 'none';
             frame.style.display = 'none';
             frame.classList.remove('pre-detail');
+            hideListNote();
             aiDetail.classList.remove('hidden');
             aiDetail.querySelector('.dl-ai-detail-body').innerHTML = '';
             aiDetail.scrollTop = 0;
@@ -6776,6 +6921,7 @@
             aiDetail.classList.add('hidden');
             results.style.display = '';
             results.innerHTML = '';
+            hideListNote();
             post({ cmd: 'close' });
             // 查词结束：恢复答题计时
             if (window.app && typeof window.app.resumeWordTiming === 'function') window.app.resumeWordTiming();
@@ -6787,6 +6933,7 @@
             pendingDetail = false; // 继续输入则取消详情过渡
             pendingDetailAuto = false;
             frame.classList.remove('pre-detail');
+            hideListNote(); // 继续输入：先收起清单页笔记，检索结果返回后按是否有本地词条决定
             const q = input.value.trim();
             if (!q) { showRecent(); return; }
             dropdownOpen = true;
@@ -6892,6 +7039,15 @@
                 // 兜底：保证「AI在线翻译」入口始终钉在主结果区末尾（分隔线上方）；
                 // 历史查询视图不追加（那是最近记录清单，不是某词的检索结果）
                 if (!d.recent) ensureAiEntry(d.q);
+                // 清单页「我的笔记」：查英文词且本地无任何词条（已启用词典与基础词典均无）时，
+                // 在清单底部展开该词/短语的笔记，便于为查不到释义的词（尤其固定短语）就地记笔记；
+                // 有本地词条则收起（详情页已提供笔记）
+                if (!d.recent && !/[\u4e00-\u9fa5]/.test(String(d.q || ''))) {
+                    if (hasExactLocalResult(d.q)) hideListNote();
+                    else showListNote(d.q, lastQueryDisp || d.q);
+                } else {
+                    hideListNote();
+                }
                 // Enter 直达：检索结果返回后自动打开（优先精确匹配项，否则打开首项），确保跳转的是最新输入的词
                 if (pendingEnter && d.q === pendingEnter) {
                     pendingEnter = null;
@@ -6919,14 +7075,15 @@
                 // 引擎渲染完成：从清单无缝切换到详情视图（清单保持显示到此刻，避免闪烁），再按内容撑开 iframe
                 setDictStatus(false); // 查询结果已就绪，收起顶部「查询中」提示
                 if (pendingDetail) {
-                    // 自动展开（词卡点击 / Enter 直达）但首选词典没有该词条：不跳详情，留在清单展示该词条，
-                    // 避免跳进一个「查不到」的空白详情页（引擎以 prefHas 告知首选词典是否有该词）
-                    if (pendingDetailAuto && d.prefHas === false) {
+                    // 无法查得任何详情内容（首选词典无该词条，且基础词典/兜底也无内容）：
+                    // 不跳空白详情，留在清单展示该词/短语，并就地展开清单页「我的笔记」（固定短语等无词库词条亦适用）
+                    if (d.hasContent === false) {
                         pendingDetail = false;
                         pendingDetailAuto = false;
                         frame.classList.remove('pre-detail');
                         frame.style.display = 'none';
                         results.style.display = '';
+                        showListNote(pendingWord, pendingDisp);
                         sidebarIdle();
                         return;
                     }
@@ -6935,6 +7092,7 @@
                     frame.classList.remove('pre-detail');
                     dropdown.classList.add('detail');
                     results.style.display = 'none';
+                    hideListNote();
                 }
                 scheduleFrameResize(d.height || 0);
                 return;
@@ -7114,6 +7272,8 @@
                 } else if (d.type === 'wm-dict-note' && d.word) {
                     // 主页「添加笔记」写入后经插件转发：若本栏正展示同一单词，刷新其笔记区与日期
                     try { post({ cmd: 'set-note', word: String(d.word).toLowerCase().trim(), note: d.note, ts: d.ts }); } catch (e) { /* 忽略 */ }
+                    // 清单页「我的笔记」也同步刷新（无详情停留清单的短语等）
+                    try { refreshListNote(d.word, d.note, d.ts); } catch (e) { /* 忽略 */ }
                 } else if (d.type === 'wm-dict-status') {
                     // 图片取词（OCR）：'识别中' 常驻；'识别成功/识别失败' 由 autoHide(ms) 后淡出
                     if (!d.text) setDictStatus(false);
@@ -7194,7 +7354,8 @@
         // 从词典引擎查询单词的例句（异步，返回 Promise）。
         // dict 为可选词典变量名（「例句填充」选定词典）：传入时只在那一本里取
         // 「第一个释义的第一个例句」，否则跨词典搜索
-        window.lookupExampleFromDict = function (word, dict) {
+        // idx 为例句序号（「浏览词单」刷新时递增）：用于在同一词的多个例句间轮换，默认 0
+        window.lookupExampleFromDict = function (word, dict, idx) {
             return new Promise(function (resolve) {
                 if (!word) { resolve(''); return; }
                 // 初始化回调存储
@@ -7214,6 +7375,7 @@
                     try {
                         const msg = { __dictLookup: 1, cmd: 'lookup-example', word: word };
                         if (dict) msg.dict = dict;
+                        if (idx) msg.idx = idx;
                         frame.contentWindow.postMessage(msg, '*');
                     } catch (e) {
                         clearTimeout(timer);
@@ -7229,14 +7391,22 @@
         };
 
         (function () {
+            // 看词选义 / 记得么两模式：点击主词另做「音节拆分」淡入淡出展示（handicap → han·di·cap）；
+            // 四个模式的主词点击均保留「查看词典详情」入口
+            const SYLLABLE_IDS = ['wordText', 'rememberWordText'];
             ['wordText', 'rememberWordText', 'synonymWordText', 'liyiWordText'].forEach(function (id) {
                 const wt = document.getElementById(id);
                 if (!wt) return;
                 wt.style.cursor = 'pointer';
-                wt.title = '点击查看词典详情';
+                wt.title = '点击查看音节拆分 / 词典详情';
                 wt.addEventListener('click', function (ev) {
                     if (ev && ev.stopPropagation) ev.stopPropagation();
-                    const w = String(wt.textContent || '').trim();
+                    // 去掉音节分隔符后取原词，保证拆分展示态下仍能查到正确词条
+                    const w = String(wt.textContent || '').replace(/·/g, '').trim();
+                    if (SYLLABLE_IDS.indexOf(id) !== -1 && window.app
+                        && typeof window.app.animateWordSyllable === 'function') {
+                        window.app.animateWordSyllable(wt);
+                    }
                     if (w && window.openDictLookupWord) window.openDictLookupWord(w);
                 });
             });
@@ -7758,7 +7928,11 @@
         // 注册 Service Worker
         // 注意：Service Worker 仅支持 http/https 协议；file:// 本地打开（开发/离线预览）时不注册，避免报错
         const isSecureContext = ['http:', 'https:'].includes(window.location.protocol) || window.location.hostname === 'localhost';
-        if ('serviceWorker' in navigator && isSecureContext) {
+        // Obsidian 插件内：应用由插件内置静态服务提供（本地文件，无需 PWA 离线缓存）。
+        // SW 拦截/缓存/controllerchange 重载在 Electron 渲染进程中易引发白屏、灰屏与陈旧资源，
+        // 且会拦截跨域请求（如本地 TTS 网关）伪造 503，故宿主内不注册 SW，并注销历史遗留注册。
+        const isObsidianHost = ['1', 'obsidian'].includes(new URLSearchParams(location.search).get('wmHost') || '');
+        if ('serviceWorker' in navigator && isSecureContext && !isObsidianHost) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./service-worker.js')
                     .then(registration => {
@@ -7791,6 +7965,11 @@
                     }
                 });
             });
+        } else if ('serviceWorker' in navigator && isObsidianHost) {
+            // 宿主内注销历史遗留的 SW 注册，避免旧的缓存/拦截继续生效
+            navigator.serviceWorker.getRegistrations()
+                .then(rs => rs.forEach(r => r.unregister()))
+                .catch(() => { /* 忽略 */ });
         }
         
         // 安装 PWA 提示（可选）

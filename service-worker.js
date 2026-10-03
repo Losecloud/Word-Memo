@@ -77,6 +77,13 @@ self.addEventListener('fetch', (event) => {
   if (url.protocol === 'chrome-extension:') {
     return;
   }
+
+  // 忽略跨域请求（如本地 Edge TTS 网关 http://127.0.0.1:8890、词典 API 等）：
+  // 交回浏览器直连。否则网关不可达时，会被下方离线兜底伪造成「503 Service Unavailable」，
+  // 既掩盖真实错误，又干扰音频/接口加载。
+  if (url.origin !== self.location.origin) {
+    return;
+  }
   
   // 策略：网络优先，失败时使用缓存（适合动态内容）
   if (request.method === 'GET') {

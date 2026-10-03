@@ -3344,6 +3344,8 @@ body.nebula-word-themed .nebula-card {
 
 /* 异色进度条段 */
 .progress-segment {
+    position: relative;
+    overflow: hidden;
     height: 100%;
     transition: all var(--transition-fast);
     flex-shrink: 0;
@@ -3367,34 +3369,92 @@ body.nebula-word-themed .nebula-card {
     background: #f39c12; /* 部分正确：黄色 */
 }
 
+/* 当前段的底色/计时读条统一画在 ::before 上，呼吸闪烁也仅作用于这一层：
+   这样叠加其上的「切换进度」实心填充不会被呼吸动画带着一起闪烁。 */
 .progress-segment.current {
-    background: color-mix(in srgb, var(--primary-color), transparent 60%); 
+    background: transparent;
+}
+
+.progress-segment.current::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: color-mix(in srgb, var(--primary-color), transparent 60%);
     animation: pulse 1s ease-in-out infinite;
 }
 
 /* 超时未答：黄色 + 保持呼吸闪烁 */
-.progress-segment.current.unknown {
-    background: #ffa502;
-    animation: pulse 1s ease-in-out infinite;
+.progress-segment.current.unknown::before {
+    background-color: #ffa502;
 }
 
 /* 答错：红色 + 呼吸闪烁 */
-.progress-segment.current.wrong {
-    background: #ff4757;
-    animation: pulse 1s ease-in-out infinite;
+.progress-segment.current.wrong::before {
+    background-color: #ff4757;
 }
 
-/* 计时读条：当前段从左往右填充主色，pulse 闪烁保持 */
-.progress-segment.current.timer-countdown {
+/* 计时读条：当前段从左往右填充主色，pulse 闪烁保持。
+   注意：动画挂在 ::before 上，animation-delay 不可继承，故用可继承的自定义属性
+   --timer-delay 承载「已计时秒数」的负延迟，恢复暂停时读条才能从暂停处接续。 */
+.progress-segment.current.timer-countdown::before {
     background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color) 100%) no-repeat;
     background-size: 0% 100%;
     background-color: color-mix(in srgb, var(--primary-color), transparent 60%);
-    animation: timerFill var(--timer-duration, 10s) linear forwards, pulse 1s ease-in-out infinite;
+    animation: timerFill var(--timer-duration, 10s) linear var(--timer-delay, 0s) forwards, pulse 1s ease-in-out infinite;
 }
 
 @keyframes timerFill {
     0%   { background-size: 0% 100%; }
     100% { background-size: 100% 100%; }
+}
+
+/* 答题结束（作答/进入自动切换）：冻结答题进度到作答时刻的填充比例，读条不再前进；
+   底色沿用「当前段」的淡主色（代表题序与本题范围），仅在其上叠加已答题的实心主色。
+   整体仍保留呼吸闪烁 = 「答题时间到此为止」。 */
+.progress-segment.current.answer-frozen::before {
+    background-color: color-mix(in srgb, var(--primary-color), transparent 60%);
+    background-image: linear-gradient(90deg, var(--primary-color), var(--primary-color));
+    background-repeat: no-repeat;
+    background-size: var(--answer-progress, 0%) 100%;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+/* 「切换进度」：进入自动切换倒计时后，在当前段之上从左往右填充一条实心主色条（无呼吸版），
+   覆盖下方仍在闪烁的答题进度；填满后整段为实心主色、不再闪烁。时长即自动切换时间。 */
+.progress-switch-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: var(--primary-color);
+    z-index: 1;
+    pointer-events: none;
+    animation: switchFill var(--switch-duration, 1s) linear forwards;
+}
+
+/* 切换进度条颜色继承当前段已变色的主题色（答错红 / 不知道橙 / 部分正确黄）：
+   与下方冻结的答题进度同色，避免答错/不知道场景下切题条仍是主色而与状态色不符。 */
+.progress-segment.current.wrong .progress-switch-fill {
+    background: #ff4757;
+}
+
+.progress-segment.current.unknown .progress-switch-fill {
+    background: #ffa502;
+}
+
+.progress-segment.current.partial .progress-switch-fill {
+    background: #f39c12;
+}
+
+/* 暂停练习时冻结切换进度（与自动切题、答题倒计时一并冻结） */
+.progress-switch-fill.switch-paused {
+    animation-play-state: paused;
+}
+
+@keyframes switchFill {
+    from { width: 0; }
+    to   { width: 100%; }
 }
 
 .progress-segment.pending {
@@ -3450,6 +3510,7 @@ body.nebula-word-themed .nebula-card {
     inset: 0;
     z-index: 20;
     display: flex;
+    border-radius: var(--radius-xl);
     align-items: center;
     justify-content: center;
     background: color-mix(in srgb, var(--surface) 55%, transparent);
@@ -3845,6 +3906,12 @@ body.nebula-word-themed .nebula-card {
     font-weight: 700;
     color: var(--text-primary);
     margin-bottom: var(--spacing-xs);
+    /* 点击区收缩为文字本身（由 .word-display 的 text-align:center 居中），
+       避免点击同一行两侧空白也触发「单词详情页」 */
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .word-phonetic {
@@ -4314,13 +4381,9 @@ body.nebula-word-themed .nebula-card {
     user-select: none;
 }
 
+/* 悬浮/点击不做缩放：内容区内有「编辑」按钮，缩放会让按钮位移导致点不中，仅保留阴影反馈 */
 .wrong-answer-example:hover {
-    transform: scale(1.02);
     box-shadow: var(--shadow-md);
-}
-
-.wrong-answer-example:active {
-    transform: scale(0.98);
 }
 
 /* 答错样式（红色） */
@@ -4388,6 +4451,34 @@ body.nebula-word-themed .nebula-card {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     
+}
+
+/* 释义 / 例句就地编辑：悬浮内容区时标签右侧浮现「编辑」图标，点击转为「确认」并让文本可编辑 */
+.example-label .label-edit-btn {
+    margin-left: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 0.85rem;
+    line-height: 1;
+    vertical-align: middle;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+.remember-meaning-display:hover .label-edit-btn,
+.wrong-answer-example:hover .label-edit-btn { opacity: 0.6; }
+.example-label .label-edit-btn:hover { opacity: 1; }
+.example-label .label-edit-btn.editing { opacity: 1; color: var(--primary-color); }
+/* 编辑态文本：覆盖容器的 user-select:none，恢复可选中/可输入 */
+.remember-meaning-text.editing,
+.remember-example-text.editing,
+.example-sentence-choice.editing {
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
 .example-sentence-choice {
@@ -4585,6 +4676,12 @@ body.nebula-word-themed .nebula-card {
     gap: var(--spacing-xs);
 }
 
+/* 详情已移入标题行内：左「图标+类型」｜中「内容」｜右「添加笔记」，节省纵向空间 */
+.memory-method-title:has(> .memory-method-content) {
+    margin-bottom: 0;
+    gap: var(--spacing-sm);
+}
+
 [data-theme="dark"] .memory-method-title {
     color: #FB923C;
 }
@@ -4594,11 +4691,14 @@ body.nebula-word-themed .nebula-card {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 }
 
 .memory-type {
     font-weight: 700;
     letter-spacing: 0.3px;
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 /* 「添加笔记」按钮：置于记忆方法标题行最右侧，弱化展示、悬浮高亮 */
@@ -4683,6 +4783,27 @@ body.nebula-word-themed .nebula-card {
     left: 0;
     color: #FB923C;
     font-weight: bold;
+}
+
+/* 移入标题行内的详情：作为中间弹性列，强制非粗体，避免继承标题的加粗 */
+.memory-method-title > .memory-method-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: 0;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 400;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.memory-method-title > .memory-method-content p {
+    margin: 0;
+}
+
+.memory-method-title > .memory-method-content strong,
+.memory-method-title > .memory-method-content .memory-highlight {
+    font-weight: 400;
 }
 
 /* ============================================
@@ -4910,19 +5031,54 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     animation: letterPop var(--transition-fast);
 }
 
+/* 判错/判对要「即刻着色」：基类的 transition:all 会把 color 从默认色渐变过来，
+   表现为「先黑后红/绿」的滞后感（答错路径去掉同步阻塞后尤为明显）。这里禁用过渡。 */
 .letter-slot.wrong {
     color: var(--error);
+    transition: none;
     animation: shake var(--transition-fast);
 }
 
 .letter-slot.correct {
     color: var(--success);
+    transition: none;
 }
 
 @keyframes letterPop {
     0% { transform: scale(0.8); }
     50% { transform: scale(1.2); }
     100% { transform: scale(1); }
+}
+
+/* 拼写模式：答对后「音节拆分」动画。
+   同音节的 letter-slot 相互靠拢，使其下方短划线合并为长划线；音节之间淡入
+   隔音符「·」，形成 ___·__·_____ 的长划线组合（如 per·ma·nence）。
+   首尾槽位位移为 0，保持原位。 */
+.letter-slots.syllable-splitting {
+    position: relative;
+}
+
+.letter-slots.syllable-splitting .letter-slot {
+    will-change: transform;
+}
+
+.syllable-dot {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translate(-50%, -50%) scale(0.3);
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--success);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.letter-slots.syllable-splitting-show .syllable-dot {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
 }
 
 .hidden-input {
@@ -11218,18 +11374,15 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
         linear-gradient(135deg, #FFF9E6 0%, #FFE8CC 100%) padding-box,
         var(--border-gradient) border-box;
     box-shadow: var(--shadow-sm);
-    transition: background 0.3s ease-out, border-color 0.3s ease-out, transform 0.2s ease;
+    transition: background 0.3s ease-out, border-color 0.3s ease-out;
     animation: slideDown 0.3s ease-out;
     cursor: pointer;
     user-select: none;
     min-height: 60px;
 }
+/* 悬浮/点击不做缩放：内容区内有「编辑」按钮，缩放会让按钮位移导致点不中，仅保留阴影反馈 */
 .remember-meaning-display.meaning-unknown:hover {
-    transform: scale(1.02);
     box-shadow: var(--shadow-md);
-}
-.remember-meaning-display.meaning-unknown:active {
-    transform: scale(0.98);
 }
 [data-theme="dark"] .remember-meaning-display.meaning-unknown {
     background:
@@ -11322,6 +11475,14 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .btn-remember-active {
     border-color: var(--success) !important;
     background: var(--success) !important;
+    color: #fff !important;
+    animation: bounce var(--transition-normal) !important;
+}
+/* 计时超时后按“记得”：按钮本身渲染为警示主题色（同 option-btn.correct-unknown），
+   不揭示答案、不转为“下一个”，随后按自动切换走 */
+.remember-actions .btn-remember.correct-unknown {
+    border-color: #ffa502 !important;
+    background: #ffa502 !important;
     color: #fff !important;
     animation: bounce var(--transition-normal) !important;
 }
@@ -11523,6 +11684,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     display: flex;
     gap: var(--spacing-md);
     justify-content: flex-end;
+}
+
+/* 退出练习弹窗（三选一）：选项纵向全宽排列，图标与文字水平居中 */
+.exit-practice-actions {
+    flex-direction: row;
+    align-items: stretch;
+}
+.exit-practice-actions button {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
 
 /* ============================================

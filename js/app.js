@@ -512,6 +512,9 @@ class WordMemoryApp {
         this._roundSessionRef = null; // 已快照的 sessionWords 引用，用于识别新一轮
         this._isReviewRound = false; // 是否处于复习轮（复习轮不计正确率/耗时/练习记录）
         this._reviewResultBase = null; // 复习轮开始时的 sessionResults 快照，复习期间回滚
+        // 本轮每个词「首次被 SM-2 更新前」的记忆快照（键 `${bookId}:${word}`）。
+        // 「就练到这里」时用它回滚非correct词的艾宾浩斯记忆，使其下次仍需重新练习
+        this._sm2Backups = {};
         this.hintUsedForWords = []; // 记录每个单词是否使用过提示
         this.spellHint = []; // 记录拼写模式每个单词的提示情况 { count, idxs, wrongPos }（长词容错判定）
         this.lastWordInfo = null; // 记录上一题的单词信息
@@ -524,7 +527,20 @@ class WordMemoryApp {
         this.hintCount = 3;
         this.startTime = null;
         this.autoNextTimer = null;
+        this._syllableSplitTimer = null; // 拼写答对后音节拆分动画的起播定时器
+        this._wordSylTimer = null; // 看词选义/记得么点击单词时「音节拆分」淡入淡出的定时器
+        this._switchFillEl = null; // 顶部进度条上的「切换进度」填充元素（自动切换倒计时可视化）
         this._inputLockUntil = 0; // 快速切题（自动切换未到，用户再点正确答案）后的防误触缓冲截止时间戳
+        // ===== 暂停/继续相关状态 =====
+        this._answerTimerTotal = null;        // 本题倒计时总秒数
+        this._autoNextDeadline = null;        // 自动切题到期时刻
+        this._rememberDeadline = null;        // 记得么反悔窗口到期时刻
+        this._pausedTimerDeadline = null;     // 暂停时本题倒计时的到期时刻
+        this._pausedTimerElapsed = 0;         // 暂停时已计时的秒数（读条接续用）
+        this._pausedTimerTotal = null;        // 暂停时本题倒计时总秒数
+        this._pausedAutoNextDeadline = null;  // 暂停时自动切题的剩余毫秒（存剩余量，非到期时刻）
+        this._pausedRememberDeadline = null;  // 暂停时反悔窗口的剩余毫秒
+        this._userPausedClockAt = null;       // 手动暂停时学习时长计时的冻结起点
         this._rememberCountdown = null; // 记得么模式“反悔窗口”倒计时
         this._rememberPending = false; // 已按“记得”，等待窗口结束或反悔
         this.capsLockOn = false; // Caps Lock状态
@@ -1702,6 +1718,9 @@ class WordMemoryApp {
             this.replayExample();
         });
 
+        // 释义 / 例句就地编辑：悬浮标签浮现「编辑」，确认后写回来源词书或当前收藏词单
+        this.initLabelEditors();
+
         // 记得么模式：word-display 与 remember-actions 之间的空白区 → 桌面端悬浮浮现例句（不发音），移动端点击显示
         const wordCardEl = document.getElementById('wordCard');
         const modeRememberEl = document.getElementById('modeRemember');
@@ -1738,6 +1757,12 @@ class WordMemoryApp {
         document.getElementById('exitLearningBtn').addEventListener('click', () => {
             this.exitLearning();
         });
+
+        // 退出练习三选一弹窗：就练到这里 / 直接退出（取消与右上角关闭走 data-close-modal）
+        const exitPracticeFinishBtn = document.getElementById('exitPracticeFinishBtn');
+        if (exitPracticeFinishBtn) exitPracticeFinishBtn.addEventListener('click', () => this.confirmExitPracticeFinish());
+        const exitPracticeDirectBtn = document.getElementById('exitPracticeDirectBtn');
+        if (exitPracticeDirectBtn) exitPracticeDirectBtn.addEventListener('click', () => this.confirmExitPracticeDirect());
 
         // 暂停 / 继续：按钮与毛玻璃遮罩互为触发点（三个练习模式各一组）
         this.bindPracticePause('pauseOverlay', 'pauseBtn');
@@ -3335,14 +3360,18 @@ class WordMemoryApp {
             // 更新例句（保留刷新按钮结构）
             const example = word.definitions && word.definitions[0] ? 
                 word.definitions[0].example : '-';
+            // 刷新后同样应用单词高亮渲染（与初次渲染一致），否则新例句会丢掉主词高亮
+            const exampleHtml = (example && example !== '-')
+                ? this.highlightWordInExample(example, word.word)
+                : example;
             const oldExample = cells[5].textContent;
             const oldExampleWrap = cells[5].querySelector('.cell-content-wrap');
             if (oldExampleWrap) {
                 const textSpan = oldExampleWrap.querySelector('.cell-text');
-                if (textSpan) textSpan.innerHTML = example;
+                if (textSpan) textSpan.innerHTML = exampleHtml;
                 oldExampleWrap.title = example;
             } else {
-                cells[5].textContent = example;
+                cells[5].innerHTML = exampleHtml;
             }
             console.log(`  ✓ 例句更新: "${oldExample.substring(0,15)}..." → "${example.substring(0, 15)}..."`);
 
@@ -5526,7 +5555,13 @@ class WordMemoryApp {
         // 本地失败：example 字段先尝试从词典引擎查找
         if (field === 'example' && typeof window.lookupExampleFromDict === 'function') {
             try {
-                const ex = await window.lookupExampleFromDict(word.word);
+                // 多次刷新在同一词的多个例句间轮换：首次从第 1 条起（第 0 条通常已是自动填充的例句），
+                // 避免「再点刷新取回同一条 → 看起来没反应」
+                if (!this._exampleRotIdx) this._exampleRotIdx = new Map();
+                let rot = this._exampleRotIdx.get(key);
+                rot = (rot === undefined) ? 1 : rot + 1;
+                this._exampleRotIdx.set(key, rot);
+                const ex = await window.lookupExampleFromDict(word.word, undefined, rot);
                 if (ex) {
                     if (!word.definitions || word.definitions.length === 0) {
                         word.definitions = [{ pos: '', meaning: '', example: '' }];
@@ -6288,6 +6323,9 @@ class WordMemoryApp {
 
         const word = this.sessionWords[this.currentWordIndex];
 
+        // 切题：复位上一题可能遗留的释义/例句就地编辑态
+        this._resetLabelEditors();
+
         // 记录本题开始时间（用于平均答题速度统计）
         // 查看上一题（last word）时不计时：该词已练习过，不重复计入平均速度
         this._wordStartT = this._viewingLastWord ? null : Date.now();
@@ -6368,25 +6406,26 @@ class WordMemoryApp {
     this._lockInputBriefly();
     }
 
-    // 自动切换下一题的秒数：词书独有设定优先，其次记得么模式默认 3 秒，最后全局设置
+    // 自动切换下一题的秒数：词书独有设定优先，其次全局设置（含记得么模式，
+    // 不再硬编码 3 秒反悔时间，统一依赖本变量）
     // 词书设定限定 0.1-10 秒，超出范围按边界收敛
     getAutoNextSeconds() {
         const book = this.currentModeBook !== undefined ? this.currentModeBook : this.currentBook;
         let seconds;
         if (book && book.autoNextTime !== undefined && book.autoNextTime !== null) {
             seconds = parseFloat(book.autoNextTime);
-        } else if (this.currentMode === 'remember') {
-            seconds = 3; // 记得么模式默认 3 秒，留出反悔时间
         } else {
             seconds = parseFloat(this.settings.autoNextTime);
         }
-        if (!isFinite(seconds) || seconds < 0) seconds = this.currentMode === 'remember' ? 3 : 1;
-        if (seconds <= 0) return 0; // 0 = 不自动切换（全局滑杆拉到 0 的语义）
+        if (!isFinite(seconds)) seconds = 1;
+        if (seconds <= 0) return 0; // 0 或滑杆拉到 -∞(-1)：不自动切换，需手动再点正确项切题
         return Math.min(10, Math.max(0.1, seconds));
     }
 
     // 启动每题计时器
-    _startAnswerTimer(secondsOverride) {
+    // resumeElapsed：从暂停恢复时「已计时的秒数」，用于让进度条读条从暂停处继续，
+    //   而不是把 timerFill 动画从 0% 重新播放（视觉上表现为「计时重新从左侧开始」）
+    _startAnswerTimer(secondsOverride, resumeElapsed = 0) {
         // 清除旧计时器
         this._clearAnswerTimer();
 
@@ -6401,27 +6440,44 @@ class WordMemoryApp {
         }
         if (!seconds || seconds <= 0) {
             this._answerTimerDeadline = null;
+            this._answerTimerTotal = null;
             return;
         }
 
-        // 记录到期时刻：暂停时据此算出剩余秒数，继续后按剩余时间重新计时
-        this._answerTimerDeadline = Date.now() + seconds * 1000;
+        // 已计时的秒数（恢复场景）：夹在 [0, seconds) 内，剩余时间为 0 时按满时重置
+        let elapsed = Math.max(0, Number(resumeElapsed) || 0);
+        if (elapsed >= seconds) elapsed = 0;
+        const remain = seconds - elapsed;
 
-        // 在进度条当前段上设置动画时长
+        this._answerTimerTotal = seconds;
+        // 记录到期时刻：暂停时据此算出剩余秒数，继续后按剩余时间重新计时
+        this._answerTimerDeadline = Date.now() + remain * 1000;
+
+        // 在进度条当前段上设置动画时长；恢复时用负 animation-delay 让读条从 elapsed 处接续
         const currentSeg = document.querySelector('.progress-segment.current');
         if (currentSeg) {
-            currentSeg.classList.add('timer-countdown');
+            // 恢复场景：_clearAnswerTimer 已移除 timer-countdown 类，但同一帧内再加回，
+            // 浏览器会认为类未变而不重启动画。强制一次重排，确保读条按新的 delay 重新起播。
+            void currentSeg.offsetWidth;
+            // 重新起播答题读条：清除暂停时保留的「冻结」状态，让读条从 elapsed 处继续
+            currentSeg.classList.remove('answer-frozen');
+            currentSeg.style.removeProperty('--answer-progress');
             currentSeg.style.setProperty('--timer-duration', seconds + 's');
+            // 用自定义属性承载负延迟（可被 ::before 继承）；animation-delay 不可继承，会失效
+            if (elapsed > 0) currentSeg.style.setProperty('--timer-delay', `-${elapsed}s`);
+            else currentSeg.style.removeProperty('--timer-delay');
+            currentSeg.classList.add('timer-countdown');
         }
 
         this._answerTimer = setTimeout(() => {
             this._answerTimer = null;
             this._answerTimerDeadline = null;
+            this._answerTimerTotal = null;
             // 如果本题已作答（已跳过或已提交），不重复触发
             if (this.wordFirstResults[this.currentWordIndex]) return;
             // 计时到 -> 标记 unknown（黄色），但不自动切到下一题
             this._markAnswerTimeout();
-        }, seconds * 1000);
+        }, remain * 1000);
     }
 
     // 计时超时：将当前单词标记为 unknown（黄色），不跳转
@@ -6446,9 +6502,11 @@ class WordMemoryApp {
         // 更新进度条：当前段变为黄色，移除计时动画，保留呼吸闪烁
         const currentSeg = document.querySelector('.progress-segment.current');
         if (currentSeg) {
-            currentSeg.classList.remove('timer-countdown');
+            currentSeg.classList.remove('timer-countdown', 'answer-frozen');
             currentSeg.classList.add('unknown');
             currentSeg.style.removeProperty('--timer-duration');
+            currentSeg.style.removeProperty('--timer-delay');
+            currentSeg.style.removeProperty('--answer-progress');
         }
         
         // 清除计时器相关状态（已由上面移除 class，但保留函数调用清理 _answerTimer）
@@ -6467,16 +6525,49 @@ class WordMemoryApp {
         document.querySelectorAll('.progress-segment.current.timer-countdown').forEach(el => {
             el.classList.remove('timer-countdown');
             el.style.removeProperty('--timer-duration');
+            el.style.removeProperty('--timer-delay');
         });
+    }
+
+    // ===== 自动切换倒计时（顶部进度条上的「切换进度」填充）=====
+    // 在当前进度段之上叠加一条实心主色填充条（无呼吸），从左往右覆盖下方的答题进度
+    // （答题进度仍在呼吸闪烁）；填满后整段为实心主色、不再闪烁。时长即自动切换时间。
+    _startSwitchCountdown(seconds) {
+        this._clearSwitchCountdown();
+        const secs = Number(seconds);
+        if (!isFinite(secs) || secs <= 0) return;
+        const seg = this._currentVisibleSegment();
+        if (!seg) return;
+        const fill = document.createElement('div');
+        fill.className = 'progress-switch-fill';
+        fill.style.setProperty('--switch-duration', secs + 's');
+        seg.appendChild(fill);
+        this._switchFillEl = fill;
+    }
+
+    // 当前可见进度条上的「当前段」（学习/同义词/熟词僻义三套进度条同时存在于 DOM，仅一套可见）
+    _currentVisibleSegment() {
+        const segs = document.querySelectorAll('.progress-segment.current');
+        for (const s of segs) {
+            if (s.offsetParent !== null) return s;
+        }
+        return segs.length ? segs[0] : null;
+    }
+
+    _clearSwitchCountdown() {
+        this._switchFillEl = null;
+        document.querySelectorAll('.progress-switch-fill').forEach(el => el.remove());
     }
 
     // 当前进度段标记为答错状态：红色 + 呼吸闪烁；如已超时（unknown）则切换为红色闪烁
     _updateCurrentSegmentWrong() {
         const seg = document.querySelector('.progress-segment.current');
         if (seg) {
-            seg.classList.remove('unknown', 'timer-countdown');
+            seg.classList.remove('unknown', 'timer-countdown', 'answer-frozen');
             seg.classList.add('wrong');
             seg.style.removeProperty('--timer-duration');
+            seg.style.removeProperty('--timer-delay');
+            seg.style.removeProperty('--answer-progress');
         }
     }
 
@@ -6484,9 +6575,11 @@ class WordMemoryApp {
     _updateCurrentSegmentUnknown() {
         const seg = document.querySelector('.progress-segment.current');
         if (seg) {
-            seg.classList.remove('wrong', 'timer-countdown');
+            seg.classList.remove('wrong', 'timer-countdown', 'answer-frozen');
             seg.classList.add('unknown');
             seg.style.removeProperty('--timer-duration');
+            seg.style.removeProperty('--timer-delay');
+            seg.style.removeProperty('--answer-progress');
         }
     }
 
@@ -6512,15 +6605,20 @@ class WordMemoryApp {
             this._stampAnswerTime();
             this.wordFirstResults[idx] = severity;
             this.sessionResults[severity === 'wrong' ? 'wrong' : 'unknown']++;
+            // 先完成视觉反馈（进度段着色）
             if (severity === 'wrong') {
                 this._updateCurrentSegmentWrong();
-                this.playWrongSound();
             } else {
                 this._updateCurrentSegmentUnknown();
+            }
+            // 动画/音效立刻播放，不被统计重活延迟
+            if (severity === 'wrong') {
+                this.playWrongSound();
+            } else {
                 this.playAnimation('neutral');
             }
-            // 先完成视觉反馈，再把统计落盘/错题写入延后到渲染之后
-            this._deferAfterPaint(() => {
+            // 统计落盘/错题写入推迟到动画播完之后（见 _deferStatsAfterAnswer）
+            this._deferStatsAfterAnswer(() => {
                 this.updateWordStats(word, false, idx);
                 this.updateWrongWordToBook(word);
                 this.updateBookProgress(idx);
@@ -7146,11 +7244,10 @@ class WordMemoryApp {
             exampleContainer.classList.add(`example-${type}`);
             exampleContainer.classList.add('show');
 
-            // 朗读例句（答对的主色调揭示不自动朗读，与记得么模式口径一致，避免与发音/音效叠加）
-            if (type !== 'correct') {
-                console.log(`🔊 ${type === 'wrong' ? '答错' : '不知道'}时朗读例句:`, example);
-                this.speak(example);
-            }
+            // 例句不自动朗读。需要时点例句卡片即可重播。
+            // 【待回滚 · 后期恢复】原逻辑为下面两行（type !== 'correct' 时自动朗读例句）；
+            // 经排查它并非答错动画掉帧的原因，后期需按原样恢复：
+            //     if (type !== 'correct') this.speak(example);
         } else {
             // 如果没有例句，只显示单词
             this.currentExample = '';
@@ -7304,11 +7401,16 @@ class WordMemoryApp {
         this.showMemoryAid(forceRefresh);
     }
 
-    // 把当前背诵单词的词典详情推到右侧栏展示（Obsidian 试行）。
-    // 由「不知道/不记得」作答触发，辅助记忆；网页端或未开启「右侧窗口查词」时静默跳过。
+    // 把当前背诵单词的词典详情推到右侧栏展示（Obsidian 专用；网页端 showWordDetailInSidebar 会自行 no-op）。
+    // 由作答触发，辅助记忆；未开启「右侧窗口查词」时静默跳过。
     // 注意：与「如何记忆？」解耦——「如何记忆？」只请求 AI，不再联动右侧栏。
-    // word 可选：延后调用时传入作答当时的单词，避免用户已切题导致推送错词
-    pushCurrentWordDetailToSidebar(word) {
+    // word 可选：延后调用时传入作答当时的单词，避免用户已切题导致推送错词。
+    // isCorrect：本次作答是否为答对。按插件「背单词模式 → 右侧查词」设置决定是否显示：
+    //   none=均不显示 / wrong=答错（不知道、不记得）显示 / all=答对答错均显示
+    pushCurrentWordDetailToSidebar(word, isCorrect = false) {
+        const mode = (typeof window !== 'undefined' && window.__obAnswerLookupMode) || 'wrong';
+        if (mode === 'none') return;
+        if (mode === 'wrong' && isCorrect) return;
         const w = word || (this.sessionWords && this.sessionWords[this.currentWordIndex]);
         const text = w && w.word ? String(w.word).trim() : '';
         if (text && typeof window.showWordDetailInSidebar === 'function') {
@@ -7450,7 +7552,7 @@ ${example ? `- 例句：${example}` : ''}
 {
   "methods": [
     {
-      "type": "词根词缀法",
+      "type": "词根词缀",
       "content": "具体的词根词缀分析"
     },
     {
@@ -7458,8 +7560,12 @@ ${example ? `- 例句：${example}` : ''}
       "content": "联想记忆的具体方法"
     },
     {
-      "type": "近义词",
+      "type": "语义替换",
       "content": "相关的近义词或反义词"
+    },
+    {
+      "type": "形近易混",
+      "content": "拼写或发音相近的高频易混单词，最多5个，用空格或分号分隔，并简要标注各自含义以助区分"
     },
     {
       "type": "名言名句",
@@ -7473,7 +7579,8 @@ ${example ? `- 例句：${example}` : ''}
 2. 每个方法的content要简洁实用，名言名句必须有真实来源，不要编造
 3. 必须是有效的JSON格式，不要使用中文引号""
 4. content中避免使用换行符，用空格或分号代替
-5. 不要添加任何注释或额外文字`;
+5. 形近易混只列出真实存在的高频单词，最多5个，不要编造
+6. 不要添加任何注释或额外文字`;
 
             console.log('🚀 开始调用QWEN API...');
             console.log('📝 提示词:', prompt);
@@ -7521,6 +7628,8 @@ ${example ? `- 例句：${example}` : ''}
             '近义词': '🔄',
             '反义词': '↔️',
             '同义词': '🔄',
+            '语义替换': '🔄',
+            '形近易混': '👀',
             '例句名言': '📝',
             '名言': '📝',
             '名言名句': '📝',
@@ -7631,10 +7740,8 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon">${icon}</span>
                             <span class="memory-type">${type}</span>
+                            <div class="memory-method-content">${this.formatContentText(content)}</div>
                             ${this._memoryNoteButton(type, content)}
-                        </div>
-                        <div class="memory-method-content">
-                            ${this.formatContentText(content)}
                         </div>
                     </div>
                 `;
@@ -7727,10 +7834,8 @@ ${example ? `- 例句：${example}` : ''}
                                 <div class="memory-method-title">
                                     <span class="memory-icon">${icon}</span>
                                     <span class="memory-type">${type}</span>
+                                    <div class="memory-method-content">${this.formatContentText(content)}</div>
                                     ${this._memoryNoteButton(type, content)}
-                                </div>
-                                <div class="memory-method-content">
-                                    ${this.formatContentText(content)}
                                 </div>
                             </div>
                         `;
@@ -7762,10 +7867,8 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon">${icon}</span>
                             <span class="memory-type">${type}</span>
+                            <div class="memory-method-content">${this.formatContentText(content)}</div>
                             ${this._memoryNoteButton(type, content)}
-                        </div>
-                        <div class="memory-method-content">
-                            ${this.formatContentText(content)}
                         </div>
                     </div>
                 `;
@@ -7801,10 +7904,8 @@ ${example ? `- 例句：${example}` : ''}
                         <div class="memory-method-title">
                             <span class="memory-icon"><i class="fi-rr-bulb"></i></span>
                             <span class="memory-type">记忆提示 ${index + 1}</span>
+                            <div class="memory-method-content">${para.replace(/\n/g, '<br>')}</div>
                             ${this._memoryNoteButton('记忆提示 ' + (index + 1), para.replace(/<[^>]+>/g, ''))}
-                        </div>
-                        <div class="memory-method-content">
-                            ${para.replace(/\n/g, '<br>')}
                         </div>
                     </div>
                 `;
@@ -7842,6 +7943,7 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     selectOption(selected, correct) {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点
         // 快速切题：自动切换尚未到时，已答对后再点一次「正确答案」可立即进入下一题。
         // 切题后立刻上锁 1s，避免连点的下一击误选到下一题的选项、或下一题尚未渲染完全。
@@ -7885,6 +7987,13 @@ ${example ? `- 例句：${example}` : ''}
                 }
             });
 
+            // 已判错（答错/不知道）后再次点击正确选项：该类名此前已存在，CSS 动画不会重播，
+            // 这里主动补一次跳动，避免（尤其静音模式下）「点了没反应」的错觉
+            if (this.wordFirstResults[this.currentWordIndex]) {
+                const correctBtn = Array.from(buttons).find(b => b.dataset.option === correct);
+                this._bounceOnce(correctBtn);
+            }
+
             // 以主色调浮现正确例句，并在其余选项上浮现其真实单词（便于对照记忆）。
             // 仅「用户主动点了不知道」时保持原样（此时不知道按钮已转为「如何记忆？」）；
             // 超时被判 unknown 时不写该标记，故超时后再选正确项同样会浮现对照
@@ -7917,6 +8026,9 @@ ${example ? `- 例句：${example}` : ''}
                 this.updateStatsRealtime();
             }
             
+            // 答对：按「右侧查词」设置（all 时）推送单词详情到右侧栏
+            this.pushCurrentWordDetailToSidebar(this.sessionWords[this.currentWordIndex], true);
+
             this.wordResults[this.currentWordIndex] = 'correct';
             
             // 如果之前不是"不知道"状态，播放动画和音效
@@ -7937,6 +8049,8 @@ ${example ? `- 例句：${example}` : ''}
                 document.getElementById('nextBtn').disabled = false;
                 const autoNextTime = this.getAutoNextSeconds();
                 if (autoNextTime > 0) {
+                    this._autoNextDeadline = Date.now() + autoNextTime * 1000;
+                    this._startSwitchCountdown(autoNextTime);
                     this.autoNextTimer = setTimeout(() => {
                         this.nextWord();
                     }, autoNextTime * 1000);
@@ -7969,12 +8083,10 @@ ${example ? `- 例句：${example}` : ''}
                 }
             }
             
-            // ===== 先完成视觉反馈（动画/音效/例句/按钮态），再做统计落盘等重后台工作 =====
+            // ===== 先完成视觉反馈（按钮态/例句），再做统计落盘等重后台工作 =====
             this.wordResults[this.currentWordIndex] = 'unknown';
-            
-            // 播放中性（黄色）动画和答错音效
-            this.playAnimation('neutral');
-            this.playWrongSound();
+            // 进度段立即转黄（不等到切题后的下一次重绘），切题进度条也会随之为黄色
+            this._updateCurrentSegmentUnknown();
             
             // 显示例句并朗读（不知道样式）
             this.showExampleOnWrongAnswer('unknown');
@@ -8005,7 +8117,7 @@ ${example ? `- 例句：${example}` : ''}
                 this.autoNextTimer = null;
             }
             
-            // 首次答题：结果先同步记账，统计落盘/错题写入/侧栏推送延后到渲染之后
+            // 只做内存记账（极轻），统计落盘/错题写入等同步重活推迟到动画结束后
             const answerIdx = this.currentWordIndex;
             const unknownWord = this.sessionWords[answerIdx];
             const isFirstUnknown = !this.wordFirstResults[answerIdx];
@@ -8013,15 +8125,21 @@ ${example ? `- 例句：${example}` : ''}
                 this.wordFirstResults[answerIdx] = 'unknown';
                 this.sessionResults.unknown++;
             }
-            this._deferAfterPaint(() => {
+            // 右侧栏词典详情：postMessage，本身极轻；重练路径同样会执行且不卡顿，故不参与延后
+            this.pushCurrentWordDetailToSidebar(unknownWord);
+
+            // 动画/音效立刻播放：与「记得/答对」同一起播时机，不被统计重活延迟
+            this.playAnimation('neutral');
+            this.playWrongSound();
+
+            // 统计落盘/错题写入推迟到动画播完之后（见 _deferStatsAfterAnswer）
+            this._deferStatsAfterAnswer(() => {
                 if (isFirstUnknown) {
                     this.updateWordStats(unknownWord, false, answerIdx);
                     this.updateWrongWordToBook(unknownWord);
                     this.updateBookProgress(answerIdx);
                     this.updateStatsRealtime();
                 }
-                // 把当前单词的词典详情推到右侧栏（Obsidian 试行），也放到渲染之后
-                this.pushCurrentWordDetailToSidebar(unknownWord);
             });
         } else {
             // 答错了，只标记错误选项，其他选项可以继续选择
@@ -8045,7 +8163,7 @@ ${example ? `- 例句：${example}` : ''}
                 }
             });
             
-            // ===== 先完成视觉反馈（进度段/动画/音效/例句/原词浮出），再做统计落盘等重后台工作 =====
+            // ===== 先完成视觉反馈（进度段/例句/原词浮出），再做统计落盘等重后台工作 =====
             const wrongIdx = this.currentWordIndex;
             const wrongWordObj = this.sessionWords[wrongIdx];
             const alreadyAnswered = !!this.wordFirstResults[wrongIdx];
@@ -8057,10 +8175,6 @@ ${example ? `- 例句：${example}` : ''}
             this._updateCurrentSegmentWrong();
             
             this.wordResults[wrongIdx] = 'wrong';
-            this.playAnimation(false);
-            
-            // 播放答错音效
-            this.playWrongSound();
             
             // 显示例句并朗读
             this.showExampleOnWrongAnswer();
@@ -8078,9 +8192,13 @@ ${example ? `- 例句：${example}` : ''}
                 this.autoNextTimer = null;
             }
             
-            // 首次答错：统计落盘/错题写入/今日统计延后到渲染之后
+            // 动画/音效立刻播放，不被统计重活延迟
+            this.playAnimation(false);
+            this.playWrongSound();
+
+            // 统计落盘/错题写入/今日统计推迟到动画播完之后（见 _deferStatsAfterAnswer）
             if (!alreadyAnswered) {
-                this._deferAfterPaint(() => {
+                this._deferStatsAfterAnswer(() => {
                     this.updateWordStats(wrongWordObj, false, wrongIdx);
                     this.updateWrongWordToBook(wrongWordObj);
                     this.updateBookProgress(wrongIdx);
@@ -8225,6 +8343,7 @@ ${example ? `- 例句：${example}` : ''}
         if (rememberBtnReset) {
             rememberBtnReset.classList.remove('btn-remember-active');
             rememberBtnReset.classList.remove('btn-remember-next');
+            rememberBtnReset.classList.remove('correct-unknown'); // 清除超时后遗留的警示主题色
         }
 
         // 填充角标：记得=③(option1)，不记得=④(option2)
@@ -8277,6 +8396,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 处理记得么模式的点击
     handleRememberClick(isRemember) {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点
         const word = this.sessionWords[this.currentWordIndex];
         if (!word) return;
@@ -8305,13 +8425,24 @@ ${example ? `- 例句：${example}` : ''}
                 const display = document.getElementById('rememberMeaningDisplay');
                 const revealed = display && !display.classList.contains('hidden');
                 if (!revealed) {
+                    // 计时超时：数据已记为 unknown（走“不记得”分支），但反馈流程与正常“记得”
+                    // 完全一致——揭示释义/例句、光晕动画、音效、自动切换。
+                    // 区别仅在主题色：按钮、例句、动画均按黄色预警（unknown/neutral）呈现。
+                    const rememberBtn = document.getElementById('rememberBtn');
+                    if (rememberBtn) rememberBtn.classList.add('correct-unknown');
+
+                    // 点击了“记得”：按「右侧查词」设置（all 时）推送单词详情到右侧栏
+                    this.pushCurrentWordDetailToSidebar(word, true);
+
+                    this._stampAnswerTime(); // 幂等：超时已记录耗时，不会重复覆盖
+
+                    this.playAnimation('neutral');
+                    this.playCorrectSound();
+
+                    this._clearAnswerTimer();
+                    this._rememberPending = true;
                     this.showRememberAnswerReveal('unknown');
-                    // 复用“不记得”的反悔窗口计时：到点后正式切题（结果已由超时记为 unknown，
-                    // commitRememberCorrect 会因已有首次结果而跳过，不会改写）
-                    if (this.settings.autoNext) {
-                        this._rememberPending = true;
-                        this.startRememberCountdown();
-                    }
+                    if (this.settings.autoNext) this.startRememberCountdown();
                     return;
                 }
                 this.hideRememberHint();
@@ -8323,6 +8454,9 @@ ${example ? `- 例句：${example}` : ''}
             // 命中反馈（仅作用于“记得”按钮）
             const rememberBtn = document.getElementById('rememberBtn');
             if (rememberBtn) rememberBtn.classList.add('btn-remember-active');
+
+            // 答对（记得）：按「右侧查词」设置（all 时）推送单词详情到右侧栏
+            this.pushCurrentWordDetailToSidebar(word, true);
 
             // 点“记得”即已作出判断：停在此刻计入答题耗时
             // （反悔窗口的等待属于自动切换时间，不应计入答题速度）
@@ -8341,6 +8475,180 @@ ${example ? `- 例句：${example}` : ''}
         } else {
             this.handleRememberNotRemembered(word);
         }
+    }
+
+    // 释义 / 例句就地编辑：悬浮内容区时标签右侧浮现「编辑」图标，点击转为「确认」，
+    // 文本进入可编辑全选态；确认即写回来源词书（对应词典）或当前收藏词单。
+    initLabelEditors() {
+        const cfgs = [
+            { sel: '#rememberMeaningSection .example-label', text: 'rememberMeaningText', field: 'meaning' },
+            { sel: '#rememberExampleSection .example-label', text: 'rememberExampleText', field: 'example' },
+            { sel: '#wrongAnswerExample .example-label', text: 'exampleSentenceChoice', field: 'example' }
+        ];
+        this._labelEditors = [];
+        cfgs.forEach(cfg => {
+            const label = document.querySelector(cfg.sel);
+            const textEl = document.getElementById(cfg.text);
+            if (!label || !textEl) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'label-edit-btn';
+            btn.title = '编辑';
+            btn.innerHTML = '<i class="fi-rr-edit"></i>';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 避免触发内容容器的「重放例句」
+                if (btn.classList.contains('editing')) this._confirmLabelEdit(btn, textEl, cfg.field);
+                else this._startLabelEdit(btn, textEl, cfg.field);
+            });
+            label.appendChild(btn);
+            // 编辑态下点击文本用于定位光标，不触发展示容器的「重放例句」
+            textEl.addEventListener('click', (e) => { if (textEl.isContentEditable) e.stopPropagation(); });
+            textEl.addEventListener('keydown', (e) => {
+                if (textEl.isContentEditable && e.key === 'Escape') {
+                    e.preventDefault();
+                    this._cancelLabelEdit(btn, textEl);
+                }
+            });
+            this._labelEditors.push({ btn: btn, textEl: textEl });
+        });
+    }
+
+    // 切题时复位编辑态：避免编辑中的文本连类名/可编辑属性残留在下一题
+    _resetLabelEditors() {
+        (this._labelEditors || []).forEach(item => {
+            if (item.btn.classList.contains('editing')) this._cancelLabelEdit(item.btn, item.textEl);
+        });
+    }
+
+    // 进入编辑：以纯文本载入当前释义/例句（去掉高亮与来源后缀），并全选便于整体替换
+    _startLabelEdit(btn, textEl, field) {
+        const word = this.sessionWords && this.sessionWords[this.currentWordIndex];
+        if (!word) return;
+        const def = (word.definitions && word.definitions[0]) || {};
+        textEl._editWord = word;               // 锁定编辑对象，避免编辑期间自动切题改错词
+        textEl._preEditHtml = textEl.innerHTML; // 取消时还原展示
+        textEl.textContent = field === 'meaning' ? (def.meaning || '') : (def.example || '');
+        textEl.setAttribute('contenteditable', 'true');
+        textEl.classList.add('editing');
+        btn.classList.add('editing');
+        btn.title = '确认';
+        btn.innerHTML = '<i class="fi-rr-checkbox"></i>';
+        textEl.focus();
+        try {
+            const range = document.createRange();
+            range.selectNodeContents(textEl);
+            const sel = window.getSelection();
+            if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 确认编辑：写回来源词书/当前收藏词单，并刷新展示
+    _confirmLabelEdit(btn, textEl, field) {
+        const value = String(textEl.textContent || '').trim();
+        const word = textEl._editWord;
+        const ok = this._persistSessionWordField(word, field, value);
+        textEl.removeAttribute('contenteditable');
+        textEl.classList.remove('editing');
+        btn.classList.remove('editing');
+        btn.title = '编辑';
+        btn.innerHTML = '<i class="fi-rr-edit"></i>';
+        textEl._editWord = null;
+        textEl._preEditHtml = null;
+        if (!ok) {
+            this._renderLabelText(textEl, word, field);
+            this.showToast('该词暂不支持就地修改', 'error');
+            return;
+        }
+        if (field === 'example') this.currentExample = value; // 同步「点击重放例句」使用的文本
+        this._renderLabelText(textEl, word, field);
+        this.showToast('已保存修改', 'success');
+    }
+
+    // 取消编辑：还原编辑前的展示
+    _cancelLabelEdit(btn, textEl) {
+        textEl.removeAttribute('contenteditable');
+        textEl.classList.remove('editing');
+        btn.classList.remove('editing');
+        btn.title = '编辑';
+        btn.innerHTML = '<i class="fi-rr-edit"></i>';
+        textEl._editWord = null;
+        if (textEl._preEditHtml != null) textEl.innerHTML = textEl._preEditHtml;
+        textEl._preEditHtml = null;
+    }
+
+    // 按当前展示态重新渲染标签文本（释义纯文本；例句保留单词高亮与来源后缀）
+    _renderLabelText(textEl, word, field) {
+        if (!textEl) return;
+        const def = (word && word.definitions && word.definitions[0]) || {};
+        if (field === 'meaning') {
+            textEl.textContent = String(def.meaning || '').trim() || '暂无释义';
+            return;
+        }
+        const ex = String(def.example || '').trim();
+        if (!ex) { textEl.textContent = '（该单词暂无例句）'; return; }
+        const box = textEl.closest('.remember-meaning-display, .wrong-answer-example');
+        let type = 'wrong';
+        if (box && (box.classList.contains('example-correct') || box.classList.contains('meaning-correct'))) type = 'correct';
+        else if (box && (box.classList.contains('example-unknown') || box.classList.contains('meaning-unknown'))) type = 'unknown';
+        textEl.innerHTML = this.highlightWordInExample(ex, word.word, type) + this.exampleSourceSuffix(def);
+    }
+
+    // 把就地修改写回存储：常规词书写回所属词书；收藏词单写回当前收藏词单（默认聚合回写来源词书/全局收藏项）
+    _persistSessionWordField(word, field, value) {
+        if (!word) return false;
+        const applyTo = (o) => {
+            if (!o) return false;
+            if (!Array.isArray(o.definitions) || !o.definitions.length) o.definitions = [{ meaning: '', example: '' }];
+            const d = o.definitions[0];
+            if (field === 'meaning') d.meaning = value;
+            else { d.example = value; d.exampleSource = ''; o.example = value; } // 手改后原词典来源标注不再准确
+            return true;
+        };
+        // 会话词同步更新（成功后供当前题展示直接用）
+        const bookId = word._bookId || (this.currentBook && this.currentBook.id);
+        let ok = false;
+        if (bookId === 'favorites') {
+            ok = this._persistFavoriteWordField(word, applyTo);
+        } else {
+            const { book, word: srcWord } = this._resolveBookWord(bookId, word.originalIndex, word.word);
+            if (book && srcWord && applyTo(srcWord)) { Storage.updateBook(bookId, book); ok = true; }
+        }
+        if (ok) applyTo(word);
+        return ok;
+    }
+
+    // 收藏词单内的就地修改写回
+    _persistFavoriteWordField(word, applyTo) {
+        const key = String(word.word || '').trim().toLowerCase();
+        // 首选自建词单：词就存在词单自身
+        const target = this.getFavoriteTargetList();
+        if (target) {
+            const lists = this.getFavoriteLists();
+            const d = lists.find(x => x.id === target.id);
+            if (!d || !Array.isArray(d.words)) return false;
+            const o = d.words.find(x => String((x && x.word) || '').trim().toLowerCase() === key);
+            if (!o || !applyTo(o)) return false;
+            this.saveFavoriteLists(lists);
+            return true;
+        }
+        // 默认聚合：优先回写来源词书，其次回写全局收藏项
+        if (word._sourceBookId && word._sourceBookId !== 'global') {
+            const book = Storage.getBook(word._sourceBookId);
+            if (book && Array.isArray(book.words)) {
+                let idx = -1;
+                if (typeof word._sourceWordIndex === 'number' && book.words[word._sourceWordIndex] &&
+                    String(book.words[word._sourceWordIndex].word || '').toLowerCase() === key) {
+                    idx = word._sourceWordIndex;
+                } else {
+                    idx = book.words.findIndex(x => x && String(x.word || '').toLowerCase() === key);
+                }
+                if (idx !== -1 && applyTo(book.words[idx])) { Storage.updateBook(word._sourceBookId, book); return true; }
+            }
+        }
+        const globals = Storage.loadFavoriteItems() || [];
+        const g = globals.find(x => x && String(x.word || '').trim().toLowerCase() === key);
+        if (g && applyTo(g)) { Storage.saveFavoriteItems(globals); return true; }
+        return false;
     }
 
     // 记得么模式：浮出释义 + 例句。
@@ -8413,8 +8721,13 @@ ${example ? `- 例句：${example}` : ''}
     startRememberCountdown() {
         this.clearRememberCountdown();
         const seconds = this.getAutoNextSeconds();
+        // -∞/0：不自动切换，保留揭示画面，由用户再点“记得/下一个”手动切题
+        if (seconds <= 0) return;
+        this._rememberDeadline = Date.now() + seconds * 1000;
+        this._startSwitchCountdown(seconds);
         this._rememberCountdown = setTimeout(() => {
             this._rememberCountdown = null;
+            this._rememberDeadline = null;
             if (!this._rememberPending) return; // 已被“记得/不记得”抢先处理
             this._rememberPending = false;
             this.commitRememberCorrect();
@@ -8427,6 +8740,7 @@ ${example ? `- 例句：${example}` : ''}
             clearTimeout(this._rememberCountdown);
             this._rememberCountdown = null;
         }
+        this._rememberDeadline = null;
     }
 
     // 反悔：窗口内改为“不记得”，撤销此前的答对记录，最终按答错计入错误率
@@ -8460,6 +8774,10 @@ ${example ? `- 例句：${example}` : ''}
 
     // 显示拼写模式
     showSpellMode(word) {
+        // 切题进入拼写模式时上锁：拼写模式的「提示=option1、不知道=option2」与上一题选项热键常为同一键，
+        // 无论是同一按键事件继续派发（快速切题），还是长按按键的重复事件跨题触发，都可能误触提示。
+        // 此处补一次防误触缓冲（仅影响提示/不知道热键，不影响直接打字）。
+        this._lockInputBriefly();
         document.getElementById('modeSelectMeaning').classList.add('hidden');
         document.getElementById('modeSpellWord').classList.remove('hidden');
         document.getElementById('modeRemember').classList.add('hidden');
@@ -8549,6 +8867,8 @@ ${example ? `- 例句：${example}` : ''}
     generateLetterSlots(word) {
         const container = document.getElementById('letterSlots');
         container.innerHTML = '';
+        // 复位「音节拆分」动画残留（上一题答对后可能给容器加过状态类）
+        container.classList.remove('syllable-splitting', 'syllable-splitting-show');
 
         // 与 _spellTarget 保持一致：不可见字符不生成槽位
         const groups = String(word || '').trim().split(/\s+/)
@@ -8575,6 +8895,265 @@ ${example ? `- 例句：${example}` : ''}
         if (container.children[0]) container.children[0].classList.add('active');
     }
 
+    // ===== 拼写模式：答对后「音节拆分」展示（如 me·lan·cho·lic）=====
+    // 规则启发式 + 不规则例外库（参考 Pyphen / Hypher 思路的轻量实现，
+    // 不引入外部词典，体积可控，不增加打包体积压力）。
+    _syllableExceptions() {
+        if (!this._sylExcCache) {
+            this._sylExcCache = {
+                // 用户指定 + 启发式易误判的常见词（小写）
+                colonel: ['colo', 'nel'], queue: ['queue'], island: ['is', 'land'], schedule: ['sche', 'dule'],
+                business: ['busi', 'ness'], women: ['wom', 'en'], create: ['cre', 'ate'], ideal: ['i', 'de', 'al'],
+                real: ['re', 'al'], lion: ['li', 'on'], quiet: ['qui', 'et'], science: ['sci', 'ence'],
+                idea: ['i', 'de', 'a'], area: ['ar', 'ea'], diary: ['di', 'a', 'ry'], radio: ['ra', 'dio'],
+                studio: ['stu', 'dio'], piano: ['pi', 'a', 'no'], giant: ['gi', 'ant'], diet: ['di', 'et'],
+                poem: ['po', 'em'], poet: ['po', 'et'], chaos: ['cha', 'os'], museum: ['mu', 'se', 'um'],
+                marriage: ['mar', 'riage'], period: ['pe', 'ri', 'od'], theory: ['the', 'o', 'ry'],
+                various: ['var', 'i', 'ous'], idiot: ['id', 'i', 'ot'], triangle: ['tri', 'an', 'gle'],
+                iron: ['i', 'ron'], onion: ['on', 'ion'], million: ['mil', 'lion'],
+                experience: ['ex', 'pe', 'ri', 'ence'], material: ['ma', 'te', 'ri', 'al'], cereal: ['ce', 're', 'al']
+            };
+        }
+        return this._sylExcCache;
+    }
+
+    // 返回音节的原始大小写切片；无法可靠拆分时返回 [原词]
+    _splitSyllables(word) {
+        const token = String(word || '');
+        const lower = token.toLowerCase();
+        if (lower.length <= 2 || !/^[a-z]+$/.test(lower)) return [token];
+        const exc = this._syllableExceptions()[lower];
+        if (exc) {
+            const out = [];
+            let pos = 0;
+            for (const s of exc) { out.push(token.slice(pos, pos + s.length)); pos += s.length; }
+            if (pos < token.length) out[out.length - 1] += token.slice(pos);
+            return out.filter(s => s.length);
+        }
+        const bounds = this._heuristicSyllableBounds(lower);
+        if (!bounds.length) return [token];
+        const lens = [];
+        let prev = 0;
+        for (const b of bounds) { lens.push(b - prev); prev = b; }
+        lens.push(lower.length - prev);
+        if (lens.some(l => l <= 0)) return [token];
+        const out = [];
+        let pos = 0;
+        for (const l of lens) { out.push(token.slice(pos, pos + l)); pos += l; }
+        return out;
+    }
+
+    // 规则启发式：标注元音核 → 处理词尾静音 e / -Cle → 相邻元音核间按「最长合法声母」切分
+    _heuristicSyllableBounds(w) {
+        const n = w.length;
+        const isVowelChar = (c) => c === 'a' || c === 'e' || c === 'i' || c === 'o' || c === 'u';
+        const isCons = (c) => !!c && !isVowelChar(c) && c !== 'y';
+        // 判断下标 i 是否是元音核的一部分（y 视作元音；qu 的 u 不是）
+        const isVowelAt = (i) => {
+            const c = w[i];
+            if (isVowelChar(c)) return !(c === 'u' && i > 0 && w[i - 1] === 'q');
+            if (c === 'y') return i > 0 && !isVowelChar(w[i - 1]) && w[i - 1] !== 'y';
+            return false;
+        };
+        // 1) 标注元音核：连续元音字母并为一组（双元音）
+        const nuclei = [];
+        let i = 0;
+        while (i < n) {
+            if (!isVowelAt(i)) { i++; continue; }
+            let j = i;
+            while (j + 1 < n && isVowelAt(j + 1)) j++;
+            nuclei.push([i, j]);
+            i = j + 1;
+        }
+        // 2) 词尾静音 e 不单独成核（但 -Cle / -Cre 成音节辅音例外，如 ta·ble）
+        let syllabicEnd = false;
+        if (nuclei.length) {
+            const [ls, le] = nuclei[nuclei.length - 1];
+            if (le === n - 1 && w[n - 1] === 'e' && ls === le && n >= 3) {
+                const prev = w[n - 2], before = w[n - 3];
+                const syllabic = (prev === 'l' || prev === 'r') && isCons(before);
+                if (syllabic) syllabicEnd = true;
+                else nuclei.pop();
+            }
+        }
+        if (nuclei.length <= 1) return [];
+        // 3) 相邻元音核之间：取最长合法声母作为下一音节的开头（maximize onset）
+        const bounds = [];
+        for (let k = 0; k < nuclei.length - 1; k++) {
+            const curEnd = nuclei[k][1];
+            const nextStart = nuclei[k + 1][0];
+            const cluster = w.slice(curEnd + 1, nextStart);
+            let onset = 0;
+            for (let L = Math.min(3, cluster.length); L >= 1; L--) {
+                if (this._isValidOnset(cluster.slice(cluster.length - L))) { onset = L; break; }
+            }
+            if (onset === 0) onset = Math.min(1, cluster.length);
+            // -Cle / -Cre 结尾：末尾成音节辅音连同前一个辅音一起作声母（lit·tle、mid·dle）
+            if (syllabicEnd && k === nuclei.length - 2 && cluster.length >= 2) {
+                onset = Math.min(2, cluster.length);
+            }
+            bounds.push(nextStart - onset);
+        }
+        return bounds;
+    }
+
+    _isValidOnset(s) {
+        if (!this._onsetSet) {
+            this._onsetSet = new Set([
+                'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'x', 'z',
+                'bl', 'br', 'ch', 'cl', 'cr', 'dr', 'dw', 'fl', 'fr', 'gl', 'gr', 'gn', 'kn', 'ph', 'pl', 'pr', 'ps', 'qu',
+                'sc', 'sh', 'sk', 'sl', 'sm', 'sn', 'sp', 'st', 'sw', 'th', 'tr', 'tw', 'wh', 'wr',
+                'chr', 'phr', 'sch', 'scl', 'scr', 'shr', 'sph', 'spl', 'spr', 'squ', 'str', 'thr'
+            ]);
+        }
+        return this._onsetSet.has(s);
+    }
+
+    // 把一段文本按词拆成音节并以「·」连接（handicap → han·di·cap）
+    _syllabifyText(text) {
+        return String(text || '').trim().split(/\s+/).map(tok => {
+            const parts = this._splitSyllables(tok);
+            return parts.length > 1 ? parts.join('·') : tok;
+        }).join(' ');
+    }
+
+    // 看词选义 / 记得么：点击主词时以淡入淡出切换「原词 ↔ 音节拆分」。
+    // 仅做简单淡出→换字→淡入；重复点击可切回原词。切题过程中被 showWord 改写则放弃本次结果。
+    animateWordSyllable(el) {
+        if (!el) return;
+        if (this._wordSylTimer) { clearTimeout(this._wordSylTimer); this._wordSylTimer = null; }
+        const cur = String(el.textContent || '').trim();
+        if (!cur) return;
+        const prevSplit = el.dataset.syllableSplit || '';
+        const showingSplit = prevSplit && cur === prevSplit;
+        let base, split, target;
+        if (showingSplit) {
+            base = el.dataset.syllableBase || cur;
+            split = prevSplit;
+            target = base;
+        } else {
+            base = cur;
+            split = this._syllabifyText(cur);
+            target = split;
+        }
+        el.dataset.syllableBase = base;
+        el.dataset.syllableSplit = split;
+        el.style.transition = 'opacity 0.075s ease';
+        el.style.opacity = '0';
+        this._wordSylTimer = setTimeout(() => {
+            this._wordSylTimer = null;
+            // 动画期间若已切到下一题（文本被改写），放弃本次结果，仅恢复可见
+            if (String(el.textContent || '').trim() !== cur) { el.style.opacity = '1'; return; }
+            el.textContent = target;
+            el.style.opacity = '1';
+        }, 75);
+    }
+
+    // 拼对后延迟起播（延迟随自动切换窗口长度自适应）
+    _scheduleSyllableSplit(word, windowSeconds) {
+        this._cancelSyllableSplit();
+        const text = String(word || '').trim();
+        if (!text) return;
+        const windowMs = (Number(windowSeconds) || 0) * 1000;
+        const delay = Math.max(0, Math.min(120, windowMs * 0.2));
+        this._syllableSplitTimer = setTimeout(() => {
+            this._syllableSplitTimer = null;
+            this._showSyllableSplit(text);
+        }, delay);
+    }
+
+    _cancelSyllableSplit() {
+        if (this._syllableSplitTimer) {
+            clearTimeout(this._syllableSplitTimer);
+            this._syllableSplitTimer = null;
+        }
+    }
+
+    // 拼写答对后「音节拆分」动画：保留原有 letter-slot，把同音节的槽位相互靠拢，
+    // 使其下方短划线合并为一条长划线，并在音节之间淡入隔音符「·」。如 permanence：
+    //   _ _ _ _ _ _ _ _ _ _  →  ___·__·_____  （per·ma·nence）
+    // 关键：每组首尾两个槽位位移为 0（保持容器总宽不变 → 首尾字母位置不变）。
+    _showSyllableSplit(word) {
+        const container = document.getElementById('letterSlots');
+        if (!container) return;
+        const slots = Array.from(container.querySelectorAll('.letter-slot'));
+        if (!slots.length) return;
+
+        // 目标词按单词分组（短语），逐组做音节拆分
+        const groups = String(word || '').trim().split(/\s+/)
+            .map(g => g.replace(/\p{C}+/gu, '')).filter(Boolean);
+        const runs = groups.map(g => this._splitSyllables(g).map(s => s.length));
+        // 无可拆点（每个单词都单音节）时不展示
+        if (!runs.length || runs.reduce((a, r) => a + r.length, 0) <= runs.length) return;
+        // 槽位数与目标字母数不一致（异常）时跳过，避免错位
+        if (runs.reduce((a, r) => a + r.reduce((x, y) => x + y, 0), 0) !== slots.length) return;
+
+        // 清理上一次遗留
+        container.querySelectorAll('.syllable-dot').forEach(d => d.remove());
+        container.classList.add('syllable-splitting');
+
+        const cRect = container.getBoundingClientRect();
+        const dur = 300;
+
+        let si = 0; // 当前 run 在 slots 中的起始下标
+        runs.forEach((sylLens) => {
+            const n = sylLens.reduce((a, b) => a + b, 0);
+            const K = sylLens.length;
+            const runSlots = slots.slice(si, si + n);
+            const firstRect = runSlots[0].getBoundingClientRect();
+            const w = firstRect.width;
+            const baseLeft = firstRect.left - cRect.left;
+            // 组内原始间距取平均（可能有细微小数）
+            let g = 0, gc = 0;
+            let prevLeft = baseLeft;
+            for (let i = 1; i < n; i++) {
+                const l = runSlots[i].getBoundingClientRect().left - cRect.left;
+                const d = l - prevLeft - w;
+                if (isFinite(d) && d >= 0) { g += d; gc++; }
+                prevLeft = l;
+            }
+            g = gc ? g / gc : 0;
+
+            // 组间间距 B：保持 run 总宽不变（首尾槽位位移为 0）
+            const B = K > 1 ? ((n - 1) * g) / (K - 1) : g;
+            // 目标相对位置：组内紧贴(0 间距)，组间留 B
+            const desired = [];
+            let x = 0;
+            sylLens.forEach((len, gi) => {
+                if (gi > 0) x += B;
+                for (let j = 0; j < len; j++) { desired.push(x); x += w; }
+            });
+
+            runSlots.forEach((el, i) => {
+                const curLeft = el.getBoundingClientRect().left - cRect.left - baseLeft;
+                const dx = desired[i] - curLeft;
+                el.style.transition = `transform ${dur}ms cubic-bezier(.34,1.38,.64,1)`;
+                el.style.transform = `translateX(${dx.toFixed(2)}px)`;
+            });
+
+            // 音节之间插入隔音符，定位到组间空隙中心
+            let gidx = 0;
+            sylLens.forEach((len, gi) => {
+                if (gi > 0) {
+                    const dotCenter = baseLeft + desired[gidx] - B / 2;
+                    const dot = document.createElement('span');
+                    dot.className = 'syllable-dot';
+                    dot.textContent = '·';
+                    dot.style.left = dotCenter + 'px';
+                    container.appendChild(dot);
+                }
+                gidx += len;
+            });
+
+            si += n;
+        });
+
+        // 隔音符在槽位靠拢之后再淡入
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => container.classList.add('syllable-splitting-show'));
+        });
+    }
+
     // 标记拼写"输入中"（暂停当前槽位呼吸动画，保证输入时不闪晃）
     markSpellTyping() {
         document.body.classList.add('spell-typing');
@@ -8587,8 +9166,11 @@ ${example ? `- 例句：${example}` : ''}
 
     // 处理拼写输入
     handleSpellInput(value) {
+        if (this._isPracticePaused()) return; // 暂停期间不接受拼写输入
         const word = this.sessionWords[this.currentWordIndex].word;
         const slots = document.querySelectorAll('.letter-slot');
+        if (!slots.length) return;
+        if (document.getElementById('letterSlots').classList.contains('syllable-splitting')) return; // 音节拆分展示中不接受输入
         
         // 根据Caps Lock状态处理输入（空格不参与拼写，直接忽略）
         let raw = String(value || '').replace(/\s+/g, '');
@@ -8695,6 +9277,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 提交拼写
     submitSpell() {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         if (this._isInputLocked()) return; // 快速切题后的防误触缓冲：忽略连点/回车
         const word = this.sessionWords[this.currentWordIndex];
         // 用户已作出判断（拼写完成）：停在此刻计入答题耗时
@@ -8763,6 +9346,10 @@ ${example ? `- 例句：${example}` : ''}
             if (this.settings.autoNext) {
                 const autoNextTime = this.getAutoNextSeconds();
                 if (autoNextTime > 0) {
+                    this._autoNextDeadline = Date.now() + autoNextTime * 1000;
+                    this._startSwitchCountdown(autoNextTime);
+                    // 自动切换前的空档：展示音节拆分动画（me·lan·cho·lic）
+                    this._scheduleSyllableSplit(word.word, autoNextTime);
                     this.autoNextTimer = setTimeout(() => {
                         this.nextWord();
                     }, autoNextTime * 1000);
@@ -8777,6 +9364,7 @@ ${example ? `- 例句：${example}` : ''}
     // 显示提示：长词（>8 字母）提示 1 次记「不知道」（黄色），提示 2 次记「错误」（红色）；
     // 短词（≤8 字母）提示即记「错误」（红色）。被提示的字母格按判定等级着色。
     showHint() {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         const idx = this.currentWordIndex;
         const word = this._spellTarget(this.sessionWords[idx].word);
         const input = document.getElementById('spellInput');
@@ -8819,6 +9407,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 拼写模式：不知道
     skipSpellWord() {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         // 「不知道」：先渲染视觉反馈，再把统计落盘/错题写入与侧栏推送延后
         const idx = this.currentWordIndex;
         const word = this.sessionWords[idx];
@@ -8831,15 +9420,16 @@ ${example ? `- 例句：${example}` : ''}
         }
         
         this.wordResults[idx] = 'unknown';
-        
-        // 播放答错音效（不知道也算错）
-        this.playWrongSound();
+        // 进度段立即转黄（不等到切题后的下一次重绘），切题进度条也会随之为黄色
+        this._updateCurrentSegmentUnknown();
         
         // "不知道"允许切换到下一题
         if (this.settings.autoNext) {
             document.getElementById('nextBtn').disabled = false;
             const autoNextTime = this.getAutoNextSeconds();
             if (autoNextTime > 0) {
+                this._autoNextDeadline = Date.now() + autoNextTime * 1000;
+                this._startSwitchCountdown(autoNextTime);
                 this.autoNextTimer = setTimeout(() => {
                     this.nextWord();
                 }, autoNextTime * 1000);
@@ -8848,15 +9438,21 @@ ${example ? `- 例句：${example}` : ''}
             document.getElementById('nextBtn').disabled = false;
         }
         
-        this._deferAfterPaint(() => {
-            if (isFirstSkip) {
+        // 右侧栏词典详情：postMessage，极轻
+        this.pushCurrentWordDetailToSidebar(word);
+
+        // 音效立刻播放，不被统计重活延迟
+        this.playWrongSound();
+
+        // 统计落盘/错题写入推迟到动画播完之后（见 _deferStatsAfterAnswer）
+        if (isFirstSkip) {
+            this._deferStatsAfterAnswer(() => {
                 this.updateWordStats(word, false, idx);
                 this.updateWrongWordToBook(word);
                 this.updateBookProgress(idx);
                 this.updateStatsRealtime();
-            }
-            this.pushCurrentWordDetailToSidebar(word);
-        });
+            });
+        }
         
         // 重新聚焦输入框（避免焦点丢失）
         setTimeout(() => this.refocusSpellInput(), 100);
@@ -8924,6 +9520,9 @@ ${example ? `- 例句：${example}` : ''}
             clearTimeout(this.autoNextTimer);
             this.autoNextTimer = null;
         }
+        this._autoNextDeadline = null;
+        this._clearSwitchCountdown(); // 移除顶部进度条上的「切换进度」填充
+        this._cancelSyllableSplit(); // 取消拼写答对后未起播的音节拆分动画
         // 清除记得么模式的反悔窗口计时器
         this.clearRememberCountdown();
         this._rememberPending = false;
@@ -9064,6 +9663,27 @@ ${example ? `- 例句：${example}` : ''}
         if (this._wordStartT && this._wordAnswerT === null) {
             this._wordAnswerT = Date.now();
         }
+        // 作答同时冻结答题进度读条：保留「答题时间到此为止」的填充状态（仍呼吸）
+        this._freezeAnswerFill();
+    }
+
+    // 冻结答题进度：把当前段的计时读条停在作答时刻的填充比例上（不再前进），
+    // 未填充部分转灰。随后其上的「切换进度」实心条会从左往右覆盖它。
+    _freezeAnswerFill() {
+        const seg = this._currentVisibleSegment();
+        if (!seg || !seg.classList.contains('timer-countdown')) return;
+        // 已冻结则保持原比例：作答时已按当时的读条位置定格，之后（如暂停时）再算会因
+        // 计时已过期而算成 100%，把背景灰条整段覆盖掉
+        if (seg.classList.contains('answer-frozen')) return;
+        const total = this._answerTimerTotal;
+        const deadline = this._answerTimerDeadline;
+        let pct = 100;
+        if (total && deadline) {
+            const elapsed = total - (deadline - Date.now()) / 1000;
+            pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
+        }
+        seg.style.setProperty('--answer-progress', pct + '%');
+        seg.classList.add('answer-frozen');
     }
 
     // 快速切题（自动切换时间未到、用户主动再点正确答案）时调用：
@@ -9077,14 +9697,36 @@ ${example ? `- 例句：${example}` : ''}
         return Date.now() < this._inputLockUntil;
     }
 
-    // 延后到「本帧渲染完成」后再执行：用于把统计落盘、错题写入、侧栏推送等
-    // 重后台工作挪到视觉反馈之后，避免答错/不知道时被同步 I/O 拖慢观感。
-    // 带超时兜底：窗口隐藏/后台时 rAF 可能不触发，需保证工作最终一定执行
-    _deferAfterPaint(fn) {
-        let done = false;
-        const run = () => { if (done) return; done = true; fn(); };
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
-        setTimeout(run, 150);
+    // 把答题后的「统计落盘/错题写入/进度与侧栏刷新」推迟到答题动画播完之后执行。
+    // 这一串是同步重活：一次会触发十余次整份用户配置的 JSON 解析/落盘与多处整块 DOM 重渲
+    // （实测 150ms+）。排在动画前会把动画整体推迟这么久，排在动画进行中又会抢占主线程让
+    // box-shadow 光晕等主线程过渡掉帧；故统一等动画播完再跑。这些工作都按「作答当时的题号/
+    // 单词」记账，延迟执行不会写错；今日统计用增量差记账，先后触发也不会重复计数。
+    // 等待时长按当前动画类型/强度取，覆盖到动画结束。
+    _deferStatsAfterAnswer(fn) {
+        const type = this.settings.animationType || 'particles';
+        const level = this.settings.animationLevel || 'medium';
+        let wait;
+        if (type === 'glow') {
+            wait = level === 'low' ? 550 : (level === 'high' ? 1150 : 750);
+        } else {
+            wait = level === 'low' ? 700 : (level === 'high' ? 1400 : 1000);
+        }
+        setTimeout(fn, wait);
+    }
+
+    // 让元素重新播放一次「跳动」反馈（与答对的 bounce 观感一致）。
+    // CSS 动画在类名重复添加时不会重播，故改用 Web Animations API：每次调用都重新起播。
+    // 用于「已判错后再次点击正确选项」时补足点击感知（静音模式下尤为重要）。
+    _bounceOnce(el) {
+        if (!el || typeof el.animate !== 'function') return;
+        try {
+            el.animate([
+                { transform: 'translateY(0)' },
+                { transform: 'translateY(-10px)' },
+                { transform: 'translateY(0)' }
+            ], { duration: 300, easing: 'ease-out' });
+        } catch (e) { /* 忽略不支持的环境 */ }
     }
 
     // 暂停当前单词答题计时（如查询词典时）
@@ -9104,6 +9746,7 @@ ${example ? `- 例句：${example}` : ''}
 
     // 跳过单词
     skipWord() {
+        if (this._isPracticePaused()) return; // 暂停期间不接受作答
         // 如果是首次答题，记录首次结果（统计落盘延后到切题渲染之后）
         const idx = this.currentWordIndex;
         const word = this.sessionWords[idx];
@@ -9116,13 +9759,15 @@ ${example ? `- 例句：${example}` : ''}
         
         this.wordResults[idx] = 'unknown';
         
-        this._deferAfterPaint(() => {
-            if (!isFirstSkip) return;
-            this.updateWordStats(word, false, idx);
-            this.updateWrongWordToBook(word);
-            this.updateBookProgress(idx);
-            this.updateStatsRealtime();
-        });
+        // 统计落盘/错题写入推迟到切题动画之后（见 _deferStatsAfterAnswer）
+        if (isFirstSkip) {
+            this._deferStatsAfterAnswer(() => {
+                this.updateWordStats(word, false, idx);
+                this.updateWrongWordToBook(word);
+                this.updateBookProgress(idx);
+                this.updateStatsRealtime();
+            });
+        }
         
         this.nextWord();
     }
@@ -9163,6 +9808,7 @@ ${example ? `- 例句：${example}` : ''}
         this._roundMasterIdx = this.sessionWords.map((_, i) => i);
         this._isReviewRound = false;
         this._reviewResultBase = null;
+        this._sm2Backups = {}; // 新一轮：清空 SM-2 记忆快照
     }
 
     // 本轮结束：若仍有答错/未判对的词，按错题先后顺序构造复习轮并返回 true；否则返回 false（进入结算）。
@@ -9242,8 +9888,18 @@ ${example ? `- 例句：${example}` : ''}
             const idx = (answerIdx === undefined) ? this.currentWordIndex : answerIdx;
             // 实时进度 = 本次开始索引 + 当前已答题数（包含答对和答错）
             // 这样用户可以实时看到学习进度
-            const newIndex = this.sessionStartIndex + idx + 1;
-            
+            let newIndex = this.sessionStartIndex + idx + 1;
+
+            // 带 answerIdx 的调用来自「延后落盘」：可能晚于后续题的落盘执行，
+            // 直接用旧 idx 会把书签写回旧题，故取与已存进度的较大者（进度只允许前进）
+            if (answerIdx !== undefined) {
+                try {
+                    const fresh = Storage.getBook(this.currentBook.id);
+                    const cur = (fresh && fresh.progress && fresh.progress.currentIndex) || 0;
+                    if (newIndex < cur) newIndex = cur;
+                } catch (e) { /* 读取失败时按原值写入 */ }
+            }
+
             Storage.updateBookProgress(this.currentBook.id, { 
                 currentIndex: newIndex,
                 lastPracticeAt: new Date().toISOString()
@@ -9419,6 +10075,13 @@ ${example ? `- 例句：${example}` : ''}
                 ? 'selectPro' : (this.currentMode || 'select');
             const gainScale = Storage.SM2_MODE_GAIN[modeKey] || 1;
             const prevMemory = Storage.getWordMemory(bookId, wordText);
+            // 本轮首次触碰该词时留存原记忆，供「就练到这里」回滚非correct词（无效练习）
+            if (this._sm2Backups) {
+                const bkey = `${bookId}:${wordText}`;
+                if (!Object.prototype.hasOwnProperty.call(this._sm2Backups, bkey)) {
+                    this._sm2Backups[bkey] = prevMemory;
+                }
+            }
             const newMemory = Storage.sm2(quality, prevMemory, gainScale);
             Storage.setWordMemory(bookId, wordText, newMemory);
             
@@ -9476,8 +10139,14 @@ ${example ? `- 例句：${example}` : ''}
         // 保存更新后的错题列表
         Storage.updateBookProgress(this.currentBook.id, { wrong: existingWrong });
         
-        // 重新加载词书数据（确保checkReview能获取最新数据）
-        this.books = Storage.loadBooks();
+        // 同步内存中的词书数据供 checkReview 读取（避免整份配置再做一次 JSON 解析，拖慢作答响应）
+        if (Array.isArray(this.books)) {
+            const inMem = this.books.find(b => b && b.id === this.currentBook.id);
+            if (inMem) inMem.progress = { ...(inMem.progress || {}), wrong: existingWrong };
+            else this.books = Storage.loadBooks();
+        } else {
+            this.books = Storage.loadBooks();
+        }
         
         // 实时更新右侧待复习单词数量
         this.checkReview();
@@ -10162,7 +10831,13 @@ ${example ? `- 例句：${example}` : ''}
     // 复位三个练习模式的暂停遮罩与按钮（切题/退出时统一调用，避免遮罩残留）
     resetAllPracticePause() {
         this._pausedTimerDeadline = null;
+        this._pausedTimerElapsed = 0;
+        this._pausedTimerTotal = null;
+        this._pausedAutoNextDeadline = null;
+        this._pausedRememberDeadline = null;
+        this._userPausedClockAt = null;
         this._answerTimerDeadline = null;
+        this._clearSwitchCountdown(); // 移除顶部进度条上的「切换进度」填充
         [
             ['pauseOverlay', 'pauseBtn'],
             ['synonymPauseOverlay', 'synonymPauseBtn'],
@@ -10181,26 +10856,145 @@ ${example ? `- 例句：${example}` : ''}
         });
     }
 
-    // 退出学习
+    // 退出学习：弹出三选一确认弹窗（就练到这里 / 取消 / 直接退出）
     exitLearning() {
-        if (confirm('确定要退出学习吗？进度将不会保存。')) {
-            // 停止今日统计显示定时器
-            this.stopStatsDisplayTimer();
-            
-            this.backToHome();
+        this.openExitPracticeModal('learning');
+    }
+
+    // 直接退出（不保存本轮）：保持原有行为
+    exitLearningNow() {
+        this.stopStatsDisplayTimer();
+        this.backToHome();
+    }
+
+    // 「就练到这里」（学习 / 艾宾浩斯复习）：回滚无效练习后进入结算画面
+    finishLearningEarly() {
+        this._rollbackInvalidPractice();
+        if (this.autoNextTimer) { clearTimeout(this.autoNextTimer); this.autoNextTimer = null; }
+        if (typeof this.clearRememberCountdown === 'function') this.clearRememberCountdown();
+        this.stopStatsDisplayTimer();
+        this.resetAllPracticePause();
+        this.showCompletion();
+    }
+
+    // ===== 退出练习三选一弹窗（学习 / 同义词 / 熟词僻义 通用）=====
+    openExitPracticeModal(context) {
+        this._exitContext = context || 'learning';
+        const modal = document.getElementById('exitPracticeModal');
+        if (modal) modal.classList.remove('hidden');
+    }
+
+    // 「就练到这里」：结束本轮并保留有效练习记录
+    confirmExitPracticeFinish() {
+        const modal = document.getElementById('exitPracticeModal');
+        if (modal) modal.classList.add('hidden');
+        const ctx = this._exitContext || 'learning';
+        if (ctx === 'synonym') return this.finishSynonymEarly();
+        if (ctx === 'liyi') return this.finishLiyiEarly();
+        return this.finishLearningEarly();
+    }
+
+    // 「直接退出」：不保存本轮记录
+    confirmExitPracticeDirect() {
+        const modal = document.getElementById('exitPracticeModal');
+        if (modal) modal.classList.add('hidden');
+        const ctx = this._exitContext || 'learning';
+        if (ctx === 'synonym') return this.exitSynonymPracticeNow();
+        if (ctx === 'liyi') return this.exitLiyiPracticeNow();
+        return this.exitLearningNow();
+    }
+
+    // 回滚无效练习：非correct（答错/不记得/不知道）的单词不计入学习进度、撤销本轮艾宾浩斯
+    // 记忆更新，使其下次练习词书/艾宾浩斯时仍需重新练习；正确率、答题时间等统计保留。
+    _rollbackInvalidPractice() {
+        const roundWords = (this._roundWords && this._roundWords.length) ? this._roundWords : (this.sessionWords || []);
+        const status = this._roundStatus || [];
+        let validCount = 0;
+        roundWords.forEach((w, i) => {
+            const st = status[i];
+            if (st === 'correct' || st === 'reviewed') { validCount += 1; return; }
+            if (st !== 'wrong' && st !== 'unknown') return; // 未作答：不参与判定
+            const bookId = w._bookId || (this.currentBook && this.currentBook.id);
+            if (!bookId || !this._sm2Backups) return;
+            const key = `${bookId}:${w.word}`;
+            if (!Object.prototype.hasOwnProperty.call(this._sm2Backups, key)) return;
+            const prev = this._sm2Backups[key];
+            if (prev) {
+                Storage.setWordMemory(bookId, w.word, prev); // 还原到本轮更新之前的记忆
+            } else {
+                const map = Storage.loadAllMemory(); // 本轮前无记忆：移除新增项
+                delete map[key];
+                Storage.saveAllMemory(map);
+            }
+        });
+        // 词书学习进度只按「首答正确」的单词数推进；wrong/unknown 留待下次重新练习。
+        // 复习 / 艾宾浩斯复习不涉及书本新词进度，跳过（复习轮仍按主列表状态结算）。
+        if (this.currentBook && !this.isReviewMode && !this._isSm2Review) {
+            const book = Storage.getBook(this.currentBook.id);
+            if (book) {
+                Storage.updateBookProgress(this.currentBook.id, {
+                    currentIndex: (this.sessionStartIndex || 0) + validCount
+                });
+                this.loadBooks();
+            }
         }
     }
 
+
     // ===== 暂停 / 继续 =====
+    // 任一练习模式的暂停遮罩当前是否可见
+    _isPracticePaused() {
+        return ['pauseOverlay', 'synonymPauseOverlay', 'liyiPauseOverlay'].some(id => {
+            const el = document.getElementById(id);
+            return el && !el.classList.contains('hidden');
+        });
+    }
+
+    // 元素自身及其祖先均未被 hidden 隐藏
+    _isElementShown(el) {
+        return !!(el && !el.classList.contains('hidden') && el.closest && !el.closest('.hidden'));
+    }
+
+    // Enter 快捷暂停/继续：作用于当前可见的练习模式（学习 / 同义词 / 熟词僻义通用）。
+    // 已在暂停则恢复；否则暂停当前练习。返回是否处理了本次按键。
+    togglePracticePause() {
+        const pairs = [
+            ['pauseOverlay', 'pauseBtn'],
+            ['synonymPauseOverlay', 'synonymPauseBtn'],
+            ['liyiPauseOverlay', 'liyiPauseBtn']
+        ];
+        // 已在暂停：恢复当前未隐藏的那个遮罩
+        for (const [overlayId, btnId] of pairs) {
+            const overlay = document.getElementById(overlayId);
+            if (overlay && !overlay.classList.contains('hidden')) {
+                this.resumePractice(overlayId, btnId);
+                return true;
+            }
+        }
+        // 未暂停：暂停当前可见练习对应的那一组
+        for (const [overlayId, btnId] of pairs) {
+            const btn = document.getElementById(btnId);
+            if (this._isElementShown(btn)) {
+                this.pausePractice(overlayId, btnId);
+                return true;
+            }
+        }
+        return false;
+    }
+
     // 暂停：盖上毛玻璃遮罩并把「暂停」按钮改为「继续」。
-    // 每题倒计时同时停掉，避免遮罩期间被判超时；继续时按剩余时间重新计时。
+    // 统一的「真暂停」：逐题倒计时、自动切题/反悔计时器、学习时长计时与作答输入全部冻结。
     pausePractice(overlayId, btnId) {
         const overlay = document.getElementById(overlayId);
         const btn = document.getElementById(btnId);
         if (!overlay || !btn || btn.dataset.paused === '1') return;
 
-        // 记下本题倒计时的到期时刻，继续时按剩余时间续做（不重新给满时间）
+        // 记下本题倒计时的到期时刻与「已计时秒数」，继续时读条从暂停处接续（不重头播放）
         this._pausedTimerDeadline = this._answerTimerDeadline || null;
+        this._pausedTimerElapsed = (this._answerTimerTotal && this._answerTimerDeadline)
+            ? Math.max(0, this._answerTimerTotal - (this._answerTimerDeadline - Date.now()) / 1000)
+            : 0;
+        this._pausedTimerTotal = this._answerTimerTotal || null;
 
         btn.dataset.paused = '1';
         const iconEl = btn.querySelector('i');
@@ -10210,11 +11004,37 @@ ${example ? `- 例句：${example}` : ''}
         btn.title = '继续';
         overlay.classList.remove('hidden');
 
+        // 冻结自动切题 / 记得么反悔窗口：记下各自「剩余毫秒」，继续时按剩余时间续做。
+        // 存「剩余量」而非「到期时刻」：暂停期间真实时间仍在走，若继续时再用 deadline-now
+        // 会随暂停时长被吃掉，短切换时长（默认 1s）下常变成 0，导致继续后卡在当前题。
+        if (this.autoNextTimer) {
+            clearTimeout(this.autoNextTimer);
+            this.autoNextTimer = null;
+            this._pausedAutoNextDeadline = this._autoNextDeadline ? Math.max(0, this._autoNextDeadline - Date.now()) : 0;
+        } else {
+            this._pausedAutoNextDeadline = null;
+        }
+        if (this._rememberCountdown) {
+            clearTimeout(this._rememberCountdown);
+            this._rememberCountdown = null;
+            this._pausedRememberDeadline = this._rememberDeadline ? Math.max(0, this._rememberDeadline - Date.now()) : 0;
+        } else {
+            this._pausedRememberDeadline = null;
+        }
+
+        // 暂停时保留两条进度状态：
+        // 1) 答题进度：把读条冻结在暂停时刻的填充比例（未作答时读条仍在跑，需先冻结再清计时器）
+        this._freezeAnswerFill();
         this._clearAnswerTimer();
+        // 2) 切题进度：冻结「切换进度」填充动画，继续时从暂停处接续
+        document.querySelectorAll('.progress-switch-fill').forEach(el => el.classList.add('switch-paused'));
         this.pauseWordTiming();
+
+        // 学习时长计时冻结：把暂停区间排除在会话时长之外（结算与实时显示都不计入）
+        this._pauseStudyClock();
     }
 
-    // 继续：撤下遮罩，按剩余时间恢复本题倒计时
+    // 继续：撤下遮罩，按剩余时间恢复本题倒计时与自动切题计时
     resumePractice(overlayId, btnId) {
         const overlay = document.getElementById(overlayId);
         const btn = document.getElementById(btnId);
@@ -10228,19 +11048,55 @@ ${example ? `- 例句：${example}` : ''}
         btn.title = '暂停';
         overlay.classList.add('hidden');
 
+        // 恢复「切换进度」填充动画：从暂停处继续填充
+        document.querySelectorAll('.progress-switch-fill').forEach(el => el.classList.remove('switch-paused'));
+
         this.resumeWordTiming();
 
-        // 暂停前确有倒计时在跑才续做：同义词/熟词僻义模式本就没有每题限时，
-        // 不能借此凭空开一个；未开启限时时同样不重开
-        const hadTimer = !!this._pausedTimerDeadline;
-        const left = hadTimer
-            ? (this._pausedTimerDeadline - Date.now()) / 1000
-            : 0;
+        // 恢复学习时长计时：把暂停区间从会话时长中扣除（合并暂停前+暂停后的时间）
+        this._resumeStudyClock();
+
+        // 本题已作答：不再重开倒计时/自动切题计时（作答后的等待由切题逻辑接管）
+        const answered = !!this.wordFirstResults[this.currentWordIndex];
+
+        // 逐题倒计时：按总时长 + 已计时秒数续做，读条接续到暂停时的位置
+        if (this._pausedTimerDeadline && !answered) {
+            this._startAnswerTimer(
+                this._pausedTimerTotal || undefined,
+                this._pausedTimerElapsed || 0
+            );
+        }
         this._pausedTimerDeadline = null;
-        if (!hadTimer) return;
-        // 本题已作答：不再重开倒计时
-        if (this.wordFirstResults[this.currentWordIndex]) return;
-        this._startAnswerTimer(left > 0 ? left : undefined);
+
+        // 自动切题：按暂停时的剩余时间续做；若暂停期间已到点（剩余 0）则立即推进，避免卡住
+        if (this._pausedAutoNextDeadline != null) {
+            const left = this._pausedAutoNextDeadline;
+            this._pausedAutoNextDeadline = null;
+            this._autoNextDeadline = null;
+            if (left > 0) this.autoNextTimer = setTimeout(() => this.nextWord(), left);
+            else this.nextWord();
+        }
+        // 记得么反悔窗口：按暂停时的剩余时间续做
+        if (this._pausedRememberDeadline != null) {
+            const left = this._pausedRememberDeadline;
+            this._pausedRememberDeadline = null;
+            this._rememberDeadline = null;
+            if (left > 0) {
+                this._rememberCountdown = setTimeout(() => {
+                    this._rememberCountdown = null;
+                    if (!this._rememberPending) return;
+                    this._rememberPending = false;
+                    this.commitRememberCorrect();
+                    this.nextWord();
+                }, left);
+            } else if (this._rememberPending) {
+                this._rememberPending = false;
+                this.commitRememberCorrect();
+                this.nextWord();
+            }
+        }
+        this._pausedTimerElapsed = 0;
+        this._pausedTimerTotal = null;
     }
 
     // 绑定一组「暂停 / 继续」：按钮与遮罩互为触发点
@@ -10541,7 +11397,10 @@ ${example ? `- 例句：${example}` : ''}
                 '&rate=' + encodeURIComponent((ratePct >= 0 ? '+' : '') + ratePct + '%');
             const audio = new Audio(url);
             this.currentEdgeAudio = audio;
+            let failed = false; // 防抖：onerror 与 play().catch 可能同时触发，避免重复回退/重复朗读
             const fail = () => {
+                if (failed) return;
+                failed = true;
                 if (callbacks && callbacks.onError) callbacks.onError();
                 this.currentEdgeAudio = null;
                 console.warn('❌ Edge 在线发音失败，回退系统语音:', wordText);
@@ -10743,7 +11602,7 @@ ${example ? `- 例句：${example}` : ''}
         }
 
         const { word, pos, meaning, result, favorite } = this.lastWordInfo;
-        const icon = result === 'correct' ? 'check' : result === 'wrong' ? 'cross' : 'question';
+        const icon = result === 'correct' ? 'checkbox' : result === 'wrong' ? 'cross-circle' : 'question-square';
         const className = result === 'correct' ? 'correct' : result === 'wrong' ? 'wrong' : 'unknown';
         
         const detailHtml = this.buildNormalLastBadgeDetail(this.lastWordInfo);
@@ -11342,8 +12201,16 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('animationType').value = this.settings.animationType || 'particles';
         document.getElementById('animationLevel').value = this.settings.animationLevel;
         document.getElementById('autoNext').checked = this.settings.autoNext;
-        document.getElementById('autoNextTime').value = this.settings.autoNextTime || 3;
-        document.getElementById('autoNextTimeValue').textContent = (this.settings.autoNextTime || 3).toFixed(1);
+        {
+            // 自动切换时间：滑杆最左端 -1 表示 -∞（不自动切换）
+            const antRaw = parseFloat(this.settings.autoNextTime);
+            let antVal = isFinite(antRaw) ? antRaw : 3;
+            if (antVal <= 0) antVal = -1;
+            document.getElementById('autoNextTime').value = antVal;
+            document.getElementById('autoNextTimeValue').textContent = antVal < 0 ? '-∞' : antVal.toFixed(1);
+            const antUnit = document.getElementById('autoNextTimeUnit');
+            if (antUnit) antUnit.style.display = antVal < 0 ? 'none' : '';
+        }
 
         // 英语角热点榜单 Key（选填，tianapi）：侧栏模式下无此控件，做存在性判断
         const oralTianKeyEl = document.getElementById('oralTianKey');
@@ -11399,7 +12266,11 @@ ${example ? `- 例句：${example}` : ''}
         // 监听自动切换时间滑块变化
         const timeSlider = document.getElementById('autoNextTime');
         timeSlider.addEventListener('input', (e) => {
-            document.getElementById('autoNextTimeValue').textContent = parseFloat(e.target.value).toFixed(1);
+            let v = parseFloat(e.target.value);
+            if (v <= 0) { v = -1; e.target.value = '-1'; } // -∞：吸附到最左端
+            document.getElementById('autoNextTimeValue').textContent = v < 0 ? '-∞' : v.toFixed(1);
+            const unit = document.getElementById('autoNextTimeUnit');
+            if (unit) unit.style.display = v < 0 ? 'none' : '';
         });
 
         // 监听语速滑块变化
@@ -11926,11 +12797,31 @@ ${example ? `- 例句：${example}` : ''}
         return this.effectiveStartTime !== null && this.effectiveStartTime !== undefined;
     }
 
-    // 当前会话已累计的活跃时长（分钟）；挂机暂停期间返回暂停前的累计值
+    // 当前会话已累计的活跃时长（分钟）；挂机/手动暂停期间返回暂停前的累计值
     getSessionElapsedMinutes() {
         if (!this.isStatsSessionActive()) return 0;
+        // 手动暂停：返回暂停开始时刻的活跃时长（暂停区间不计入）
+        if (this._userPausedClockAt) return (this._userPausedClockAt - this.effectiveStartTime) / 60000;
         if (this.isPausedDueToInactivity) return this.pausedElapsedMinutes || 0;
         return (Date.now() - this.effectiveStartTime) / 60000;
+    }
+
+    // 手动暂停时冻结学习时长计时：记录冻结起点，暂停期间的时长不计入会话
+    _pauseStudyClock() {
+        if (this._userPausedClockAt) return;
+        this._userPausedClockAt = Date.now();
+    }
+
+    // 继续时恢复学习时长计时：把暂停起点后移，使会话时长 = 暂停前 + 暂停后（不含暂停区间）
+    _resumeStudyClock() {
+        if (!this._userPausedClockAt) return;
+        const dur = Date.now() - this._userPausedClockAt;
+        this._userPausedClockAt = null;
+        if (this.isStatsSessionActive()) {
+            this.effectiveStartTime += dur;
+        }
+        // 兼容挂机暂停：期间若已进入挂机暂停，同步校正其起点，避免重复扣减
+        if (this.pausedTime) this.pausedTime += dur;
     }
 
     // 更新统计面板
@@ -12014,6 +12905,7 @@ ${example ? `- 例句：${example}` : ''}
         this.isPausedDueToInactivity = false;
         this.pausedTime = null;
         this.pausedElapsedMinutes = 0;
+        this._userPausedClockAt = null; // 清除上一次会话残留的手动暂停冻结
         this.effectiveStartTime = effectiveStartTime; // 存储可修改的开始时间
         this.baseMinutes = baseMinutes; // 存储基础分钟数
         
@@ -12022,6 +12914,8 @@ ${example ? `- 例句：${example}` : ''}
         
         // 每秒更新一次时长显示（不保存到storage）
         this.statsDisplayTimer = setInterval(() => {
+            // 手动暂停期间：学习时长已冻结，跳过挂机检测（避免与手动暂停互相干扰）
+            if (this._userPausedClockAt) return;
             // 检查用户活动状态
             const now = Date.now();
             const inactiveDuration = now - this.lastActivityTime; // 无活动时长（毫秒）
@@ -12146,6 +13040,7 @@ ${example ? `- 例句：${example}` : ''}
         this.isPausedDueToInactivity = false;
         this.pausedTime = null;
         this.pausedElapsedMinutes = 0;
+        this._userPausedClockAt = null;
         // 结束会话：计时基准与开始时间清空，此后显示直接取已保存时长
         this.effectiveStartTime = null;
         this.baseMinutes = null;
@@ -13201,19 +14096,20 @@ ${example ? `- 例句：${example}` : ''}
 
     // 键盘快捷键
     handleKeyboard(e) {
+        // Enter 固定用于暂停/继续（学习/同义词/熟词僻义三种练习通用）。
+        // 必须在下面的「暂停冻结」判断之前处理，否则暂停后无法再用 Enter 恢复。
+        // 排除组合键与输入法组字，避免与其它输入冲突。
+        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing) {
+            if (this.togglePracticePause()) {
+                e.preventDefault();
+                return;
+            }
+        }
+        // 暂停期间：键盘快捷键（选项数字/退格等）一律不响应，实现真正的作答冻结
+        if (this._isPracticePaused && this._isPracticePaused()) return;
         // 在学习页面
         const learningScreen = document.getElementById('learningScreen');
         if (!learningScreen.classList.contains('hidden')) {
-            // Enter键切换下一题
-            if (e.key === 'Enter' && !document.getElementById('nextBtn').disabled) {
-                // 拼写模式无"下一个"按钮，答对后已自动切换，Enter 不再切题（避免重复跳题）
-                if (document.getElementById('nextBtn').style.display === 'none') {
-                    return;
-                }
-                this.nextWord();
-                return;
-            }
-            
             // 拼写模式快捷键（与 remember-actions 相同映射：提示=option1，不知道=option2，无需 Shift）
             const spellMode = document.getElementById('modeSpellWord');
             if (spellMode && !spellMode.classList.contains('hidden')) {
@@ -13407,6 +14303,8 @@ ${example ? `- 例句：${example}` : ''}
 
     // 重新聚焦拼写输入框（修复焦点丢失问题）
     refocusSpellInput() {
+        // 暂停期间不聚焦，避免遮罩下仍能输入
+        if (this._isPracticePaused()) return;
         // 正在查单词：不抢焦点，保证输入落在查词框里
         if (this._isDictLookupActive()) return;
         // 检查是否在拼写模式
@@ -15292,9 +16190,26 @@ ${example ? `- 例句：${example}` : ''}
         });
     }
 
+    // 练习用收藏词书：与侧栏「开始学习」入口展示的首选词单保持一致。
+    // 首选为自建词单时用其自身 words（其释义可能已被欧路覆盖更新），否则用默认聚合词书。
+    // 修复「列表显示首选词单、练习却读默认聚合」造成的双源不一致（欧路更新释义后练习读不到）。
+    getFavoritePracticeBook() {
+        const id = this.getPreferredFavoriteListId();
+        if (id === 'favorites') return this.getFavoritesVirtualBook();
+        const meta = this.getFavoriteLists().find(x => x.id === id);
+        if (!meta) return this.getFavoritesVirtualBook();
+        return {
+            id: 'favorites',
+            name: meta.name,
+            icon: meta.icon || 'fi-sr-star favorite-icon',
+            words: (Array.isArray(meta.words) ? meta.words : []).map(w => Object.assign({ favorite: true }, w)),
+            createdAt: meta.createdAt || new Date().toISOString()
+        };
+    }
+
     // 专门处理收藏词单进入学习
     startFavoritesLearning() {
-        const book = this.getFavoritesVirtualBook();
+        const book = this.getFavoritePracticeBook();
         if (!book || !book.words || book.words.length === 0) {
             alert('收藏列表为空');
             return;
@@ -15396,7 +16311,7 @@ ${example ? `- 例句：${example}` : ''}
     // 修改开始学习逻辑，支持虚拟收藏词单（bookId === 'favorites'）
     startBookLearning(bookId) {
         if (bookId === 'favorites') {
-            const book = this.getFavoritesVirtualBook();
+            const book = this.getFavoritePracticeBook();
             if (!book || !book.words || book.words.length === 0) {
                 alert('收藏列表为空');
                 return;
@@ -21586,8 +22501,11 @@ When including options, each must have an "impact" field. Use the available keyw
         const submitBtn = document.getElementById('synonymSubmitBtn');
         if (submitBtn) submitBtn.disabled = true;
         
-        // 自动进入下一题（使用学习模式的切换时长设置）
-        const autoNextTime = parseFloat(this.settings.autoNextTime || 3);
+        // 自动进入下一题（使用学习模式的切换时长设置；该模式无“再点正确项切题”入口，
+        // 故 -∞/0 时回退默认 3 秒，避免停留在反馈层无法继续）
+        let autoNextTime = parseFloat(this.settings.autoNextTime);
+        if (!isFinite(autoNextTime) || autoNextTime <= 0) autoNextTime = 3;
+        this._startSwitchCountdown(autoNextTime);
         this.synonymAutoNextTimer = setTimeout(() => {
             this.nextSynonymWord();
             // 重新启用提交按钮
@@ -21742,24 +22660,33 @@ When including options, each must have an "impact" field. Use the available keyw
         }
     }
     
-    // 退出练习
+    // 退出练习：弹出三选一确认弹窗
     exitSynonymPractice() {
-        if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
-            // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
-            this.stopStatsDisplayTimer();
+        this.openExitPracticeModal('synonym');
+    }
 
-            // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
-            this.resetAllPracticePause();
+    // 直接退出（不保存本轮答题统计）
+    exitSynonymPracticeNow() {
+        // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
+        this.stopStatsDisplayTimer();
 
-            this.synonymStartTime = null;
-            this.synonymBaseMinutes = null;
-            this.effectiveStartTime = null;
-            
-            // 更新今日统计显示
-            this.updateStats();
-            
-            this.showWorkshopHome();
-        }
+        // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
+        this.resetAllPracticePause();
+
+        this.synonymStartTime = null;
+        this.synonymBaseMinutes = null;
+        this.effectiveStartTime = null;
+
+        // 更新今日统计显示
+        this.updateStats();
+
+        this.showWorkshopHome();
+    }
+
+    // 「就练到这里」：结束本轮并保存已作答统计，进入同义词结算画面
+    finishSynonymEarly() {
+        this.resetAllPracticePause();
+        this.finishSynonymPractice();
     }
     
     // 重新开始
@@ -21845,11 +22772,11 @@ When including options, each must have an "impact" field. Use the available keyw
             
             // 与正常背单词模式一致的图标 + 配色类
             let className = 'unknown';
-            let icon = 'question';
+            let icon = 'question-square';
             let text = '';
             if (lastResult.correct) {
                 className = 'correct';
-                icon = 'check';
+                icon = 'checkbox';
                 text = '上一题正确';
             } else if (lastResult.partial) {
                 className = 'partial';
@@ -21861,7 +22788,7 @@ When including options, each must have an "impact" field. Use the available keyw
                 text = '上一题跳过';
             } else {
                 className = 'wrong';
-                icon = 'cross';
+                icon = 'cross-circle';
                 text = '上一题错误';
             }
             
@@ -25606,8 +26533,10 @@ ${head}
         
         overlay.classList.remove('hidden');
         
-        // 自动进入下一题
-        const autoNextTime = parseFloat(this.settings.autoNextTime || 2);
+        // 自动进入下一题（该模式无“再点正确项切题”入口，-∞/0 时回退默认 2 秒）
+        let autoNextTime = parseFloat(this.settings.autoNextTime);
+        if (!isFinite(autoNextTime) || autoNextTime <= 0) autoNextTime = 2;
+        this._startSwitchCountdown(autoNextTime);
         this.liyiAutoNextTimer = setTimeout(() => {
             this.liyiAutoNextTimer = null;
             this.nextLiyiWord();
@@ -25698,22 +26627,31 @@ ${head}
         }
     }
 
-    // 退出练习
+    // 退出练习：弹出三选一确认弹窗
     exitLiyiPractice() {
-        if (confirm('确定要退出练习吗？当前进度将不会保存。')) {
-            // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
-            this.stopStatsDisplayTimer();
+        this.openExitPracticeModal('liyi');
+    }
 
-            // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
-            this.resetAllPracticePause();
+    // 直接退出（不保存本轮答题统计）
+    exitLiyiPracticeNow() {
+        // 停止实时统计显示定时器（已学时长在此结算保存，答题统计不保存）
+        this.stopStatsDisplayTimer();
 
-            this.liyiStartTime = null;
-            this.liyiBaseMinutes = null;
-            this.effectiveStartTime = null;
-            
-            this.updateStats();
-            this.showWorkshopHome();
-        }
+        // 复位暂停遮罩与「继续」按钮，避免下次进入时残留
+        this.resetAllPracticePause();
+
+        this.liyiStartTime = null;
+        this.liyiBaseMinutes = null;
+        this.effectiveStartTime = null;
+
+        this.updateStats();
+        this.showWorkshopHome();
+    }
+
+    // 「就练到这里」：结束本轮并保存已作答统计，进入熟词僻义结算画面
+    finishLiyiEarly() {
+        this.resetAllPracticePause();
+        this.finishLiyiPractice();
     }
 
     // 重新开始
@@ -25853,11 +26791,11 @@ ${head}
             const lastResult = this.liyiResults[this.liyiResults.length - 1];
             
             let className = 'unknown';
-            let icon = 'question';
+            let icon = 'question-square';
             let text = '';
             if (lastResult.correct) {
                 className = 'correct';
-                icon = 'check';
+                icon = 'checkbox';
                 text = '上一题正确';
             } else if (lastResult.partial) {
                 // 选错但属于该词全义：温和黄色提醒（同义替换 partial 级别）
@@ -25870,7 +26808,7 @@ ${head}
                 text = '上一题跳过';
             } else {
                 className = 'wrong';
-                icon = 'cross';
+                icon = 'cross-circle';
                 text = '上一题错误';
             }
             

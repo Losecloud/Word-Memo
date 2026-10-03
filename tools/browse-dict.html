@@ -2885,7 +2885,10 @@ if (typeof window.define !== 'function') {
   }
 
   // 跨词典搜索单词的第一个例句，返回 { text, dictName }
-  function extractExampleFromDicts(word) {
+  // 跨词典搜索单词的例句，返回 { text, dictName }。
+  // idx 为例句序号（宿主「刷新」时递增，用于在多个例句间轮换；默认 0 即首个）。
+  function extractExampleFromDicts(word, idx) {
+    idx = Math.max(0, idx | 0);
     const w = String(word).toLowerCase().trim();
     if (!w) return { text: '', dictName: '' };
     // 按首选词典顺序（preferredOrder 会把 browseDictCur 排到最前）：
@@ -2898,9 +2901,17 @@ if (typeof window.define !== 'function') {
       const target = resolveRedirect(v, w);
       const html = d.data[target] != null ? d.data[target] : d.data[w];
       if (html == null) continue;
-      // 例句优先；本词典无例句时回落取英英定义句，仍按首选顺序继续找
-      const example = extractExampleFromHtml(html, w) || extractDefinitionFromHtml(String(html), w);
-      if (example) return { text: example, dictName: d.name || v };
+      // 收集本词典全部例句供轮换；首个例句优先用模式匹配（span.x / div.example 等）以保持原有取值
+      const list = extractAllExamplesFromHtml(String(html), w);
+      const firstPat = extractExampleFromHtml(html, w);
+      if (firstPat) {
+        const k = firstPat.replace(/[.!?]+$/, '').trim().toLowerCase();
+        if (!list.some(function (e) { return e.replace(/[.!?]+$/, '').trim().toLowerCase() === k; })) list.unshift(firstPat);
+      }
+      if (list.length) return { text: list[idx % list.length], dictName: d.name || v };
+      // 本词典无例句时回落取英英定义句，仍按首选顺序继续找
+      const def = extractDefinitionFromHtml(String(html), w);
+      if (def) return { text: def, dictName: d.name || v };
     }
     return { text: '', dictName: '' };
   }
@@ -2958,14 +2969,16 @@ if (typeof window.define !== 'function') {
   // 取第一个 <p> 的英文原句，再经 cleanExampleText 过滤首尾符号，并要求：
   // ①是包含该单词（含简单词形变化）的完整句子；②英文词数 > 5，以规避「短语搭配」。
   // 首个释义无例句（如 rose 的第 1 义是 cross-reference，<ul> 为空）时自然顺延到下一条。
-  function extractFirstExampleFromHtml(html, word) {
-    if (!html) return '';
+  function extractAllExamplesFromHtml(html, word) {
+    if (!html) return [];
     const text = String(html)
       .replace(/<head[\s>][\s\S]*?<\/head>/gi, '')
       .replace(/<style[\s>][\s\S]*?<\/style>/gi, '')
       .replace(/<script[\s>][\s\S]*?<\/script>/gi, '')
       .replace(/<link\b[^>]*\/?>/gi, '');
     const base = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
+    const out = [];
+    const seen = {};
     const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
     let lm;
     while ((lm = liRe.exec(text)) !== null) {
@@ -2983,9 +2996,18 @@ if (typeof window.define !== 'function') {
       // 英文词数 > 5：短语搭配（如 "abandon ship"）词数少，据此排除
       const wc = bare.split(/\s+/).filter(function (s) { return /[a-zA-Z]/.test(s); }).length;
       if (wc <= 5) continue;
-      return ex;
+      const k = bare.toLowerCase();
+      if (seen[k]) continue;
+      seen[k] = 1;
+      out.push(ex);
     }
-    return '';
+    return out;
+  }
+
+  // 取「第一个」能通过校验的例句（沿用 extractAllExamplesFromHtml 的校验规则）
+  function extractFirstExampleFromHtml(html, word) {
+    const list = extractAllExamplesFromHtml(html, word);
+    return list.length ? list[0] : '';
   }
 
   // 「例句填充」最后兜底：词典连例句都没有时，取词条首个释义的「英英定义整句」。
@@ -3024,15 +3046,18 @@ if (typeof window.define !== 'function') {
     return ex;
   }
 
-  // 在指定词典里取「第一个释义的第一个例句」，返回 { text, dictName }
-  function extractFirstExampleFromDict(word, varName) {
+  // 在指定词典里取「释义的例句」，返回 { text, dictName }。idx 用于多个例句间轮换（默认 0）
+  function extractFirstExampleFromDict(word, varName, idx) {
+    idx = Math.max(0, idx | 0);
     const w = String(word || '').toLowerCase().trim();
     const d = varName ? DICTS[varName] : null;
     if (!w || !d || !d.enabled || !d.data) return { text: '', dictName: '' };
     const target = resolveRedirect(varName, w);
     const html = d.data[target] != null ? d.data[target] : d.data[w];
     if (html == null) return { text: '', dictName: '' };
-    // 先取例句；无例句时回落取「英英定义句」（如 glacier），保证不空手而归
+    // 收集全部例句供轮换；仍先取「例句」、无例句时回落取「英英定义句」（如 glacier），保证不空手而归
+    const list = extractAllExamplesFromHtml(String(html), w);
+    if (list.length) return { text: list[idx % list.length], dictName: d.name || varName };
     const text = extractFirstExampleFromHtml(String(html), w) || extractDefinitionFromHtml(String(html), w);
     return { text: text, dictName: d.name || varName };
   }
@@ -3056,16 +3081,16 @@ if (typeof window.define !== 'function') {
       }
     }
     showDetail(w, base, favorited, cands, raw, note, noteTs);
-    // 首选词典是否确有该词条：宿主据此决定「自动展开」（词卡点击/Enter 直达）是否直接跳详情；
-    // 首选词典没有该词时不跳空白详情，改为留在结果清单里展示该词条。首选不可用（禁用/卸载）时不约束。
-    let prefHas = true;
+    // 详情是否真有内容：当前词典有该词条（含重定向），或基础词典（englishwords-dict）有兜底信息。
+    // 宿主据此决定是否跳详情；二者皆无（如多数词典未收录的固定短语）时不跳空白详情，
+    // 留在结果清单里展示该词条，并由宿主就地在清单页展开「我的笔记」。
+    let hasContent = true;
     try {
-      const pref = localStorage.getItem('browseDictCur') || '';
-      const pd = pref ? DICTS[pref] : null;
-      if (pd && pd.enabled && pd.data) {
-        const pt = resolveRedirect(pref, w);
-        prefHas = !!(pd.data[pt] != null || pd.data[w] != null);
-      }
+      const dc = DICTS[cur];
+      const target = dc ? resolveRedirect(cur, w) : w;
+      const html = (dc && dc.data) ? (dc.data[target] != null ? dc.data[target] : dc.data[w]) : null;
+      const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
+      hasContent = html != null || hasBaseInfo;
     } catch (e) { /* 忽略 */ }
     // 渲染完成：报告内容自然高度（上方词条滚动区内容 + 底部笔记区），供主页按内容撑开 iframe；
     // #detail 为 overflow:hidden 弹性容器，其 scrollHeight 已不再反映被裁剪的内容，故显式求和
@@ -3073,7 +3098,7 @@ if (typeof window.define !== 'function') {
     const scrollBox = detailBox ? detailBox.querySelector('.detail-scroll') : null;
     const noteBox = detailBox ? detailBox.querySelector('.word-note') : null;
     const naturalH = (scrollBox ? scrollBox.scrollHeight : (detailBox ? detailBox.scrollHeight : 0)) + (noteBox ? noteBox.offsetHeight : 0);
-    post({ type: 'opened', w, height: naturalH || 0, prefHas });
+    post({ type: 'opened', w, height: naturalH || 0, hasContent });
   }
   if (LOOKUP) {
     window.addEventListener('message', async (ev) => {
@@ -3092,14 +3117,14 @@ if (typeof window.define !== 'function') {
         }
       }
       else if (d.cmd === 'lookup-example') {
-        // 查询单词的第一个例句，返回 { word, example, dictName }。
-        // 指定 dict（「例句填充」选定词典）时只在那一本里取「第一个释义的第一个例句」；
-        // 未指定时维持原行为：按首选词典顺序跨词典搜索
+        // 查询单词的例句，返回 { word, example, dictName }。idx 用于多例句轮换（宿主「刷新」递增）。
+        // 指定 dict（「例句填充」选定词典）时只在那一本里取；未指定时按首选词典顺序跨词典搜索
         const word = d.word;
         if (!word) { post({ type: 'example-result', word: '', example: '' }); return; }
+        const idx = parseInt(d.idx, 10) || 0;
         const example = (d.dict && DICTS[d.dict] && DICTS[d.dict].enabled)
-          ? extractFirstExampleFromDict(word, d.dict)
-          : extractExampleFromDicts(word);
+          ? extractFirstExampleFromDict(word, d.dict, idx)
+          : extractExampleFromDicts(word, idx);
         post({ type: 'example-result', word, example: example.text, dictName: example.dictName });
       }
       else if (d.cmd === 'close') doCollapseDetail();
