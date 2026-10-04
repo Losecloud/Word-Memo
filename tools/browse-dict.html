@@ -429,6 +429,7 @@
   }
   /* 「我的笔记」：详情页底部固定区（弹性容器末项，始终贴底；上方 .detail-scroll 独立滚动） */
   .word-note {
+    position: relative;
     flex: 0 0 auto;
     height: 140px;
     box-sizing: border-box;
@@ -464,6 +465,32 @@
   body.dark-mode .word-note-input { color: #e0e0e0; }
   .word-note-input::placeholder { color: #b3b7bd; }
   body.dark-mode .word-note-input::placeholder { color: #6b7078; }
+  /* 「我的笔记」高度拖拽：悬浮在上边界线附近时变为上下拉伸光标，拖动实时改高度 */
+  .word-note-resize {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -4px;
+    height: 9px;
+    cursor: row-resize;
+    z-index: 3;
+  }
+  .word-note-resize::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 3px;
+    border-radius: 2px;
+    background: #d9dce1;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+  body.dark-mode .word-note-resize::after { background: #4a4f57; }
+  .word-note-resize:hover::after,
+  .word-note-resize.dragging::after { opacity: 1; background: var(--primary-color, #4a9d9a); }
 </style>
 <link rel="stylesheet" href="../static/flaticon-uicons-main/src/uicons/css/regular/rounded.css">
 </head>
@@ -605,7 +632,8 @@ if (typeof window.define !== 'function') {
 
   // ---- IndexedDB 词典缓存：加载过一次后，重启网页秒载（file:// 下 IDB 不可用则自动跳过） ----
   // 缓存内容版本：词典数据文件内容更新后递增，使旧缓存失效、强制重新加载
-  const DICT_CACHE_VERSION = 2;
+  // （经 dict-manifest.js 加载时 meta.size 缺失，缓存无法按体积校验，只能靠本版本号失效）
+  const DICT_CACHE_VERSION = 3;
   let idbPromise = null;
   function idb() {
     if (idbPromise) return idbPromise;
@@ -647,6 +675,42 @@ if (typeof window.define !== 'function') {
     }));
   }
 
+  // ---- 本地词典目录句柄（File System Access）：file:// 直开时浏览器禁止 fetch 本地 json，
+  // 用户授权一次本地目录后把句柄存进 IndexedDB，之后每次进入都直接从该目录读取原始词典文件，
+  // 不产生任何副本、也不再需要 serve.js。句柄键与词典缓存同库（dicts 存储），互不冲突 ----
+  const DIR_HANDLE_KEY = '__dict_dir_handle__';
+  let dirHandlePromise = null;
+  function getDirHandle() {
+    if (!dirHandlePromise) {
+      dirHandlePromise = idbGet(DIR_HANDLE_KEY).then((dir) => (dir && typeof dir.getFileHandle === 'function' ? dir : null));
+    }
+    return dirHandlePromise;
+  }
+  // 校验权限：已持久化授权的目录可无手势直接读取；未授权/已失效返回 null，交由上层回退
+  async function getGrantedDirHandle() {
+    const dir = await getDirHandle();
+    if (!dir) return null;
+    try {
+      if (dir.queryPermission && (await dir.queryPermission({ mode: 'read' })) !== 'granted') return null;
+    } catch (e) { return null; }
+    return dir;
+  }
+  // 从已授权目录读取单个词典文件文本：先按当前目录，再回退其 data/ 子目录（用户可能选的是项目根）
+  async function readDictFileFromDir(file) {
+    if (!file) return null;
+    const dir = await getGrantedDirHandle();
+    if (!dir) return null;
+    const tries = [dir];
+    try { tries.push(await dir.getDirectoryHandle('data')); } catch (e) { /* 无 data 子目录 */ }
+    for (const d of tries) {
+      try {
+        const fh = await d.getFileHandle(file);
+        return await (await fh.getFile()).text();
+      } catch (e) { /* 换下一个候选目录 */ }
+    }
+    return null;
+  }
+
   // 启用状态持久化（localStorage，跨会话记忆；默认全部启用）
   function getEnabledDicts() {
     try { const arr = JSON.parse(localStorage.getItem('enabledDicts') || '[]'); return Array.isArray(arr) ? arr : []; } catch (e) { return []; }
@@ -664,6 +728,9 @@ if (typeof window.define !== 'function') {
   function isEnabled(varName) { return getEnabledDicts().includes(varName); }
   // 首次进入默认启用的词典（其余默认停用，可在 AI 工坊的词典卡片右上角开关按需启用）
   const DEFAULT_ENABLED_VARS = ['OALDPE_DICT', 'COLLINS_DICT', '英语词根词缀词频_DICT'];
+  // 默认首选查词词典：用户从未显式指定首选（browseDictCur 为空）且柯林斯高阶已启用时，
+  // 后台把柯林斯设为默认首选（查词/例句/排序优先取它）。用户一旦自行设过首选即不再干预
+  const DEFAULT_PREFERRED_VAR = 'COLLINS_DICT';
 
   // 历史默认名 → 统一名（中文名 + 英文名）迁移表：仅把老用户残留的旧默认名改写为新命名，
   // 用户自定义的重命名（不在此表内）原样保留。名称的唯一权威源仍是 tools/web2ob.py 的 DICT_CATALOG。
@@ -682,6 +749,13 @@ if (typeof window.define !== 'function') {
     '柯林斯': '柯林斯高阶 Collins COBUILD',
   };
   function unifyDictName(name) { return LEGACY_DICT_NAMES[name] || name; }
+  // 词典简称：取名称开头的中文部分（如「基础词典 Basic」→「基础词典」），
+  // 供词条详情页 detail-head 的 meta 显示；纯英文名无中文前缀则原样返回
+  function dictShortName(name) {
+    const s = String(name == null ? '' : name).trim();
+    const m = s.match(/^[\u4e00-\u9fff]+/);
+    return m ? m[0] : s;
+  }
 
   // ---- 词典清单持久化：进入网页直接加载已启用的词典，跳过每次清单扫描 ----
   // 仅持久化 URL 模式（text 模式词典跨会话无法复用）。统一用相对路径 ../data/，
@@ -793,10 +867,21 @@ if (typeof window.define !== 'function') {
             // JSON 词典：fetch + JSON.parse（不执行远程代码），解析结果直接挂到全局变量名
             const p = meta.text != null
               ? Promise.resolve(JSON.parse(meta.text))
-              : fetch(meta.url, { cache: 'no-cache' }).then(r => {
-                  if (!r.ok) throw new Error('HTTP ' + r.status);
-                  return r.json();
-                });
+              : (location.protocol === 'file:'
+                  // file:// 直开：fetch 本地 json 必被 CORS 拦，先探已有缓存，未命中时改从
+                  // 用户已授权的本地目录句柄直接读取该词典原文件（不产生副本、避免控制台报错）
+                  ? readDictFileFromDir(meta.file).then(text => {
+                      if (text == null) throw new Error('file:// 下未授权本地词典目录，无法读取 ' + (meta.file || meta.name));
+                      return JSON.parse(text);
+                    })
+                  : fetch(meta.url, { cache: 'no-cache' }).then(r => {
+                      if (!r.ok) throw new Error('HTTP ' + r.status);
+                      return r.json();
+                    }).catch(async (err) => {
+                      const text = await readDictFileFromDir(meta.file);
+                      if (text == null) throw err;
+                      return JSON.parse(text);
+                    }));
             return p.then(obj => {
               if (!obj || typeof obj !== 'object') throw new Error('内容不是对象');
               window[meta.varName] = obj;
@@ -875,6 +960,18 @@ if (typeof window.define !== 'function') {
     }
   }
 
+  // 默认首选词典兜底：仅在用户从未显式指定首选（browseDictCur 为空）且该词典已启用时写入，
+  // 后续用户自设或禁用即不再触发。静默处理，无需前端提示
+  function ensureDefaultPreferred(enabledList) {
+    try {
+      if (localStorage.getItem('browseDictCur')) return; // 用户已显式设过首选，尊重其选择
+      const list = enabledList || getEnabledDicts();
+      if (list.includes(DEFAULT_PREFERRED_VAR) && DICTS[DEFAULT_PREFERRED_VAR]) {
+        localStorage.setItem('browseDictCur', DEFAULT_PREFERRED_VAR);
+      }
+    } catch (e) { /* 无痕模式忽略 */ }
+  }
+
   async function applyMetas(metas, priority) {
     if (!metas.length) return;
     let enabledArr = getEnabledDicts();
@@ -905,6 +1002,8 @@ if (typeof window.define !== 'function') {
     enabledArr = valid;
     if (changed) setEnabledDicts(enabledArr);
     setKnownDicts(known);
+    // 默认首选词典兜底（柯林斯高阶）：仅在用户未自设首选时生效，须在确定启用清单后调用
+    ensureDefaultPreferred(enabledArr);
     // 持久化清单，下次进入直接复用，跳过清单扫描
     saveMetas(metas);
     const toLoad = metas.filter(meta => {
@@ -912,8 +1011,11 @@ if (typeof window.define !== 'function') {
       return d && d.enabled && !d.data;
     });
     if (!toLoad.length) return;
-    // 优先加载最近用的词典（若有），其余后台静默加载
-    const prioMeta = priority ? (toLoad.find(m => m.varName === priority) || null) : null;
+    // 优先加载最近用的词典（若有）；否则回退到首选词典（含上面刚兜底写入的柯林斯），
+    // 保证首选词典先就绪、其余后台静默加载
+    let prioVar = priority;
+    if (!prioVar) { try { prioVar = localStorage.getItem('browseDictCur'); } catch (e) { /* 忽略 */ } }
+    const prioMeta = prioVar ? (toLoad.find(m => m.varName === prioVar) || null) : null;
     if (prioMeta) {
       showLoading('正在加载「' + prioMeta.name + '」…');
       await loadDictSafe(prioMeta);
@@ -936,7 +1038,9 @@ if (typeof window.define !== 'function') {
   // 词条 HTML 渲染：注入词典 CSS、重写资源相对路径
   function renderDictHtml(html, varName) {
     const d = DICTS[varName];
-    let out = String(html).replace(/<head[\s\S]*?<\/head>/i, '');
+    // 剥掉 <head> 与其中的 <link>：词典条目内自带的样式表引用（如牛津同义词的 sf_cb.css）
+    // 相对本页解析必然 404，且词典样式由 injectDictCss 另行注入，留着只会刷控制台报错
+    let out = String(html).replace(/<head[\s\S]*?<\/head>/i, '').replace(/<link\b[^>]*\/?>/gi, '');
     if (d && d.mdd) {
       const base = '../data/' + d.mdd + '/';
       // 相对资源引用（图片等）→ 资源目录
@@ -1356,6 +1460,9 @@ if (typeof window.define !== 'function') {
   // 目录扫描（File System Access API，Chrome/Edge 弹窗即权限询问）
   async function scanWithDirectoryPicker() {
     const dir = await window.showDirectoryPicker({ mode: 'read' });
+    // 记住本次授权：此后 file:// 直开时直接读该目录的原文件，不再弹窗、不产生副本
+    dirHandlePromise = Promise.resolve(dir);
+    idbPut(DIR_HANDLE_KEY, dir);
     const found = [];
     const visit = async (handle, depth) => {
       for await (const entry of handle.values()) {
@@ -1423,17 +1530,20 @@ if (typeof window.define !== 'function') {
   // 返回数组 = 清单可用（空数组表示一本都没装）；返回 null = 清单不可用
   // （既无 /dict-list.json 也无 dict-manifest.js），此时不得据此清理缓存
   async function loadManifest() {
-    try {
-      const resp = await fetch('/dict-list.json');
-      if (resp.ok) {
-        const list = await resp.json();
-        if (list.length) return preferJson(list.map(m => ({ name: m.name, varName: m.varName, url: m.url, mdd: m.mdd, size: m.size, file: m.file, format: m.format })));
-      }
-    } catch (e) { /* 非服务器模式 */ }
+    // file:// 直开无服务器：/dict-list.json 由 serve.js 提供，直接跳过，避免 CORS 报错
+    if (location.protocol !== 'file:') {
+      try {
+        const resp = await fetch('/dict-list.json');
+        if (resp.ok) {
+          const list = await resp.json();
+          if (list.length) return preferJson(list.map(m => ({ name: m.name, varName: m.varName, url: m.url, mdd: m.mdd, size: m.size, file: m.file, format: m.format })));
+        }
+      } catch (e) { /* 非服务器模式 */ }
+    }
     try {
       await loadScript('../data/dict-manifest.js');
       if (Array.isArray(window.DICT_MANIFEST)) {
-        return preferJson(window.DICT_MANIFEST.map(m => ({ name: m.name, varName: m.varName, url: '../data/' + m.file, mdd: m.mdd, file: m.file, format: m.format })));
+        return preferJson(window.DICT_MANIFEST.map(m => ({ name: m.name, varName: m.varName, url: '../data/' + m.file, mdd: m.mdd, file: m.file, format: m.format, size: m.size })));
       }
     } catch (e) { /* 无清单 */ }
     return null;
@@ -1480,6 +1590,19 @@ if (typeof window.define !== 'function') {
     if (!metas.length) { showLoading('所选目录中未找到 *-dict.json 词典文件'); return; }
     await applyMetas(metas);
     finishLoad();
+  }
+
+  // 宿主完成「本地词典目录」授权后，重新加载已装词典：句柄已写入 IndexedDB，
+  // 清掉内存缓存后 loadDict 会改从本地目录读取原文件（file:// 下 fetch 本地 json 被拦的替代路径）
+  async function reloadDictsFromDisk() {
+    dirHandlePromise = null; // 句柄可能刚由宿主写入 IDB，清缓存以便重新读取
+    const saved = getSavedMetas();
+    const list = saved.length ? saved : ((await loadManifest()) || []);
+    if (!list.length) { if (LOOKUP) post({ type: 'dicts-updated' }); return; }
+    await applyMetas(list);
+    try { renderSelect(); } catch (e) { /* 忽略 */ }
+    broadcastPickerState();
+    if (LOOKUP) post({ type: 'dicts-updated' });
   }
 
   function renderSelect() {
@@ -1890,9 +2013,24 @@ if (typeof window.define !== 'function') {
     const p = function (x) { return (x < 10 ? '0' : '') + x; };
     return '最近编辑于：' + d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
+  // 详情笔记高度：宿主下发值优先于本页 localStorage（宿主与 iframe 可能不同源）
+  let curNoteHeight = 0;
+  function applyCurNoteHeight(h) {
+    const v = parseInt(h, 10);
+    if (!(v > 0)) return;
+    const maxH = Math.max(64, Math.round(window.innerHeight * 0.75));
+    curNoteHeight = Math.max(64, Math.min(maxH, v));
+    const w = document.querySelector('#detail .word-note') || document.querySelector('.word-note');
+    if (w) w.style.height = curNoteHeight + 'px';
+  }
   function renderWordNote(box, word, note, noteTs) {
     const wrap = document.createElement('div');
     wrap.className = 'word-note';
+    // 高度拖拽手柄：压在上边界线上，光标为上下拉伸；松手写入镜像键 noteHeightDetail
+    // （随用户配置持久化，下次复用；与清单页笔记 noteHeightList 互为独立）
+    const handle = document.createElement('div');
+    handle.className = 'word-note-resize';
+    handle.title = '拖拽调节笔记高度';
     const head = document.createElement('div');
     head.className = 'word-note-head';
     head.innerHTML = '<i class="fi-rr-comment-pen"></i> 我的笔记<span class="word-note-date"></span>';
@@ -1924,18 +2062,82 @@ if (typeof window.define !== 'function') {
         } catch (e) { /* 忽略 */ }
       }, 300);
     });
+    wrap.appendChild(handle);
     wrap.appendChild(head);
     wrap.appendChild(ta);
     box.appendChild(wrap);
+    initWordNoteResize(wrap, handle);
   }
 
-  function showDetail(w, base, favorited, cands, disp, note, noteTs) {
+  // 详情页「我的笔记」高度拖拽：向上拖增高，实时生效，松手写入 localStorage.noteHeightDetail
+  function initWordNoteResize(wrap, handle) {
+    const KEY = 'noteHeightDetail';
+    const MIN = 64;
+    const clamp = function (h) {
+      const maxH = Math.max(MIN, Math.round(window.innerHeight * 0.75));
+      return Math.max(MIN, Math.min(maxH, Math.round(h)));
+    };
+    const apply = function (h) { const v = clamp(h); wrap.style.height = v + 'px'; return v; };
+    // 详情笔记变高会改变 iframe 内容高度：实时通知宿主重测 iframe 高度（主页非侧栏时按内容撑开）
+    let rafId = 0;
+    const report = function () {
+      if (!LOOKUP) return; // 独立浏览页无宿主
+      if (rafId) return;
+      rafId = requestAnimationFrame(function () {
+        rafId = 0;
+        try { post({ type: 'detail-height' }); } catch (e) { /* 忽略 */ }
+      });
+    };
+    try {
+      const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+      if (saved > 0) curNoteHeight = curNoteHeight > 0 ? curNoteHeight : saved; // 宿主下发值优先
+      if (curNoteHeight > 0) apply(curNoteHeight);
+    } catch (e) { /* 忽略 */ }
+    let dragging = false, startY = 0, startH = 0;
+    const onMove = function (e) {
+      if (!dragging) return;
+      e.preventDefault();
+      apply(startH + (startY - e.clientY));
+      report();
+    };
+    const onUp = function () {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      try {
+        const h = parseInt(wrap.style.height, 10);
+        // 写入即由宿主（storage 事件）触发用户配置镜像，实现跨会话复用
+        if (h > 0) { curNoteHeight = h; localStorage.setItem(KEY, String(h)); }
+        // 宿主模式：同时把高度回传宿主（由宿主写入其上下文并落配置）。
+        // 部分宿主 iframe 与主页不同源/被隔离，本页 localStorage 不共享，只能靠宿主承接
+        if (h > 0 && LOOKUP) post({ type: 'note-height', h: h });
+      } catch (e) { /* 忽略 */ }
+    };
+    handle.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      startY = e.clientY;
+      startH = wrap.offsetHeight;
+      handle.classList.add('dragging');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly) {
     const d = DICTS[cur];
     // 重定向：@@@LINK=xxx → 展示目标词条
     const target = d ? resolveRedirect(cur, w) : w;
     // 展示用词形：优先用调用方传入的原始大小写（如 Design / DESIGN），检索仍用 target
     const head = disp || target;
     let html = (d && d.data) ? (d.data[target] != null ? d.data[target] : d.data[w]) : null;
+    // 基础词典兜底条目：只展示基础词典本身，忽略当前词典的释义，避免连带前置显示
+    // （如首选的柯林斯高阶 / 词根词缀词频）造成「点基础词典却看到别的词典」的错觉
+    if (baseOnly) html = null;
     // 未导入任何词典时：若有基础词典信息，则不显示"无内容"提示，直接以下方基础词典块作为详情
     const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
     const fromNote = target !== w ? '<div class="redirect-note">↪ 重定向自「' + w + '」</div>' : '';
@@ -1982,7 +2184,7 @@ if (typeof window.define !== 'function') {
         if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">← 你可能要查的是</span>';
       }
     } catch (e) { /* 忽略 */ }
-    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((d && d.name) || (hasBaseInfo ? '基础词典' : '')) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><span class="favorite-icon">⭐</span></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
+    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><span class="favorite-icon">⭐</span></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
     box.style.display = 'flex';
     // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮
     beautifyCollins(box, target, cands);
@@ -3062,15 +3264,16 @@ if (typeof window.define !== 'function') {
     return { text: text, dictName: d.name || varName };
   }
 
-  function lookupOpen(w, q, dict, base, favorited, cands, disp, note, noteTs) {
+  function lookupOpen(w, q, dict, base, favorited, cands, disp, note, noteTs, baseOnly) {
     // 词典键均为小写：宿主传入的词可能首字母大写（如 Design），归一化后仅用于检索；
     // 展示层保留调用方给的原始大小写（disp），不改动用户看到的外观
     const raw = String(disp == null ? w : disp).trim();
     w = String(w == null ? '' : w).trim().toLowerCase();
     q = String(q == null ? '' : q).trim().toLowerCase();
     $('search').value = raw || q;
-    // 词条可能来自其他已启用词典：先切到该词典，确保释义按其渲染
-    if (dict && DICTS[dict] && DICTS[dict].enabled && DICTS[dict].data) {
+    // 词条可能来自其他已启用词典：先切到该词典，确保释义按其渲染。
+    // baseOnly（基础词典兜底条目）不切换、不渲染当前词典内容，只展示基础词典本身。
+    if (!baseOnly && dict && DICTS[dict] && DICTS[dict].enabled && DICTS[dict].data) {
       const d = DICTS[dict];
       const target = resolveRedirect(dict, w);
       const has = d.data[target] != null || d.data[w] != null;
@@ -3080,7 +3283,7 @@ if (typeof window.define !== 'function') {
         broadcastPickerState(); // 校正广播：preferred 以用户首选（browseDictCur）为准
       }
     }
-    showDetail(w, base, favorited, cands, raw, note, noteTs);
+    showDetail(w, base, favorited, cands, raw, note, noteTs, baseOnly);
     // 详情是否真有内容：当前词典有该词条（含重定向），或基础词典（englishwords-dict）有兜底信息。
     // 宿主据此决定是否跳详情；二者皆无（如多数词典未收录的固定短语）时不跳空白详情，
     // 留在结果清单里展示该词条，并由宿主就地在清单页展开「我的笔记」。
@@ -3090,7 +3293,7 @@ if (typeof window.define !== 'function') {
       const target = dc ? resolveRedirect(cur, w) : w;
       const html = (dc && dc.data) ? (dc.data[target] != null ? dc.data[target] : dc.data[w]) : null;
       const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
-      hasContent = html != null || hasBaseInfo;
+      hasContent = baseOnly ? hasBaseInfo : (html != null || hasBaseInfo);
     } catch (e) { /* 忽略 */ }
     // 渲染完成：报告内容自然高度（上方词条滚动区内容 + 底部笔记区），供主页按内容撑开 iframe；
     // #detail 为 overflow:hidden 弹性容器，其 scrollHeight 已不再反映被裁剪的内容，故显式求和
@@ -3106,7 +3309,7 @@ if (typeof window.define !== 'function') {
       if (d.__dictLookup !== 1) return;
       if (d.cmd === 'search') lookupSearch(d.q);
       else if (d.cmd === 'recent') lookupRecent();
-      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp, d.note, d.noteTs);
+      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp, d.note, d.noteTs, d.baseOnly);
       else if (d.cmd === 'set-note') {
         // 宿主「添加笔记」等外部写入：仅当详情正展示同一单词时刷新编辑区（含日期）
         const ta = document.querySelector('.word-note-input');
@@ -3149,6 +3352,16 @@ if (typeof window.define !== 'function') {
       else if (d.cmd === 'set-name') {
         // 重命名词库（来自主页或本页）：引擎统一处理内存/持久化并广播
         if (DICTS[d.varName] && d.name) saveDictName(d.varName, d.name);
+      }
+      else if (d.cmd === 'set-note-height') {
+        // 宿主下发已保存的详情笔记高度：应用到当前笔记容器（宿主承接持久化，
+        // 避免 iframe 与宿主不同源时本页 localStorage 读不到缓存值）
+        applyCurNoteHeight(d.h);
+      }
+      else if (d.cmd === 'reload-dicts') {
+        // 宿主刚完成「本地词典目录」授权（句柄已写入 IndexedDB）：清掉句柄缓存后重新加载，
+        // 使 file:// 下无需刷新页面即可从本地目录直接读到词典原文件
+        reloadDictsFromDisk();
       }
       else if (d.cmd === 'set-theme') {
         // 主题类同时挂 body 与 html：body 控制内容配色，html 让 root scroller 滚动条也随主题切换

@@ -3174,7 +3174,7 @@
     // OB 发行包不内嵌 static/audio（避免 main.js 撑破 5MB），本地相对路径会 404，
     // 这时依次回退到「设置页下载的本地缓存 → GitHub raw 直链」。音频始终只有一份，不重复落盘。
     var AUDIO_REL_BASE = 'static/audio/poker/';
-    var AUDIO_RAW_BASE = 'https://raw.githubusercontent.com/Losecloud/reciting/main/static/audio/poker/';
+    var AUDIO_RAW_BASE = 'https://raw.githubusercontent.com/Losecloud/Word-Memo/main/static/audio/poker/';
     var AUDIO_CACHE_KEY = 'epAudioPack';   // 只存本机（非镜像键），不进用户配置、不参与跨端同步
 
     var AUDIO = {

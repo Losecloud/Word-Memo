@@ -972,7 +972,7 @@ class WordMemoryApp {
                     localStorage.removeItem('wordMemory_guestDay');
                     this.enterApplication(username, true);
                 } else {
-                    alert('请输入有效的用户昵称');
+                    this.showToast('请输入有效的用户昵称', 'error');
                 }
             };
             
@@ -1173,9 +1173,9 @@ class WordMemoryApp {
             if (ok) {
                 // 绑定成功后将当前配置同步写入新目录
                 await Storage.initUserFileSystem(Storage.getCurrentUser());
-                alert('已将用户配置保存到本地文件夹');
+                this.showToast('已将用户配置保存到本地文件夹', 'success');
             } else {
-                alert('未完成绑定，当前配置仍保存在浏览器本地缓存');
+                this.showToast('未完成绑定，配置仍保存在浏览器本地缓存', 'info');
             }
         });
 
@@ -1284,6 +1284,12 @@ class WordMemoryApp {
         if (memoryHelpBtn) {
             memoryHelpBtn.addEventListener('click', () => this.openMemoryHelpModal());
         }
+
+        // 结算页散点图标题旁的 info 图标 → 打开图例说明弹窗
+        const scatterHelpBtn = document.getElementById('scatterHelpBtn');
+        if (scatterHelpBtn) {
+            scatterHelpBtn.addEventListener('click', () => this.openScatterHelpModal());
+        }
     }
 
     // 根据登录状态刷新顶部用户区域
@@ -1303,10 +1309,10 @@ class WordMemoryApp {
             const logoutItem = document.getElementById('dropdownLogout');
             if (logoutItem) {
                 if (username === '游客') {
-                    logoutItem.textContent = '登录';
+                    logoutItem.innerHTML = '<i class="dropdown-item-icon fi-rr-sign-in-alt"></i><span>登录</span>';
                     logoutItem.classList.remove('dropdown-danger');
                 } else {
-                    logoutItem.textContent = '退出登录';
+                    logoutItem.innerHTML = '<i class="dropdown-item-icon fi-rr-sign-out-alt"></i><span>退出登录</span>';
                     logoutItem.classList.add('dropdown-danger');
                 }
             }
@@ -1885,8 +1891,12 @@ class WordMemoryApp {
             // 主按钮与副按钮响应相同的交互（副按钮=贴合边缘的瘦长条）
             wrap.querySelectorAll('.edge-toggle-btn, .edge-toggle-sub').forEach((el) => {
                 el.addEventListener('click', handleClick);
-                el.addEventListener('auxclick', handleAux);
+                // 中键统一折叠/展开：只在 mousedown 触发一次。一次中键会先后派发
+                // mousedown 与 auxclick，若两者都切换，第二次会把首次的折叠立即撤销
+                // （在浏览词单等面板位置未错开时表现为"中键无效"）。故 auxclick 仅用于
+                // 阻止中键自动滚动，不再触发切换。
                 el.addEventListener('mousedown', handleAux);
+                el.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
             });
         };
 
@@ -1975,6 +1985,12 @@ class WordMemoryApp {
         });
 
         document.getElementById('hintBtn').addEventListener('click', () => {
+            // 「不知道」后该按钮已转为「下一个」：点击即切题
+            const btn = document.getElementById('hintBtn');
+            if (btn && btn.dataset.actAsNext === 'true') {
+                this.nextWord();
+                return;
+            }
             this.showHint();
         });
 
@@ -2031,6 +2047,14 @@ class WordMemoryApp {
             // 保存学习进度后返回首页
             this.updateBookLearningProgress();
             this.backToHome();
+        });
+
+        // 结算页加星提示：点「不再提示」永久关闭（写入 localStorage 标记，各结算页统一隐藏）
+        document.querySelectorAll('.star-nudge-close').forEach(btn => {
+            btn.addEventListener('click', () => {
+                try { localStorage.setItem('wm_star_nudge_off', '1'); } catch (e) { /* 忽略 */ }
+                document.querySelectorAll('.star-nudge').forEach(n => n.classList.add('hidden'));
+            });
         });
 
         // 换个模式练习：弹出模式选择弹窗（默认沿用当前模式，可多选）
@@ -2397,7 +2421,18 @@ class WordMemoryApp {
         const synonymModeEl = document.getElementById('synonymMode');
         const synonymCountEl = document.getElementById('synonymCount');
         if (synonymModeEl) synonymModeEl.addEventListener('change', () => this.saveSynonymPracticeConfig());
-        if (synonymCountEl) synonymCountEl.addEventListener('change', () => this.saveSynonymPracticeConfig());
+        if (synonymCountEl) synonymCountEl.addEventListener('change', () => {
+            this._syncPracticeCountCustom('synonym');
+            this.updatePracticeCountOptions('synonym');
+            this.updatePracticeGroupInfo('synonym');
+            this.saveSynonymPracticeConfig();
+        });
+        const synonymCountCustomEl = document.getElementById('synonymCountCustom');
+        if (synonymCountCustomEl) synonymCountCustomEl.addEventListener('input', () => {
+            this.updatePracticeCountOptions('synonym');
+            this.updatePracticeGroupInfo('synonym');
+            this.saveSynonymPracticeConfig();
+        });
 
         const synonymSoundBtn = document.getElementById('synonymSoundBtn');
         if (synonymSoundBtn) synonymSoundBtn.addEventListener('click', () => {
@@ -2424,11 +2459,6 @@ class WordMemoryApp {
             this.restartSynonymPractice();
         });
 
-        const synonymBackBtn = document.getElementById('synonymBackBtn');
-        if (synonymBackBtn) synonymBackBtn.addEventListener('click', () => {
-            this.showWorkshopHome();
-        });
-        
         const synonymReviewBtn = document.getElementById('synonymReviewBtn');
         if (synonymReviewBtn) synonymReviewBtn.addEventListener('click', () => {
             this.reviewSynonymErrors();
@@ -2453,7 +2483,18 @@ class WordMemoryApp {
         const liyiModeEl = document.getElementById('liyiMode');
         const liyiCountEl = document.getElementById('liyiCount');
         if (liyiModeEl) liyiModeEl.addEventListener('change', () => this.saveLiyiPracticeConfig());
-        if (liyiCountEl) liyiCountEl.addEventListener('change', () => this.saveLiyiPracticeConfig());
+        if (liyiCountEl) liyiCountEl.addEventListener('change', () => {
+            this._syncPracticeCountCustom('liyi');
+            this.updatePracticeCountOptions('liyi');
+            this.updatePracticeGroupInfo('liyi');
+            this.saveLiyiPracticeConfig();
+        });
+        const liyiCountCustomEl = document.getElementById('liyiCountCustom');
+        if (liyiCountCustomEl) liyiCountCustomEl.addEventListener('input', () => {
+            this.updatePracticeCountOptions('liyi');
+            this.updatePracticeGroupInfo('liyi');
+            this.saveLiyiPracticeConfig();
+        });
 
         const liyiSoundBtn = document.getElementById('liyiSoundBtn');
         if (liyiSoundBtn) liyiSoundBtn.addEventListener('click', () => {
@@ -2487,11 +2528,6 @@ class WordMemoryApp {
             this.restartLiyiPractice();
         });
 
-        const liyiBackBtn = document.getElementById('liyiBackBtn');
-        if (liyiBackBtn) liyiBackBtn.addEventListener('click', () => {
-            this.showWorkshopHome();
-        });
-        
         const liyiReviewBtn = document.getElementById('liyiReviewBtn');
         if (liyiReviewBtn) liyiReviewBtn.addEventListener('click', () => {
             this.reviewLiyiErrors();
@@ -3164,7 +3200,7 @@ class WordMemoryApp {
                 }
 
                 if (extractedWords.length === 0) {
-                    alert('未能从文件中提取到有效的英文单词\n\n请检查文件内容是否包含英语单词');
+                    this.showToast('未能从文件中提取到有效的英文单词，请检查文件内容', 'error');
                 return;
             }
                 
@@ -3178,7 +3214,7 @@ class WordMemoryApp {
                 const bookName = filterResult.bookName || defaultBookName;
                 
                 if (filteredWords.length === 0) {
-                    alert('所有单词都被过滤了，没有单词需要导入');
+                    this.showToast('所有单词都被过滤了，没有单词需要导入', 'info');
                     return;
                 }
                 
@@ -3206,7 +3242,7 @@ class WordMemoryApp {
         } catch (error) {
             console.error('文件处理失败:', error);
             this.hideLoading();
-            alert(`文件解析失败：${error.message}\n\n支持格式：TXT、CSV、XLSX、DOCX`);
+            this.showToast('文件解析失败，支持格式：TXT、CSV、XLSX、DOCX', 'error');
         }
     }
 
@@ -3236,7 +3272,7 @@ class WordMemoryApp {
             Storage.saveCurrentBook(newBook.id);
 
                 this.loadBooks(); // 刷新词书列表
-        alert(`✅ 词书"${bookName}"已成功导入！\n共 ${words.length} 个单词`);
+        this.showToast(`词书"${bookName}"已成功导入，共 ${words.length} 个单词`, 'success');
     }
 
     /**
@@ -4418,7 +4454,7 @@ class WordMemoryApp {
                 // 打开选择弹窗（使用 showCategoryPicker 的逻辑，但需要传入 book 和 word 对象）
                 const dict = window.词义分类_DICT;
                 if (!dict || !dict.children) {
-                    alert('分类数据未加载');
+                    this.showToast('分类数据未加载', 'error');
                     return;
                 }
                 const currentCategory = AIService.normalizeCategory(word.category) || '';
@@ -4737,7 +4773,7 @@ class WordMemoryApp {
             document.getElementById('confirmFillMissing').addEventListener('click', () => {
                 const fields = Object.keys(fieldChecks).filter(k => fieldChecks[k].checked);
                 if (fields.length === 0) {
-                    alert('请至少勾选一列要更新的字段');
+                    this.showToast('请至少勾选一列要更新的字段', 'info');
                     return;
                 }
                 const mode = dialog.querySelector('input[name="fillMode"]:checked').value;
@@ -4882,7 +4918,7 @@ class WordMemoryApp {
                     w.definitions[0].meaning.trim() !== '' && w.definitions[0].meaning !== '-'
                 ).length;
                 
-                alert(`🛑 已终止AI补缺\n\n已保存 ${completedCount}/${words.length} 个单词的补充内容。\n\n可继续编辑后导入，或稍后再点"补缺"继续。`);
+                this.showNotice(`已终止AI补缺，已保存 ${completedCount}/${words.length} 个单词的补充内容，可稍后再点"补缺"继续。`);
                 return;
             }
             
@@ -4900,7 +4936,7 @@ class WordMemoryApp {
                 } catch (dictError) {
                     console.error('词典API补充失败:', dictError);
                     this.hideAIProgress();
-                    alert('词典API也无法使用，建议检查网络连接');
+                    this.showToast('词典 API 也无法使用，建议检查网络连接', 'error');
                 }
             }
         }
@@ -4919,7 +4955,7 @@ class WordMemoryApp {
                               : (this.currentWordListBookId ? Storage.getBook(this.currentWordListBookId) : null));
 
         if (!currentBook || !currentBook.words || currentBook.words.length === 0) {
-            alert('请先浏览词单再使用补缺功能');
+            this.showToast('请先浏览词单再使用补缺功能', 'info');
             return;
         }
 
@@ -5030,7 +5066,7 @@ class WordMemoryApp {
                     msg += `\n⚠️ ${noExampleCount} 个单词未检索到例句（本地词典中无例句，可切换云端请求AI补全）`;
                 }
             }
-            alert(msg);
+            this.showNotice(msg);
             return;
         }
 
@@ -5157,9 +5193,9 @@ class WordMemoryApp {
                     setTimeout(() => {
                         this.renderWordListTable(freshBook);
                         this.hideAIProgress();
-                        alert(allComplete
-                            ? `✅ 更新完成！\n\n已成功更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}），并同步至来源词书`
-                            : `✅ 补缺完成！\n\n已成功补全 ${targetWords.length} 个单词的缺失字段，并同步至来源词书`);
+                        this.showToast(allComplete
+                            ? `已更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}），并同步至来源词书`
+                            : `已补全 ${targetWords.length} 个单词的缺失字段，并同步至来源词书`, 'success');
                     }, 300);
                     return;
                 }
@@ -5214,9 +5250,9 @@ class WordMemoryApp {
                     }
                     
                     this.hideAIProgress();
-                    alert(allComplete
-                        ? `✅ 更新完成！\n\n已成功更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}）`
-                        : `✅ 补缺完成！\n\n已成功补全 ${targetWords.length} 个单词的缺失字段`);
+                    this.showToast(allComplete
+                        ? `已更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}）`
+                        : `已补全 ${targetWords.length} 个单词的缺失字段`, 'success');
                 }, 300);
             } else {
                 // 临时词书刷新表格
@@ -5226,9 +5262,9 @@ class WordMemoryApp {
                     console.log('✅ 临时词书表格已刷新');
                     
                     this.hideAIProgress();
-                    alert(allComplete
-                        ? `✅ 更新完成！\n\n已成功更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}）`
-                        : `✅ 补缺完成！\n\n已成功补全 ${targetWords.length} 个单词的缺失字段`);
+                    this.showToast(allComplete
+                        ? `已更新 ${targetWords.length} 个单词的所选字段（${fields.join('、')}）`
+                        : `已补全 ${targetWords.length} 个单词的缺失字段`, 'success');
                 }, 300);
             }
 
@@ -5243,13 +5279,13 @@ class WordMemoryApp {
                     this.renderWordListTable(freshBook);
                 }
                 
-                alert('🛑 已终止补缺\n\n已补充的内容已保存，可稍后再点"补缺"继续。');
+                this.showNotice('已终止补缺，已补充的内容已保存，可稍后再点"补缺"继续。');
                 return;
             }
             
             console.error('补缺失败:', error);
             this.hideAIProgress();
-            alert(`❌ 补缺失败：${error.message}\n\n请检查网络连接或API配置`);
+            this.showToast('补缺失败，请检查网络连接或 API 配置', 'error');
         }
     }
 
@@ -5500,10 +5536,10 @@ class WordMemoryApp {
                         Storage.updateBook(book.id, book);
                     }
                     this.renderWordListTable(book);
-                    alert(simArr ? `已重新计算"${word.word}"的形近词` : `本地词典未找到"${word.word}"的形近词`);
+                    this.showToast(simArr ? `已重新计算"${word.word}"的形近词` : `本地词典未找到"${word.word}"的形近词`, simArr ? 'success' : 'info');
                 });
             } else {
-                alert('本地词典未加载，无法计算形近词');
+                this.showToast('本地词典未加载，无法计算形近词', 'error');
             }
             return;
         }
@@ -5638,7 +5674,7 @@ class WordMemoryApp {
                 this.updateSingleWordInTable(word, wordIndex);
             }
         } catch (e) {
-            alert(`AI请求失败: ${e.message}`);
+            this.showToast(`AI 请求失败：${e.message}`, 'error');
         } finally {
             // 隐藏进度
             const container = document.getElementById('aiProgressContainer');
@@ -5704,7 +5740,7 @@ class WordMemoryApp {
         const word = book.words[wordIndex];
         const dict = window.词义分类_DICT;
         if (!dict || !dict.children) {
-            alert('分类数据未加载，无法选择场景类别');
+            this.showToast('分类数据未加载，无法选择场景类别', 'error');
             return;
         }
 
@@ -6195,7 +6231,7 @@ class WordMemoryApp {
         this.showScreen('welcomeScreen');
         this.loadBooks();
 
-        alert(`✅ 词书"${bookName}"已成功导入！\n共 ${newBook.words.length} 个单词`);
+        this.showToast(`词书"${bookName}"已成功导入，共 ${newBook.words.length} 个单词`, 'success');
     }
 
     /**
@@ -6208,7 +6244,7 @@ class WordMemoryApp {
         }
 
         // 提示用户
-        alert('💡 已进入编辑模式\n\n您可以：\n• 直接点击单元格编辑内容\n• 使用收藏和删除按钮管理单词\n• 编辑完成后点击"完成"按钮导入');
+        this.showNotice('已进入编辑模式：可直接点击单元格编辑，用收藏/删除按钮管理单词，编辑完成后点"完成"导入');
     }
 
     // 加载示例单词
@@ -6229,7 +6265,7 @@ class WordMemoryApp {
 
             this.hideLoading();
             this.loadBooks(); // 刷新词书列表
-            alert(`示例词书已加载！\n共${demoWords.length}个单词\n点击"开始学习"按钮开始练习`);
+            this.showToast(`示例词书已加载，共 ${demoWords.length} 个单词，点击"开始学习"开始练习`, 'success');
         }, 1000);
     }
 
@@ -6273,7 +6309,7 @@ class WordMemoryApp {
     // 开始学习
     startLearning() {
         if (this.words.length === 0) {
-            alert('请先上传单词列表');
+            this.showToast('请先上传单词列表', 'info');
             return;
         }
 
@@ -6584,6 +6620,19 @@ class WordMemoryApp {
     }
 
     /**
+     * 拼写模式题干区（.meaning-display）背景随答题状态切换：
+     * null/默认=var(--primary-light)、'correct'=绿、'warning'=黄(预警/不知道)、'error'=红(答错)。
+     */
+    _setSpellMeaningState(state) {
+        const box = document.querySelector('#modeSpellWord .meaning-display');
+        if (!box) return;
+        box.classList.remove('meaning-correct', 'meaning-warning', 'meaning-error');
+        if (state === 'correct') box.classList.add('meaning-correct');
+        else if (state === 'warning') box.classList.add('meaning-warning');
+        else if (state === 'error') box.classList.add('meaning-error');
+    }
+
+    /**
      * 拼写模式本题的临时状态：提示次数/被提示字母下标/拼错过的字母位置。
      * 长词（>8 字母）容错判定依赖「提示次数」与「拼错次数（累计位置）」。
      */
@@ -6605,15 +6654,16 @@ class WordMemoryApp {
             this._stampAnswerTime();
             this.wordFirstResults[idx] = severity;
             this.sessionResults[severity === 'wrong' ? 'wrong' : 'unknown']++;
-            // 先完成视觉反馈（进度段着色）
+            // 先完成视觉反馈（进度段着色；题干背景色延迟到切题时才定格，避免正常拼答过程中闪色）
             if (severity === 'wrong') {
                 this._updateCurrentSegmentWrong();
             } else {
                 this._updateCurrentSegmentUnknown();
             }
-            // 动画/音效立刻播放，不被统计重活延迟
+            // 过程即判定：当即播放对应的预警/错误答题动画（切题时不再重复播放）
             if (severity === 'wrong') {
                 this.playWrongSound();
+                this.playAnimation(false);
             } else {
                 this.playAnimation('neutral');
             }
@@ -6633,6 +6683,7 @@ class WordMemoryApp {
             this.sessionResults.wrong++;
             this._updateCurrentSegmentWrong();
             this.playWrongSound();
+            this.playAnimation(false);
             return true;
         }
         return false;
@@ -6785,7 +6836,7 @@ class WordMemoryApp {
 
         // Pro 版：干扰项改用目标词的形近词释义（异步取池后渲染），更考验对词形的熟练度。
         // 基础词典被停用/卸载时（Pro 开关仍留在设置里）退回普通随机干扰项，避免选项残缺
-        if (this.settings.selectProMode && this.isBaseDictAvailable()) {
+        if (this.isSelectProModeOn() && this.isBaseDictAvailable()) {
             const token = ++this._proOptionToken;
             container.innerHTML = '<div class="options-pro-loading">PRO 形近/近似词干扰项载入中…</div>';
             this.buildProDistractorPool(word, needCount).then(pool => {
@@ -6799,9 +6850,7 @@ class WordMemoryApp {
                         this.confirmBaseDictForPro(true); // 运行时取不到：一律提示并可跳转下载
                     }
                     // 本机确实用不了基础词典：关掉开关并退回普通干扰项，避免每道题都白等一次
-                    this.settings.selectProMode = false;
-                    Storage.saveSettings(this.settings);
-                    this.updateSelectProUI();
+                    this.disableEffectivePro();
                     const fallback = DictionaryAPI.getDistractors(word, allWords, needCount);
                     this.renderOptions(word, fallback, noCorrectAnswerIsCorrect, settingNoAnswerProb, correctAnswer);
                     return;
@@ -6813,6 +6862,19 @@ class WordMemoryApp {
 
         const distractors = DictionaryAPI.getDistractors(word, allWords, needCount);
         this.renderOptions(word, distractors, noCorrectAnswerIsCorrect, settingNoAnswerProb, correctAnswer);
+    }
+
+    // 将释义中的词性标记（n./v./adj./adv. …，含 a./aj./av. 等缩写）用特粗体 <span> 包裹，
+    // 供三大练习模式（看单词选释义 / 看释义拼单词 / 记得么）的释义展示调用。
+    // 入参按纯文本处理：内部先 HTML 转义再包裹，返回值可直接赋给 innerHTML
+    boldPosHtml(text) {
+        const escaped = this.escapeHtml(String(text == null ? '' : text));
+        // 词性 token：左侧须为行首/空白/标点（避免命中单词内部），右侧须为空白、
+        // 中英文、开括号或标点（如「vt., vi.」）
+        return escaped.replace(
+            /(^|[\s\u3000；;，,、。（()）【\[\]】「」『』!！?？~～—\-·:：/|&=])((?:vt|vi|vbl|adj|adv|prep|conj|pron|num|interj|aux|abbr|art|int|pl|ad|aj|av|n|v|a)\.)(?=\s|[\u4e00-\u9fffa-zA-Z0-9\[【(（<《；;，,、。!！?？)）\]】》])/g,
+            '$1<span class="pos-strong">$2</span>'
+        );
     }
 
     // 渲染选项（普通随机干扰项与 Pro 形近词干扰项共用同一套排版、快捷键与"无正确答案"口径）
@@ -6884,8 +6946,8 @@ class WordMemoryApp {
             // 原始索引（在allOptions中的位置）
             const originalIndex = allOptions.indexOf(option);
             
-            // 将换行符转换为<br>标签以支持多行显示
-            const optionText = option.replace(/\n/g, '<br>');
+            // 将换行符转换为<br>标签以支持多行显示；词性标记用特粗体突出
+            const optionText = this.boldPosHtml(option).replace(/\n/g, '<br>');
             
             // 为前4个选项（正确答案+干扰项）显示完整释义
             if (originalIndex < 4) {
@@ -8667,9 +8729,9 @@ ${example ? `- 例句：${example}` : ''}
 
         const def = word.definitions && word.definitions[0];
 
-        // 释义（位于例句上方）
+        // 释义（位于例句上方）；词性标记用特粗体突出
         const meaningTextElem = document.getElementById('rememberMeaningText');
-        if (meaningTextElem) meaningTextElem.textContent = def?.meaning || '暂无释义';
+        if (meaningTextElem) meaningTextElem.innerHTML = this.boldPosHtml(def?.meaning || '暂无释义');
         document.getElementById('rememberMeaningSection').classList.remove('hidden');
 
         // 例句（单词高亮跟随卡片主色调）
@@ -8781,6 +8843,12 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('modeSelectMeaning').classList.add('hidden');
         document.getElementById('modeSpellWord').classList.remove('hidden');
         document.getElementById('modeRemember').classList.add('hidden');
+
+        // 新题复位题干区背景为默认主题色（清除上一题的答对/预警/答错着色）
+        this._setSpellMeaningState(null);
+
+        // 关闭记忆方法卡片（切换单词时自动关闭）——与其他模式保持一致
+        this.closeMemoryAid();
         
         // 拼写模式不显示"下一个"按钮，答对后自动进入下一题
         document.getElementById('nextBtn').style.display = 'none';
@@ -8808,9 +8876,9 @@ ${example ? `- 例句：${example}` : ''}
             posElement.style.display = 'none';
         }
         
-        // 显示完整释义，将换行符替换为空格（一行显示）
+        // 显示完整释义，将换行符替换为空格（一行显示）；词性标记用特粗体突出
         const meaningText = (def.meaning || '').replace(/\n/g, '  ');
-        document.getElementById('meaningText').textContent = meaningText;
+        document.getElementById('meaningText').innerHTML = this.boldPosHtml(meaningText);
         
         // 处理例句：将单词及其变形替换为下划线（避免泄露答案）
         let exampleText = def.example || '';
@@ -8839,6 +8907,24 @@ ${example ? `- 例句：${example}` : ''}
         input.value = '';
         input.focus();
         
+        // 复位「不知道」按钮（上一题可能已转为「如何记忆？」）
+        const unknownBtnReset = document.getElementById('unknownSpellBtn');
+        if (unknownBtnReset) {
+            unknownBtnReset.classList.remove('memory-aid-btn');
+            unknownBtnReset.disabled = false;
+            delete unknownBtnReset.dataset.memoryAidMode;
+            unknownBtnReset.innerHTML = '<span class="hotkey-hint" id="unknownSpellHotkey"></span>不知道';
+        }
+
+        // 复位「提示」按钮（上一题点「不知道」后可能已转为「下一个」）
+        const hintBtnReset = document.getElementById('hintBtn');
+        if (hintBtnReset) {
+            delete hintBtnReset.dataset.actAsNext;
+            hintBtnReset.classList.remove('memory-aid-btn');
+            hintBtnReset.disabled = false;
+            hintBtnReset.innerHTML = '<span class="hotkey-hint" id="hintHotkey"></span>提示';
+        }
+
         // 更新"提示"和"不知道"按钮的快捷键显示（与 remember-actions 一致：提示=option1，不知道=option2）
         const hotkeys = this.settings.hotkeys || {
             option1: '1', option2: '2', option3: '3',
@@ -8868,7 +8954,7 @@ ${example ? `- 例句：${example}` : ''}
         const container = document.getElementById('letterSlots');
         container.innerHTML = '';
         // 复位「音节拆分」动画残留（上一题答对后可能给容器加过状态类）
-        container.classList.remove('syllable-splitting', 'syllable-splitting-show');
+        container.classList.remove('syllable-splitting', 'syllable-splitting-show', 'spell-revealed');
 
         // 与 _spellTarget 保持一致：不可见字符不生成槽位
         const groups = String(word || '').trim().split(/\s+/)
@@ -9170,7 +9256,9 @@ ${example ? `- 例句：${example}` : ''}
         const word = this.sessionWords[this.currentWordIndex].word;
         const slots = document.querySelectorAll('.letter-slot');
         if (!slots.length) return;
-        if (document.getElementById('letterSlots').classList.contains('syllable-splitting')) return; // 音节拆分展示中不接受输入
+        const _slotsBox = document.getElementById('letterSlots');
+        // 音节拆分展示中，或已点「不知道」揭示答案后，均不接受输入
+        if (_slotsBox.classList.contains('syllable-splitting') || _slotsBox.classList.contains('spell-revealed')) return;
         
         // 根据Caps Lock状态处理输入（空格不参与拼写，直接忽略）
         let raw = String(value || '').replace(/\s+/g, '');
@@ -9338,9 +9426,17 @@ ${example ? `- 例句：${example}` : ''}
                 this.wordResults[this.currentWordIndex] = this.wordFirstResults[this.currentWordIndex];
             }
             
-            // 播放答对动画和音效
-            this.playAnimation(true);
-            this.playCorrectSound();
+            // 一锤定音：切题前一刻才定格题干背景色（正常拼答过程不变色）
+            const spellFinalResult = this.wordFirstResults[this.currentWordIndex];
+            const spellFinalState = spellFinalResult === 'wrong' ? 'error' : (spellFinalResult === 'unknown' ? 'warning' : 'correct');
+            this._setSpellMeaningState(spellFinalState);
+
+            // 仅「干净答对」（未用提示、无拼错容错）才亮绿色；
+            // 过程已判预警/错误时，其动画已在当场播放，切题时不重复播放
+            if (spellFinalState === 'correct') {
+                this.playAnimation(true);
+                this.playCorrectSound();
+            }
             
             // 拼写模式无"下一个"按钮：答对后自动进入下一题
             if (this.settings.autoNext) {
@@ -9408,6 +9504,12 @@ ${example ? `- 例句：${example}` : ''}
     // 拼写模式：不知道
     skipSpellWord() {
         if (this._isPracticePaused()) return; // 暂停期间不接受作答
+        // 已点过「不知道」（按钮已转为「如何记忆？」）：再次触发等价于请求记忆方法
+        const unknownBtnNow = document.getElementById('unknownSpellBtn');
+        if (unknownBtnNow && unknownBtnNow.dataset.memoryAidMode === 'true') {
+            this.showRememberMeaningAid();
+            return;
+        }
         // 「不知道」：先渲染视觉反馈，再把统计落盘/错题写入与侧栏推送延后
         const idx = this.currentWordIndex;
         const word = this.sessionWords[idx];
@@ -9422,21 +9524,11 @@ ${example ? `- 例句：${example}` : ''}
         this.wordResults[idx] = 'unknown';
         // 进度段立即转黄（不等到切题后的下一次重绘），切题进度条也会随之为黄色
         this._updateCurrentSegmentUnknown();
+        // 题干区背景同步转黄（预警/不知道色调）
+        this._setSpellMeaningState('warning');
         
-        // "不知道"允许切换到下一题
-        if (this.settings.autoNext) {
-            document.getElementById('nextBtn').disabled = false;
-            const autoNextTime = this.getAutoNextSeconds();
-            if (autoNextTime > 0) {
-                this._autoNextDeadline = Date.now() + autoNextTime * 1000;
-                this._startSwitchCountdown(autoNextTime);
-                this.autoNextTimer = setTimeout(() => {
-                    this.nextWord();
-                }, autoNextTime * 1000);
-            }
-        } else {
-            document.getElementById('nextBtn').disabled = false;
-        }
+        // 「不知道」不再自动切题：停留本题（揭示答案供记忆），由用户手动点「下一个」再切题
+        document.getElementById('nextBtn').disabled = false;
         
         // 右侧栏词典详情：postMessage，极轻
         this.pushCurrentWordDetailToSidebar(word);
@@ -9444,6 +9536,38 @@ ${example ? `- 例句：${example}` : ''}
         // 音效立刻播放，不被统计重活延迟
         this.playWrongSound();
 
+        // 切题动画（光晕/粒子等，由「页面设置」的动画类型决定）
+        this.playAnimation('neutral');
+
+        // 「不知道」按钮转为「如何记忆？」：变色 + 改文案 + 点击弹记忆方法
+        if (unknownBtnNow) {
+            unknownBtnNow.classList.add('memory-aid-btn');
+            unknownBtnNow.dataset.memoryAidMode = 'true';
+            unknownBtnNow.disabled = false;
+            unknownBtnNow.innerHTML = '<span class="hotkey-hint" id="unknownSpellHotkey"></span>如何记忆？';
+            const hk = document.getElementById('unknownSpellHotkey');
+            if (hk) {
+                const hotkeys = this.settings.hotkeys || { option1: '1', option2: '2' };
+                hk.textContent = hotkeys.option2;
+            }
+        }
+
+        // 自动显示音节拆分后的完整单词（字母逐个淡入后播放音节拆分动画）
+        this._revealSpellAnswer(word.word);
+
+        // 「提示」按钮转为「下一个」（与「记得么」模式一致）：停留在本题，待用户手动切题；
+        // 快捷键沿用 option1（与「提示」原位）。
+        const hintBtnNow = document.getElementById('hintBtn');
+        if (hintBtnNow) {
+            hintBtnNow.dataset.actAsNext = 'true';
+            hintBtnNow.innerHTML = '<span class="hotkey-hint" id="hintHotkey"></span>下一个';
+            const hk = document.getElementById('hintHotkey');
+            if (hk) {
+                const hotkeys = this.settings.hotkeys || { option1: '1' };
+                hk.textContent = hotkeys.option1;
+            }
+        }
+        
         // 统计落盘/错题写入推迟到动画播完之后（见 _deferStatsAfterAnswer）
         if (isFirstSkip) {
             this._deferStatsAfterAnswer(() => {
@@ -9453,9 +9577,24 @@ ${example ? `- 例句：${example}` : ''}
                 this.updateStatsRealtime();
             });
         }
-        
-        // 重新聚焦输入框（避免焦点丢失）
-        setTimeout(() => this.refocusSpellInput(), 100);
+    }
+
+    // 拼写模式「不知道」：全部字母一次性淡入揭示完整单词，同时播放音节拆分动画
+    // 把单词按音节靠拢（me·lan·cho·lic）。
+    // 揭示后容器加 spell-revealed 令输入失效；切题重建字母槽时会清除该状态。
+    _revealSpellAnswer(word) {
+        const container = document.getElementById('letterSlots');
+        if (!container) return;
+        const slots = Array.from(container.querySelectorAll('.letter-slot'));
+        if (!slots.length) return;
+        container.classList.add('spell-revealed');
+        slots.forEach((slot) => {
+            slot.classList.remove('filled', 'wrong', 'correct', 'active');
+            slot.textContent = slot.dataset.letter || '';
+            slot.classList.add('reveal');
+        });
+        // 字母淡入与音节拆分同步起播；若期间已切题（容器被重建）则放弃
+        this._showSyllableSplit(word);
     }
 
     // 查单词面板是否活跃（输入框聚焦或结果下拉展开）：此时网页内的全局快捷键、
@@ -9528,6 +9667,12 @@ ${example ? `- 例句：${example}` : ''}
         this._rememberPending = false;
         // 清除每题计时器
         this._clearAnswerTimer();
+
+        // 拼写模式：离开本题（切题）前才定格题干背景色（一锤定音）；下一题 showSpellMode 会复位
+        if (this.currentMode === 'spell') {
+            const r = this.wordFirstResults[this.currentWordIndex];
+            this._setSpellMeaningState(r === 'wrong' ? 'error' : (r === 'unknown' ? 'warning' : 'correct'));
+        }
         
         // 转移焦点（移动端修复）
         this.clearFocus();
@@ -10033,7 +10178,7 @@ ${example ? `- 例句：${example}` : ''}
         if (wordIndex < 0 || wordIndex >= book.words.length) return;
 
         // 模式系数：Pro 版由「看单词选释义」派生，取 selectPro 权重
-        const modeKey = (this.currentMode === 'select' && this.settings && this.settings.selectProMode)
+        const modeKey = (this.currentMode === 'select' && this.isSelectProModeOn())
             ? 'selectPro' : (this.currentMode || 'select');
         const gains = Storage.TIME_MODE_GAIN || {};
         const gain = gains[modeKey] != null ? gains[modeKey] : 1;
@@ -10071,7 +10216,7 @@ ${example ? `- 例句：${example}` : ''}
             
             const quality = Storage.mapQuality(isCorrect, usedHint, wasTimeout || hadWrongOptions);
             // 模式加分权重：Pro 由「看单词选释义」派生，取 selectPro 权重
-            const modeKey = (this.currentMode === 'select' && this.settings && this.settings.selectProMode)
+            const modeKey = (this.currentMode === 'select' && this.isSelectProModeOn())
                 ? 'selectPro' : (this.currentMode || 'select');
             const gainScale = Storage.SM2_MODE_GAIN[modeKey] || 1;
             const prevMemory = Storage.getWordMemory(bookId, wordText);
@@ -10199,6 +10344,27 @@ ${example ? `- 例句：${example}` : ''}
         } else {
             console.log(`ℹ️ 单词 "${word.word}" 不在错题列表中，无需移除`);
         }
+    }
+
+    // 结算页加星提示：每天最多出现 1 次（当天已提示过则本轮不再显示），
+    // 用户点过「不再提示」后永久关闭。日期与开关用 localStorage 轻量记录，不写入用户配置。
+    maybeShowStarNudge() {
+        const nudges = document.querySelectorAll('.star-nudge');
+        if (!nudges.length) return;
+        let dismissed = false;
+        let shownToday = false;
+        let today = '';
+        try {
+            dismissed = localStorage.getItem('wm_star_nudge_off') === '1';
+            const d = new Date();
+            today = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+            shownToday = localStorage.getItem('wm_star_nudge_date') === today;
+        } catch (e) { /* localStorage 不可用：按未提示处理 */ }
+        const show = !dismissed && !shownToday;
+        if (show && today) {
+            try { localStorage.setItem('wm_star_nudge_date', today); } catch (e) { /* 忽略 */ }
+        }
+        nudges.forEach(n => n.classList.toggle('hidden', !show));
     }
 
     // 结算页「作答节奏 × 掌握程度」散点图（田字十字轴）
@@ -10565,7 +10731,9 @@ ${example ? `- 例句：${example}` : ''}
         const accuracy = total > 0 ? Math.round((this.sessionResults.correct / total) * 100) : 0;
 
         document.getElementById('statsTotal').textContent = total;
-        document.getElementById('statsCorrect').textContent = this.sessionResults.correct;
+        // 「正确」格已从结算页移除（普通练习仅展示 4 格）；元素存在时再更新，避免空引用
+        const statsCorrectEl = document.getElementById('statsCorrect');
+        if (statsCorrectEl) statsCorrectEl.textContent = this.sessionResults.correct;
         document.getElementById('statsWrong').textContent = this.sessionResults.wrong;
         document.getElementById('statsAccuracy').textContent = `${accuracy}%`;
 
@@ -10577,6 +10745,9 @@ ${example ? `- 例句：${example}` : ''}
 
         // 绘制「作答节奏 × 掌握程度」散点图（练习 / 复习结算页通用）
         this.renderCompletionScatter();
+
+        // 低频加星提示（第 2 轮起、7 天一次、可永久关闭）
+        this.maybeShowStarNudge();
 
         // 根据平均速度给出不同的完成标题
         let speedTitle = '';
@@ -10693,19 +10864,19 @@ ${example ? `- 例句：${example}` : ''}
     // 复习错题
     reviewWrongWords() {
         if (!this.currentBook) {
-            alert('请先选择词书');
+            this.showToast('请先选择词书', 'info');
             return;
         }
 
         const book = Storage.getBook(this.currentBook.id);
         if (!book) {
-            alert('词书不存在');
+            this.showToast('词书不存在', 'error');
             return;
         }
 
         const wrongWords = book.progress.wrong || [];
         if (wrongWords.length === 0) {
-            alert('本次学习没有错题！👏');
+            this.showToast('本次学习没有错题', 'success');
             return;
         }
 
@@ -10776,13 +10947,13 @@ ${example ? `- 例句：${example}` : ''}
     // 开启新一轮
     startNewRound() {
         if (!this.currentBook) {
-            alert('没有选中的词书');
+            this.showToast('没有选中的词书', 'info');
             return;
         }
         
         const book = Storage.getBook(this.currentBook.id);
         if (!book) {
-            alert('词书不存在');
+            this.showToast('词书不存在', 'error');
             return;
         }
         
@@ -12482,7 +12653,7 @@ ${example ? `- 例句：${example}` : ''}
         
         // 验证单词数量
         if (isNaN(wordsPerSession) || (wordsPerSession < -1 || wordsPerSession === 0)) {
-            alert('请输入有效的单词数量（-1表示无限，或大于0的数字）');
+            this.showToast('请输入有效的单词数量（-1 表示无限，或大于 0 的数字）', 'error');
             return;
         }
 
@@ -12554,7 +12725,7 @@ ${example ? `- 例句：${example}` : ''}
         this.applyThemePreference(); // 跟随系统开关可能变化，立即生效
         this.closeSettings();
         this.applyCoverMode(); // 封面模式可能变化，立即刷新
-        alert('设置已保存');
+        this.showToast('设置已保存', 'success');
     }
 
     // 读取已保存的默认封面：下拉被同步过才读控件值，否则保留原设置
@@ -12572,6 +12743,42 @@ ${example ? `- 例句：${example}` : ''}
         // 正在作答「看单词选释义」时按新口径重算当前题选项（已作答状态不受影响）
         const word = this.sessionWords && this.sessionWords[this.currentWordIndex];
         if (this.currentMode === 'select' && word) this.generateOptions(word);
+    }
+
+    // 「看单词选释义」Pro 版是否生效：词书若显式设置了 selectProMode 则以其为准（词书独立），
+    // 未设置时沿用全局设置。复习会话用 currentModeBook 指向词所属词书，常规学习沿用 currentBook。
+    // 这样「某个词书独立开启 Pro」不会干扰其它词书与全局默认。
+    isSelectProModeOn() {
+        const book = this.currentModeBook !== undefined ? this.currentModeBook : this.currentBook;
+        if (book && typeof book.selectProMode === 'boolean') return book.selectProMode;
+        return !!this.settings.selectProMode;
+    }
+
+    // 关闭「当前生效的」Pro（词书级优先，否则全局）：供运行时基础词典取不到时的降级使用，
+    // 避免每道题都白等一次异步取池
+    disableEffectivePro() {
+        const book = this.currentModeBook !== undefined ? this.currentModeBook : this.currentBook;
+        if (book && typeof book.selectProMode === 'boolean') {
+            book.selectProMode = false;
+            Storage.updateBook(book.id, book);
+        } else {
+            this.settings.selectProMode = false;
+            Storage.saveSettings(this.settings);
+        }
+        this.updateSelectProUI();
+    }
+
+    // 该学习模式是否有 Pro 分支（目前仅「看单词选释义」selectOnly 有）
+    _modeHasProBranch(modeValue) {
+        return modeValue === 'selectOnly';
+    }
+
+    // 词书设置弹窗当前目标词书的 Pro 生效态：词书若显式设置过 selectProMode 则以其为准，
+    // 否则沿用全局设置（供弹窗触发器文案与行内开关初值共用）
+    _effectiveBookProOn() {
+        const book = this.currentSettingsBookId ? Storage.getBook(this.currentSettingsBookId) : null;
+        if (book && typeof book.selectProMode === 'boolean') return book.selectProMode;
+        return !!this.settings.selectProMode;
     }
 
     // 「例句填充」选定词典变更即落盘（页面设置下拉切换时调用）
@@ -12600,7 +12807,7 @@ ${example ? `- 例句：${example}` : ''}
                 if (document.querySelectorAll(sel).length > 1) {
                     btn.classList.remove('active');
                 } else {
-                    alert('请至少选择一种背诵方式');
+                    this.showToast('请至少选择一种背诵方式', 'info');
                 }
             } else {
                 btn.classList.add('active');
@@ -13153,13 +13360,13 @@ ${example ? `- 例句：${example}` : ''}
         
         const book = Storage.getBook(bookId);
         if (!book) {
-            alert('词书不存在');
+            this.showToast('词书不存在', 'error');
             return;
         }
         
         const wrongWords = book.progress?.wrong || [];
         if (wrongWords.length === 0) {
-            alert('该词书暂无需要复习的单词！👏');
+            this.showToast('该词书暂无需要复习的单词', 'success');
             this.checkReview(); // 刷新列表
             return;
         }
@@ -13936,23 +14143,41 @@ ${example ? `- 例句：${example}` : ''}
         }
     }
 
-    /** 渲染顽固错词 TOP10（按错误次数排序，同次数的按正确率低的优先，含正确率） */
+    /** 渲染顽固错词 TOP10（一周内练过的错词优先，再按错误次数排序，同次数的按正确率低的优先，含正确率） */
     renderStubbornWords() {
         try {
             const container = document.getElementById('stubbornWordsList');
             if (!container) return;
             const items = [];
             const books = Storage.loadBooks();
+            // 一次性取出全部记忆状态：避免逐词调用 getWordMemory（每次都会重新读取整份用户配置）
+            const allMem = Storage.loadAllMemory();
+            const RECENT_MS = 7 * 24 * 60 * 60 * 1000; // 一周内视为「最近练习」
+            const now = Date.now();
             for (const book of books) {
                 for (const w of (book.words || [])) {
                     const wrong = w.wrongTimes || 0;
                     if (wrong === 0) continue;
                     const attempts = w.totalAttempts || wrong;
-                    items.push({ word: w.word, wrong, attempts, acc: Math.round(((attempts - wrong) / attempts) * 100), bookId: book.id, bookName: book.name || '' });
+                    // 最近一次答错时间：优先词表上的 lastWrongDate，缺失时回退 SM-2 记忆的 lastReviewDate
+                    let lastWrong = w.lastWrongDate || 0;
+                    if (!lastWrong) {
+                        const mem = allMem[`${book.id}:${w.word}`];
+                        if (mem && mem.lastReviewDate) lastWrong = new Date(mem.lastReviewDate).getTime() || 0;
+                    }
+                    const recent = lastWrong > 0 && (now - lastWrong) <= RECENT_MS;
+                    items.push({ word: w.word, wrong, attempts, acc: Math.round(((attempts - wrong) / attempts) * 100), bookId: book.id, bookName: book.name || '', lastWrong, recent });
                 }
             }
-            // 错误次数相同，则正确率低的更"顽固"，排在前面
-            items.sort((a, b) => (b.wrong - a.wrong) || (a.acc - b.acc));
+            // 排序：一周内练过的错词优先（使榜单随近期练习滚动），同类中错误多的更"顽固"排前，
+            // 错误次数相同则正确率低的排前，再相同则最近答错时间新的排前；
+            // 若一周内无人练习（练习间隔较长），退化为按最近答错时间倒序，避免榜单长期僵化
+            const hasRecent = items.some(it => it.recent);
+            if (hasRecent) {
+                items.sort((a, b) => ((b.recent ? 1 : 0) - (a.recent ? 1 : 0)) || (b.wrong - a.wrong) || (a.acc - b.acc) || (b.lastWrong - a.lastWrong));
+            } else {
+                items.sort((a, b) => (b.lastWrong - a.lastWrong) || (b.wrong - a.wrong) || (a.acc - b.acc));
+            }
             const top = items.slice(0, 10);
             if (top.length === 0) {
                 container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary);font-size:0.75rem;">暂无错词记录 🎉</div>';
@@ -14145,10 +14370,10 @@ ${example ? `- 例句：${example}` : ''}
                     option4: '4', option5: '5', option6: '6'
                 };
 
-                // 提示：与"记得"（rememberA）相同热键
+                // 提示：与"记得"（rememberA）相同热键（「不知道」后该位转为「下一个」，由按钮自行分流）
                 if (e.key === hotkeys.option1) {
                     e.preventDefault();
-                    this.showHint();
+                    document.getElementById('hintBtn').click();
                     return;
                 }
 
@@ -15971,7 +16196,7 @@ ${example ? `- 例句：${example}` : ''}
                 createdAt: meta.createdAt || new Date().toISOString()
             };
         if (id === 'favorites' && virtual.words.length === 0) {
-            alert('没有收藏的单词');
+            this.showToast('还没有收藏的单词', 'info');
             return;
         }
 
@@ -16072,6 +16297,9 @@ ${example ? `- 例句：${example}` : ''}
 
         const start = () => {
             if (this.englishDictReady) return;
+            // file:// 直开：Worker 拒绝加载 file:// 脚本、fetch 本地 json 亦被 CORS 拦，
+            // 直接走 <script> 兜底副本，避免控制台报错
+            if (location.protocol === 'file:') { this._loadEnglishDictFallback(); return; }
             try {
                 if (typeof Worker === 'undefined') throw new Error('Worker 不可用');
                 const worker = new Worker('js/dictionary-worker.js');
@@ -16087,9 +16315,9 @@ ${example ? `- 例句：${example}` : ''}
                                 this.englishDictWorker = null;
                                 this._loadEnglishDictFallback(); // Worker 解析失败时兜底
                             }
-                            const done = this.englishDictLoadPromise;
+                            // 通知等待者加载完成（原误把 Promise 当函数调用，抛 "done is not a function"）
                             this.englishDictLoadPromise = null;
-                            if (done) done(msg);
+                            resolve(msg);
                         } else if (msg.type === 'lookup-result') {
                             const cb = this.englishDictWaiters.get(msg.id);
                             if (cb) {
@@ -16123,6 +16351,8 @@ ${example ? `- 例句：${example}` : ''}
     _loadEnglishDictFallback() {
         if (this.englishDictFallbackStarted) return;
         this.englishDictFallbackStarted = true;
+        // file:// 直开：fetch 本地 json 必被 CORS 拦，跳过、直接注入 <script> 兜底副本（避免报错）
+        if (location.protocol === 'file:') { this._loadBaseDictScript(); return; }
         fetch('data/englishwords-dict.json', { cache: 'no-cache' })
             .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
             .then((data) => {
@@ -16130,20 +16360,25 @@ ${example ? `- 例句：${example}` : ''}
                 this.englishDictReady = true;
             })
             .catch(() => {
-                // fetch 被拦截（file:// 直开时浏览器禁止读取本地 json）：退到 data/englishwords-dict.js
-                // 兜底脚本（<script> 可执行本地 js）。该文件缺失时翻译仍按原逻辑回退到 AI
-                if (document.querySelector('script[data-base-dict-fallback]')) {
-                    if (window.ENGLISHWORDS_DICT) this.englishDictReady = true;
-                    else this.englishDictFallbackStarted = false; // 兜底脚本也没成功：允许后续重试
-                    return;
-                }
-                const s = document.createElement('script');
-                s.src = 'data/englishwords-dict.js';
-                s.setAttribute('data-base-dict-fallback', '1');
-                s.onload = () => { if (window.ENGLISHWORDS_DICT) this.englishDictReady = true; };
-                s.onerror = () => { this.englishDictFallbackStarted = false; };
-                document.head.appendChild(s);
+                // fetch 被拦截：退到 data/englishwords-dict.js 兜底脚本
+                // （<script> 可执行本地 js）。该文件缺失时翻译仍按原逻辑回退到 AI
+                this._loadBaseDictScript();
             });
+    }
+
+    // 注入 data/englishwords-dict.js 兜底脚本（window.ENGLISHWORDS_DICT = {...}）；缺失则保持不可用
+    _loadBaseDictScript() {
+        if (document.querySelector('script[data-base-dict-fallback]')) {
+            if (window.ENGLISHWORDS_DICT) this.englishDictReady = true;
+            else this.englishDictFallbackStarted = false; // 兜底脚本也没成功：允许后续重试
+            return;
+        }
+        const s = document.createElement('script');
+        s.src = 'data/englishwords-dict.js';
+        s.setAttribute('data-base-dict-fallback', '1');
+        s.onload = () => { if (window.ENGLISHWORDS_DICT) this.englishDictReady = true; };
+        s.onerror = () => { this.englishDictFallbackStarted = false; };
+        document.head.appendChild(s);
     }
 
     // 在英文词典（data/englishwords-dict.json 的 ENGLISHWORDS_DICT）中查找单词（异步，不阻塞主线程）
@@ -16211,7 +16446,7 @@ ${example ? `- 例句：${example}` : ''}
     startFavoritesLearning() {
         const book = this.getFavoritePracticeBook();
         if (!book || !book.words || book.words.length === 0) {
-            alert('收藏列表为空');
+            this.showToast('收藏列表为空', 'info');
             return;
         }
 
@@ -16313,7 +16548,7 @@ ${example ? `- 例句：${example}` : ''}
         if (bookId === 'favorites') {
             const book = this.getFavoritePracticeBook();
             if (!book || !book.words || book.words.length === 0) {
-                alert('收藏列表为空');
+                this.showToast('收藏列表为空', 'info');
                 return;
             }
 
@@ -16350,7 +16585,7 @@ ${example ? `- 例句：${example}` : ''}
         // 其它情况回退到原始实现
         const originalBook = Storage.getBook(bookId);
         if (!originalBook || !originalBook.words || originalBook.words.length === 0) {
-            alert('该词书没有单词');
+            this.showToast('该词书没有单词', 'info');
             return;
         }
         // (保留原实现 below)
@@ -16397,7 +16632,7 @@ ${example ? `- 例句：${example}` : ''}
         // 剩余全部不可练：推进到底并告知，不重置进度（下次即走「已学完一轮」流程）
         if (startIndex >= sequence.length) {
             Storage.updateBookProgress(book.id, { currentIndex: sequence.length });
-            alert('词书已学完！');
+            this.showToast('词书已学完', 'success');
             this.renderBookList();
             return;
         }
@@ -16432,7 +16667,7 @@ ${example ? `- 例句：${example}` : ''}
         console.log(`📚 [学习模式] 准备学习 ${this.sessionWords.length} 个单词 (${startIndex}→${endIndex}/${sequence.length})`);
 
         if (this.sessionWords.length === 0) {
-            alert('词书已学完！');
+            this.showToast('词书已学完', 'success');
             // 不重置进度：这里只说明剩余单词都无释义，重置会造成练习进度倒退
             this.renderBookList();
             return;
@@ -16817,10 +17052,10 @@ ${example ? `- 例句：${example}` : ''}
             // 关闭设置弹窗
             this.closeBookSettings();
             
-            alert(`词书已成功导出为 ${fileName}`);
+            this.showToast(`词书已成功导出为 ${fileName}`, 'success');
         } catch (error) {
             console.error('导出失败:', error);
-            alert('导出失败，请重试');
+            this.showToast('导出失败，请重试', 'error');
         }
     }
 
@@ -17172,9 +17407,9 @@ ${example ? `- 例句：${example}` : ''}
             : (type === 'keyword' ? 'keyword-highlight'
             : (type === 'correct' ? 'word-highlight-correct' : 'word-list-highlight'));
         
-        // 检测是否为词组（包含空格）
-        const isPhrase = word.includes(' ');
-        
+        // 检测是否为词组：含空格，或以省略号连接的短语（如 "let...loose"、"set...apart from"）
+        const isPhrase = word.includes(' ') || /\.{2,}|…/.test(word);
+
         if (isPhrase) {
             // 所有短语均拆分为单个单词，在例句中按顺序逐一匹配（允许中间有其他单词）
             // 若包含括号可选部分（如 "know better (than)"），先生成变体再匹配
@@ -17199,16 +17434,34 @@ ${example ? `- 例句：${example}` : ''}
      */
     _highlightSequentialPhrase(phrase, escapedExample, highlightClass) {
         // 按空白 + 省略号切分词组为单个单词，过滤空串
+        // 简化名称：词组里的占位符不参与字面匹配。分两类：
+        //  - 物主占位（one's / sb's / sth's）：可选，例句中出现物主限定词（its / his…）时并入高亮（如 sets its sights on）
+        //  - 对象/施事占位（sth / sb / someone… / 单字母 A、B）：可选，例句中无对应词时直接跳过
+        // 这样 "apply sth. by A to B" 只按固定词 apply / by / to 匹配，"do one's utmost" 按 do / utmost 匹配。
+        const POSS_PLACEHOLDER = /^(?:one|ones|sb|sth|someone|somebody|something|oneself)'s$/;
+        const OPT_PLACEHOLDER = /^(?:sth|sb|someone|somebody|something|oneself)$/;
+        const SINGLE_LETTER = /^[A-Z]$/; // 单字母占位（A / B）用原样大写判断，避免 lower 后失配
+        const possessiveWords = new Set(['my', 'your', 'his', 'her', 'its', 'our', 'their']);
         const words = phrase.split(/[\s.…]+/).filter(w => w && w.length > 0);
         if (words.length === 0) return escapedExample;
 
         // 每个词构建词形候选集
-        const wordInfos = words.map(w => ({
-            lower: w.toLowerCase(),
-            candidates: w.length >= 3
-                ? new Set(this.buildKeywordCandidates(w).map(c => c.toLowerCase()))
-                : new Set()
-        }));
+        const wordInfos = words.map(w => {
+            const lower = w.toLowerCase();
+            // 占位符：标记为可选，命中则并入高亮、未命中则跳过
+            if (POSS_PLACEHOLDER.test(lower)) {
+                return { lower, optional: true, possessive: true, candidates: possessiveWords };
+            }
+            if (OPT_PLACEHOLDER.test(lower) || SINGLE_LETTER.test(w)) {
+                return { lower, optional: true, candidates: new Set() };
+            }
+            // 短词（be / do / go 等）只取不规则词形表，避免 2 字母词扩展出噪声候选；
+            // 否则 be→is、do→does 这类合法变体会因候选为空而匹配失败
+            const cands = w.length >= 3
+                ? this.buildKeywordCandidates(w)
+                : (IRREGULAR_WORD_FORMS[lower] || []);
+            return { lower, candidates: new Set(cands.map(c => c.toLowerCase())) };
+        });
 
         // 将例句拆分为 token 流（保留标点/空格用于最终拼接）
         const tokens = escapedExample.split(/(\b[\w']+\b)/g);
@@ -17218,6 +17471,18 @@ ${example ? `- 例句：${example}` : ''}
         let searchIdx = 0;
         for (const info of wordInfos) {
             let matched = false;
+            if (info.optional) {
+                // 占位符：只检查紧邻的下一个单词 token（避免向前跳跃抓到无关词），命中则并入高亮，否则跳过
+                for (let i = searchIdx; i < tokens.length; i++) {
+                    if (!/\b[\w']+\b/.test(tokens[i]) || highlighted[i]) continue;
+                    if (this._wordMatches(tokens[i].toLowerCase(), info)) {
+                        highlighted[i] = true;
+                        searchIdx = i + 1;
+                    }
+                    break;
+                }
+                continue;
+            }
             for (let i = searchIdx; i < tokens.length; i++) {
                 if (!/\b[\w']+\b/.test(tokens[i]) || highlighted[i]) continue;
                 if (this._wordMatches(tokens[i].toLowerCase(), info)) {
@@ -17227,7 +17492,7 @@ ${example ? `- 例句：${example}` : ''}
                     break;
                 }
             }
-            // 某个词未匹配到，放弃后续匹配（保持短语的完整性约束）
+            // 某个固定词未匹配到，放弃后续匹配（保持短语的完整性约束）
             if (!matched) {
                 // 如果已匹配到至少一个词，保留部分高亮；否则返回原样
                 if (!highlighted.some(h => h)) return escapedExample;
@@ -17271,6 +17536,10 @@ ${example ? `- 例句：${example}` : ''}
 
     /** 判断 token 是否匹配某个词的信息（精确/词形/词干） */
     _wordMatches(tokenLower, info) {
+        // 物主占位：例句里的物主限定词（its/his/their…）或「人名's / 复数 s'」均算命中
+        if (info.possessive) {
+            return info.candidates.has(tokenLower) || /(?:'s|s')$/.test(tokenLower);
+        }
         if (tokenLower === info.lower) return true;
         if (info.candidates.size > 0 && info.candidates.has(tokenLower)) return true;
         // 词干匹配兜底
@@ -17400,6 +17669,59 @@ ${example ? `- 例句：${example}` : ''}
         box.innerHTML = this._memoryHelpHtml;
     }
 
+    // 结算页散点图说明：解释「作答节奏 × 掌握程度」的坐标轴、点色/点径与读图方法
+    openScatterHelpModal() {
+        const modal = document.getElementById('scatterHelpModal');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        const box = document.getElementById('scatterHelpContent');
+        if (!box) return;
+        if (!this._scatterHelpHtml) {
+            const md = [
+                '把**本轮每个单词的作答耗时**与**它的累计正确率**画成散点，用来一眼看出：哪些词又快又准（已掌握）、哪些词慢且错（需重点复习）。',
+                '',
+                '## 坐标轴',
+                '',
+                '- **横轴 · 作答节奏（耗时，对数轴）**：越靠左越慢、越靠右越快。',
+                '  - **左端 30s = 思考很久**：超过 30s 一律按 30s 计，落在最左侧',
+                '  - **正中 5s = 快慢分界**：左边为偏慢，右边为偏快',
+                '  - **右端 0.1s = 秒答**',
+                '- **纵轴 · 掌握程度（累计正确率）**：该词历史答题的正确比例，0% → 100%，中线 50%。',
+                '',
+                '## 散点',
+                '',
+                '- **圆点大小** = EF 易度值：EF 越低（越难记）点越大，越需重点关注。',
+                '- **圆点颜色** = 单词的 CEFR 等级（A1→C2，多词短语取各词等级均值；未分级为灰）。',
+                '',
+                '## 四个象限怎么读',
+                '',
+                '- **右上（快且准）**：已掌握，可放心拉长复习间隔。',
+                '- **左上（慢但准）**：会但不够熟，多用「看释义拼单词」提速。',
+                '- **右下（快但错）**：多半是**粗心或似懂非懂**，注意易混词辨析。',
+                '- **左下（慢且错）**：最需要补的词，建议优先加入复习。',
+                '',
+                '## 「正确率位移」开关',
+                '',
+                '- 关闭：纵轴显示**累计正确率**。',
+                '- 开启：改看**本轮相对历史的变化**——每个点会带一条竖线，从「本轮前的历史正确率」指向「含本轮后的正确率」。',
+                '  - **线上扬**：本轮答对，正确率被拉高',
+                '  - **线下沉**：本轮答错，正确率被拉低',
+                '  - 首次练习的词没有历史正确率，不显示位移线。',
+                '',
+                '## 交互',
+                '',
+                '- **悬浮**圆点：查看该词正确率（正确/已练）、本题耗时、EF 值与 CEFR 等级。',
+                '- 多个单词**重叠**成一点时，用**鼠标滚轮**在该簇内切换。',
+                '',
+                '## 数据来源',
+                '',
+                '- 只统计**本轮练过的单词**；快照取该词当前累计统计与 EF 值。'
+            ].join('\n');
+            this._scatterHelpHtml = this.renderMarkdown(md);
+        }
+        box.innerHTML = this._scatterHelpHtml;
+    }
+
     // ============================================
     // 关于词忆：读取根目录 README.md 并用轻量 markdown 渲染器展示
     // ============================================
@@ -17425,7 +17747,7 @@ ${example ? `- 例句：${example}` : ''}
         const urls = isObsidian
             ? ['https://raw.githubusercontent.com/Losecloud/Obsidian-Word-Memo/main/README.md']
             : ['README.md',
-               'https://raw.githubusercontent.com/Losecloud/reciting/main/README.md'];
+               'https://raw.githubusercontent.com/Losecloud/Word-Memo/main/README.md'];
         let md = '';
         for (const url of urls) {
             try {
@@ -18290,10 +18612,9 @@ ${example ? `- 例句：${example}` : ''}
     addBlankWordRow(count = 1) {
         const book = Storage.getBook(this.currentWordListBookId);
         if (!book) {
-            alert('❌ 无法添加单词：未找到当前词书');
+            this.showToast('无法添加单词：未找到当前词书', 'error');
             return;
         }
-
         // 创建空白单词对象
         const blankWord = {
             word: '',
@@ -18346,7 +18667,7 @@ ${example ? `- 例句：${example}` : ''}
         const num = parseInt(count);
         
         if (isNaN(num) || num <= 0) {
-            alert('请输入有效的数字（大于0）');
+            this.showToast('请输入有效的数字（大于 0）', 'error');
             return;
         }
 
@@ -18362,7 +18683,7 @@ ${example ? `- 例句：${example}` : ''}
     async addWordsFromFileToCurrentBook() {
         const book = Storage.getBook(this.currentWordListBookId);
         if (!book) {
-            alert('❌ 无法导入单词：未找到当前词书');
+            this.showToast('无法导入单词：未找到当前词书', 'error');
             return;
         }
 
@@ -18411,7 +18732,7 @@ ${example ? `- 例句：${example}` : ''}
 
                 if (extractedWords.length === 0) {
                     this.hideLoading();
-                    alert('未能从文件中提取到有效的英文单词\n\n请检查文件内容是否包含英语单词');
+                    this.showToast('未能从文件中提取到有效的英文单词，请检查文件内容', 'error');
                     return;
                 }
 
@@ -18422,7 +18743,7 @@ ${example ? `- 例句：${example}` : ''}
                 
                 if (filteredWords.length === 0) {
                     this.hideLoading();
-                    alert('所有单词都被过滤了，没有单词需要导入');
+                    this.showToast('所有单词都被过滤了，没有单词需要导入', 'info');
                     return;
                 }
 
@@ -18452,7 +18773,7 @@ ${example ? `- 例句：${example}` : ''}
 
             if (newWords.length === 0) {
                 this.hideLoading();
-                alert('所有单词都已存在于当前词书中');
+                this.showToast('所有单词都已存在于当前词书中', 'info');
                 return;
             }
 
@@ -18466,11 +18787,11 @@ ${example ? `- 例句：${example}` : ''}
             this.hideLoading();
 
             // 显示结果
-            let message = `✅ 成功导入 ${newWords.length} 个单词到词书"${currentBook.name}"`;
+            let message = `成功导入 ${newWords.length} 个单词到词书"${currentBook.name}"`;
             if (duplicateWords.length > 0) {
-                message += `\n\n跳过 ${duplicateWords.length} 个重复单词`;
+                message += `，跳过 ${duplicateWords.length} 个重复单词`;
             }
-            alert(message);
+            this.showToast(message, 'success');
 
             // 重新渲染表格
             this.renderWordListTable(currentBook);
@@ -18491,7 +18812,7 @@ ${example ? `- 例句：${example}` : ''}
         } catch (error) {
             console.error('导入失败:', error);
             this.hideLoading();
-            alert(`文件解析失败：${error.message}\n\n支持格式：TXT、CSV、XLSX、DOCX`);
+            this.showToast('文件解析失败，支持格式：TXT、CSV、XLSX、DOCX', 'error');
         }
     }
 
@@ -18737,7 +19058,7 @@ ${example ? `- 例句：${example}` : ''}
         if (!foundWord) {
             // 没找到单词，提示用户
             console.warn(`❌ 未找到单词 "${cleanWord}"，无法收藏`);
-            alert(`未找到单词 "${cleanWord}"\n\n请确保该单词已存在于您的词书中`);
+            this.showToast(`未找到单词"${cleanWord}"，请确保它已存在于您的词书中`, 'error');
             return;
         }
         
@@ -19396,6 +19717,14 @@ ${example ? `- 例句：${example}` : ''}
         if (submit) submit.disabled = true;
     }
 
+    // 词典简称：取名称开头的中文部分（如「基础词典 Basic」→「基础词典」）；
+    // 纯英文名（用户自行导入）无中文前缀则原样返回
+    dictShortName(name) {
+        const s = String(name || '').trim();
+        const m = s.match(/^[\u4e00-\u9fff]+/);
+        return m ? m[0] : s;
+    }
+
     // 词典类目：已安装的以 data/dict-manifest.js 为准，未安装的按 data/dict-catalog.js 展示为可下载
     renderWorkshopDictCards() {
         const grid = document.getElementById('workshopAppsGrid');
@@ -19415,8 +19744,8 @@ ${example ? `- 例句：${example}` : ''}
             card.dataset.app = 'dict:' + d.file;
             card.dataset.cat = 'dict';
             card.innerHTML =
-                `<div class="workshop-app-icon"><i class="fi-rr-book"></i></div>` +
-                `<h3 class="workshop-app-title">${d.label || d.file}</h3>` +
+                `<div class="workshop-app-icon"><span class="workshop-app-emoji">${d.icon || '📚'}</span></div>` +
+                `<h3 class="workshop-app-title">${this.dictShortName(d.label || d.file)}</h3>` +
                 `<p class="workshop-app-desc">${d.desc || ''}</p>` +
                 `<div class="dict-apply-row"></div>` +
                 `<div class="workshop-app-meta"><span class="wa-dev">词忆官方</span><span class="wa-sep">·</span><span class="wa-date">${this.formatDictSize(d.size)}</span></div>`;
@@ -20516,7 +20845,7 @@ Each option must include an "impact" field. IMPORTANT for this FIRST round only:
             }
         } catch (error) {
             console.error('开始文字游戏失败：', error);
-            alert('无法开始文字游戏：' + error.message);
+            this.showToast('无法开始文字游戏，请稍后重试', 'error');
         }
     }
 
@@ -20601,12 +20930,11 @@ Each option must include an "impact" field. IMPORTANT for this FIRST round only:
         // -ly 副词：quick→quickly、complete→completely、simple→simply、happy→happily、basic→basically
         if (/le$/.test(w)) {
             cands.add(w.slice(0, -1) + 'y'); // simple→simply
-        } else if (endsE) {
-            cands.add(stem + 'ly');
         } else if (isConsY) {
-            cands.add(yStem + 'ily');
+            cands.add(yStem + 'ily'); // happy→happily
         } else {
-            cands.add(w + 'ly');
+            cands.add(w + 'ly'); // quick→quickly、complete→completely、intricate→intricately（e 结尾保留 e）
+            if (endsE) cands.add(stem + 'ly'); // 例外：true→truly、whole→wholly（去 e）
         }
         if (/ic$/.test(w)) cands.add(w + 'ally'); // basic→basically
         // -ness：dark→darkness、aware→awareness（happy→happiness 见第1条）
@@ -21828,8 +22156,7 @@ When including options, each must have an "impact" field. Use the available keyw
             console.error('文件解析失败:', error);
             this.hideLoading();
             
-            const errorMsg = error.message || '文件解析失败，请检查格式';
-            alert(`❌ 文件解析失败\n\n${errorMsg}`);
+            this.showToast('文件解析失败，请检查格式', 'error');
         }
     }
     
@@ -21875,10 +22202,13 @@ When including options, each must have an "impact" field. Use the available keyw
     // 保存练习配置缓存（选中文档 / 模式 / 数量）
     saveSynonymPracticeConfig() {
         try {
+            const countSel = document.getElementById('synonymCount');
+            const customInp = document.getElementById('synonymCountCustom');
             localStorage.setItem('synonymPracticeConfig', JSON.stringify({
                 docId: this.synonymCurrentDocId,
                 mode: document.getElementById('synonymMode') ? document.getElementById('synonymMode').value : '',
-                count: document.getElementById('synonymCount') ? document.getElementById('synonymCount').value : ''
+                count: countSel ? countSel.value : '',
+                customCount: customInp ? customInp.value : ''
             }));
         } catch (e) {
             console.warn('⚠️ 保存练习配置失败:', e);
@@ -21903,13 +22233,106 @@ When including options, each must have an "impact" field. Use the available keyw
             this._refreshSettingPicker(modeEl);
         }
         
-        // 恢复单词数量
+        // 恢复单词数量（下拉档位 + 自定义数值）
         const countEl = document.getElementById('synonymCount');
-        if (countEl && config.count) {
+        if (countEl && config.count && [...countEl.options].some(o => o.value === config.count)) {
             countEl.value = config.count;
         }
+        const customCountEl = document.getElementById('synonymCountCustom');
+        if (customCountEl && config.customCount) customCountEl.value = config.customCount;
+        this._syncPracticeCountCustom('synonym');
     }
-    
+
+    // ===== 同义替换 / 熟词僻义 共用：分组数量档位 + 分组进度 =====
+    // 分组按词单「自然顺序」连续切片，所以进度只是一个「下一组起始词下标」整数：
+    // 换档位、换正序/乱序都不需要重置它（乱序只在组内打乱，保证每组可控、一轮覆盖全部词）。
+    // 词单总词数
+    _practiceDocTotal(prefix) {
+        const data = prefix === 'synonym' ? this.synonymData : this.liyiData;
+        return Array.isArray(data) ? data.length : 0;
+    }
+
+    // 当前生效的每组词数：档位 20/30/50/100 取其值，「自定义」取输入框（下限 5）
+    _getEffectivePracticeCount(prefix) {
+        const sel = document.getElementById(prefix + 'Count');
+        if (!sel) return 20;
+        if (sel.value === 'custom') {
+            const inp = document.getElementById(prefix + 'CountCustom');
+            const n = parseInt(inp && inp.value, 10);
+            return (Number.isFinite(n) && n >= 5) ? n : 20;
+        }
+        const n = parseInt(sel.value, 10);
+        return (Number.isFinite(n) && n > 0) ? n : 20;
+    }
+
+    // 「自定义」输入框仅在选择「自定义」档位时显示
+    _syncPracticeCountCustom(prefix) {
+        const sel = document.getElementById(prefix + 'Count');
+        const inp = document.getElementById(prefix + 'CountCustom');
+        if (!sel || !inp) return;
+        inp.classList.toggle('hidden', sel.value !== 'custom');
+    }
+
+    // 刷新「单词数量」下拉各档位的「N组练完」说明（随词单总词数动态变化），
+    // 并同步自定义输入框显隐与自绘下拉的触发器文案
+    updatePracticeCountOptions(prefix) {
+        const sel = document.getElementById(prefix + 'Count');
+        if (!sel) return;
+        const total = this._practiceDocTotal(prefix);
+        const customInp = document.getElementById(prefix + 'CountCustom');
+        const customN = Math.max(5, parseInt(customInp && customInp.value, 10) || 20);
+        Array.from(sel.options).forEach(opt => {
+            if (opt.value === 'custom') {
+                opt.dataset.desc = total > 0 ? `${customN}词 · ${Math.ceil(total / customN)}组练完` : `${customN}词`;
+            } else {
+                const n = parseInt(opt.value, 10);
+                opt.dataset.desc = (total > 0 && n > 0) ? `${Math.ceil(total / n)}组练完` : '';
+            }
+        });
+        this._syncPracticeCountCustom(prefix);
+        this.refreshSettingPicker(prefix + 'Count');
+    }
+
+    // 读取某词单的分组进度（下一组起始词下标），每本词单独立缓存
+    _getPracticeProgress(prefix, docId) {
+        if (!docId) return 0;
+        try {
+            const map = JSON.parse(localStorage.getItem(prefix + 'PracticeProgress') || '{}');
+            const v = map[docId];
+            return (Number.isFinite(v) && v > 0) ? v : 0;
+        } catch (e) { return 0; }
+    }
+
+    // 写入某词单的分组进度
+    _setPracticeProgress(prefix, docId, ptr) {
+        if (!docId) return;
+        try {
+            const map = JSON.parse(localStorage.getItem(prefix + 'PracticeProgress') || '{}');
+            map[docId] = Math.max(0, ptr | 0);
+            localStorage.setItem(prefix + 'PracticeProgress', JSON.stringify(map));
+        } catch (e) {}
+    }
+
+    // 分组信息：ptr（下一组起点）/ per（每组词数）/ cur（当前第几组）/ groups（共几组）
+    getPracticeGroupInfo(prefix) {
+        const total = this._practiceDocTotal(prefix);
+        const per = this._getEffectivePracticeCount(prefix);
+        const docId = prefix === 'synonym' ? this.synonymCurrentDocId : this.liyiCurrentDocId;
+        let ptr = this._getPracticeProgress(prefix, docId);
+        if (total > 0 && ptr >= total) ptr = 0; // 一轮练完，回到第 1 组
+        const groups = (total > 0 && per > 0) ? Math.ceil(total / per) : 0;
+        const cur = groups > 0 ? Math.min(groups, Math.floor(ptr / per) + 1) : 0;
+        return { ptr, per, total, groups, cur, docId };
+    }
+
+    // 在 current-doc-info 追加「第n组/共m组」
+    updatePracticeGroupInfo(prefix) {
+        const el = document.getElementById(prefix + 'CurrentGroup');
+        if (!el) return;
+        const info = this.getPracticeGroupInfo(prefix);
+        el.textContent = info.groups > 0 ? ` · 第${info.cur}组/共${info.groups}组` : '';
+    }
+
     // 渲染文档列表
     renderSynonymDocsList() {
         const docsList = document.getElementById('synonymDocsList');
@@ -22047,7 +22470,11 @@ When including options, each must have an "impact" field. Use the available keyw
         // 更新当前文档信息
         document.getElementById('synonymCurrentDocName').textContent = doc.name;
         document.getElementById('synonymCurrentDocCount').textContent = doc.wordCount;
-        
+
+        // 按本词单总词数刷新「N组练完」说明与「第n组/共m组」显示
+        this.updatePracticeCountOptions('synonym');
+        this.updatePracticeGroupInfo('synonym');
+
         // 更新开始按钮
         this.updateSynonymStartButton();
         
@@ -22073,6 +22500,8 @@ When including options, each must have an "impact" field. Use the available keyw
                 this.synonymData = [];
                 document.getElementById('synonymCurrentDocName').textContent = '未选择';
                 document.getElementById('synonymCurrentDocCount').textContent = '0';
+                this.updatePracticeCountOptions('synonym');
+                this.updatePracticeGroupInfo('synonym');
             }
         }
         
@@ -22209,21 +22638,27 @@ When including options, each must have an "impact" field. Use the available keyw
     // 开始练习
     startSynonymPractice() {
         const mode = document.getElementById('synonymMode').value;
-        const count = parseInt(document.getElementById('synonymCount').value);
+        const count = this._getEffectivePracticeCount('synonym');
         
         // 保存练习配置（模式 / 数量）
         this.saveSynonymPracticeConfig();
         
-        // 准备单词列表
-        let words = [...this.synonymData];
+        // 按分组进度取「下一组」：词单自然顺序的连续切片（乱序只在组内打乱）
+        const info = this.getPracticeGroupInfo('synonym');
+        const ptr = info.ptr;
+        this._setPracticeProgress('synonym', info.docId, ptr); // 一轮练完时把指针归零持久化
+        this.synonymBatchStart = ptr;
+        this.synonymSessionIsReview = false;
+        this.synonymCurrentGroupNo = info.cur; // 本轮练习的组号（练习页进度条左侧展示）
         
-        // 乱序
+        let words = this.synonymData.slice(ptr, ptr + count);
+        
+        // 乱序：仅打乱当前组内顺序
         if (mode === 'random') {
-            words = words.sort(() => Math.random() - 0.5);
+            words = words.slice().sort(() => Math.random() - 0.5);
         }
         
-        // 限制数量
-        this.synonymWords = words.slice(0, Math.min(count, words.length));
+        this.synonymWords = words;
         this.synonymCurrentIndex = 0;
         this.synonymResults = [];
         
@@ -22240,6 +22675,7 @@ When including options, each must have an "impact" field. Use the available keyw
         
         // 显示练习页面
         document.getElementById('synonymConfig').classList.add('hidden');
+        document.getElementById('synonymCompletion').classList.add('hidden');
         document.getElementById('synonymPractice').classList.remove('hidden');
         // 练习模式：卡片背景透明无阴影
         const synContainer = document.getElementById('synonymAppContainer');
@@ -22278,6 +22714,9 @@ When including options, each must have an "impact" field. Use the available keyw
         // 更新进度
         document.getElementById('synonymCurrentIndex').textContent = this.synonymCurrentIndex + 1;
         document.getElementById('synonymTotalWords').textContent = this.synonymWords.length;
+        // 进度条左侧展示当前组号「当前第n组」
+        const synGroupEl = document.getElementById('synonymGroupInfo');
+        if (synGroupEl) synGroupEl.textContent = this.synonymCurrentGroupNo ? `当前第${this.synonymCurrentGroupNo}组` : '';
         
         // 更新单词信息（用测试词替换）
         document.getElementById('synonymWordText').textContent = testWordText;
@@ -22586,6 +23025,13 @@ When including options, each must have an "impact" field. Use the available keyw
         const partial = this.synonymResults.filter(r => r.partial).length;
         const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
         
+        // 推进分组进度：完整练完一组→进入下一组；「就练到这里」→按已作答题数记住位置（下次续练）。
+        // 复习错题会话不推进进度
+        if (!this.synonymSessionIsReview) {
+            const done = Math.min(this.synonymWords.length, this.synonymResults.length);
+            this._setPracticeProgress('synonym', this.synonymCurrentDocId, (this.synonymBatchStart || 0) + done);
+        }
+        
         // 停止实时统计显示定时器（时长在此结算保存）
         this.stopStatsDisplayTimer();
         
@@ -22615,6 +23061,7 @@ When including options, each must have an "impact" field. Use the available keyw
         // 显示完成页面
         document.getElementById('synonymPractice').classList.add('hidden');
         document.getElementById('synonymCompletion').classList.remove('hidden');
+        this.maybeShowStarNudge(); // 结算页加星提示
         
         // 更新统计
         document.getElementById('synonymStatsTotal').textContent = total;
@@ -22691,7 +23138,8 @@ When including options, each must have an "impact" field. Use the available keyw
     
     // 重新开始
     restartSynonymPractice() {
-        this.initSynonymPractice();
+        // 「再来一次」= 直接进入下一组（进度已在 finishSynonymPractice 中推进，练完一轮自动回到第 1 组）
+        this.startSynonymPractice();
     }
     
     // 查看错题
@@ -22711,6 +23159,7 @@ When including options, each must have an "impact" field. Use the available keyw
         
         this.synonymCurrentIndex = 0;
         this.synonymResults = [];
+        this.synonymSessionIsReview = true; // 复习错题不推进分组进度
         
         // 显示练习页面
         document.getElementById('synonymCompletion').classList.add('hidden');
@@ -25349,7 +25798,7 @@ ${head}
     openWreBookDialog() {
         const items = this._wreCollectedWords();
         if (!items.length) {
-            alert('当前没有可收录的单词，请先在「生成词书」下拉中勾选 CEFR 等级');
+            this.showToast('当前没有可收录的单词，请先在「生成词书」下拉中勾选 CEFR 等级', 'info');
             return;
         }
         const book = this.wreSelectedBook || {};
@@ -25448,7 +25897,7 @@ ${head}
                 .map(cb => items[parseInt(cb.value, 10)])
                 .filter(Boolean);
             if (!picked.length) {
-                alert('请至少勾选一个单词');
+                this.showToast('请至少勾选一个单词', 'info');
                 return;
             }
             const nameInput = dialog.querySelector('#wreBookNameInput');
@@ -25474,7 +25923,7 @@ ${head}
             Storage.saveCurrentBook(newBook.id);
             this.loadBooks();
             document.body.removeChild(dialog);
-            alert(`✅ 词书「${bookName}」已生成！\n共 ${words.length} 个单词`);
+            this.showToast(`词书「${bookName}」已生成，共 ${words.length} 个单词`, 'success');
         });
     }
 
@@ -25742,10 +26191,13 @@ ${head}
     // 保存练习配置缓存（选中文档 / 模式 / 数量）
     saveLiyiPracticeConfig() {
         try {
+            const countSel = document.getElementById('liyiCount');
+            const customInp = document.getElementById('liyiCountCustom');
             localStorage.setItem('liyiPracticeConfig', JSON.stringify({
                 docId: this.liyiCurrentDocId,
                 mode: document.getElementById('liyiMode') ? document.getElementById('liyiMode').value : '',
-                count: document.getElementById('liyiCount') ? document.getElementById('liyiCount').value : ''
+                count: countSel ? countSel.value : '',
+                customCount: customInp ? customInp.value : ''
             }));
         } catch (e) {
             console.warn('⚠️ 保存练习配置失败:', e);
@@ -25770,11 +26222,14 @@ ${head}
             this._refreshSettingPicker(modeEl);
         }
         
-        // 恢复单词数量
+        // 恢复单词数量（下拉档位 + 自定义数值）
         const countEl = document.getElementById('liyiCount');
-        if (countEl && config.count) {
+        if (countEl && config.count && [...countEl.options].some(o => o.value === config.count)) {
             countEl.value = config.count;
         }
+        const customCountEl = document.getElementById('liyiCountCustom');
+        if (customCountEl && config.customCount) customCountEl.value = config.customCount;
+        this._syncPracticeCountCustom('liyi');
     }
 
     // 渲染文档列表
@@ -25904,7 +26359,11 @@ ${head}
         
         document.getElementById('liyiCurrentDocName').textContent = doc.name;
         document.getElementById('liyiCurrentDocCount').textContent = doc.wordCount;
-        
+
+        // 按本词单总词数刷新「N组练完」说明与「第n组/共m组」显示
+        this.updatePracticeCountOptions('liyi');
+        this.updatePracticeGroupInfo('liyi');
+
         this.updateLiyiStartButton();
         
         // 保存选中文档配置
@@ -25927,6 +26386,8 @@ ${head}
                 this.liyiData = [];
                 document.getElementById('liyiCurrentDocName').textContent = '未选择';
                 document.getElementById('liyiCurrentDocCount').textContent = '0';
+                this.updatePracticeCountOptions('liyi');
+                this.updatePracticeGroupInfo('liyi');
             }
         }
         
@@ -26044,18 +26505,26 @@ ${head}
     // 开始练习
     startLiyiPractice() {
         const mode = document.getElementById('liyiMode').value;
-        const count = parseInt(document.getElementById('liyiCount').value);
+        const count = this._getEffectivePracticeCount('liyi');
         
         // 保存练习配置（模式 / 数量）
         this.saveLiyiPracticeConfig();
         
-        let words = [...this.liyiData];
+        // 按分组进度取「下一组」：词单自然顺序的连续切片（乱序只在组内打乱）
+        const info = this.getPracticeGroupInfo('liyi');
+        const ptr = info.ptr;
+        this._setPracticeProgress('liyi', info.docId, ptr);
+        this.liyiBatchStart = ptr;
+        this.liyiSessionIsReview = false;
+        this.liyiCurrentGroupNo = info.cur; // 本轮练习的组号（练习页进度条左侧展示）
+        
+        let words = this.liyiData.slice(ptr, ptr + count);
         
         if (mode === 'random') {
-            words = words.sort(() => Math.random() - 0.5);
+            words = words.slice().sort(() => Math.random() - 0.5);
         }
         
-        this.liyiWords = words.slice(0, Math.min(count, words.length));
+        this.liyiWords = words;
         this.liyiCurrentIndex = 0;
         this.liyiResults = [];
         
@@ -26068,6 +26537,7 @@ ${head}
         
         // 显示练习页
         document.getElementById('liyiConfig').classList.add('hidden');
+        document.getElementById('liyiCompletion').classList.add('hidden');
         document.getElementById('liyiPractice').classList.remove('hidden');
         const liyiContainer = document.getElementById('liyiAppContainer');
         if (liyiContainer) liyiContainer.classList.add('liyi-practice-mode');
@@ -26094,6 +26564,9 @@ ${head}
         // 更新进度
         document.getElementById('liyiCurrentIndex').textContent = this.liyiCurrentIndex + 1;
         document.getElementById('liyiTotalWords').textContent = this.liyiWords.length;
+        // 进度条左侧展示当前组号「当前第n组」
+        const liyiGroupEl = document.getElementById('liyiGroupInfo');
+        if (liyiGroupEl) liyiGroupEl.textContent = this.liyiCurrentGroupNo ? `当前第${this.liyiCurrentGroupNo}组` : '';
         
         // 更新单词信息
         document.getElementById('liyiWordText').textContent = word.word;
@@ -26273,9 +26746,9 @@ ${head}
             // 按分号/逗号拆出多个含义
             const segments = rest.split(/[；;，,]/).map(s => s.trim()).filter(s => s);
             if (segments.length === 0) {
-                if (rest) candidates.push((pos + rest).trim());
+                if (rest) candidates.push((pos + ' ' + rest).trim());
             } else {
-                segments.forEach(seg => candidates.push((pos + seg).trim()));
+                segments.forEach(seg => candidates.push((pos + ' ' + seg).trim()));
             }
         }
         return candidates;
@@ -26575,6 +27048,12 @@ ${head}
         const correct = this.liyiResults.filter(r => r.correct).length;
         const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
         
+        // 推进分组进度：完整练完一组→进入下一组；「就练到这里」→按已作答题数记住位置。复习错题不推进
+        if (!this.liyiSessionIsReview) {
+            const done = Math.min(this.liyiWords.length, this.liyiResults.length);
+            this._setPracticeProgress('liyi', this.liyiCurrentDocId, (this.liyiBatchStart || 0) + done);
+        }
+        
         this.stopStatsDisplayTimer();
         
         // 记录剩余未写入的答题统计（时长已在 stopStatsDisplayTimer 中结算保存）
@@ -26597,9 +27076,11 @@ ${head}
         
         document.getElementById('liyiPractice').classList.add('hidden');
         document.getElementById('liyiCompletion').classList.remove('hidden');
+        this.maybeShowStarNudge(); // 结算页加星提示
         
         document.getElementById('liyiStatsTotal').textContent = total;
         document.getElementById('liyiStatsCorrect').textContent = correct;
+        document.getElementById('liyiStatsWrong').textContent = total - correct;
         document.getElementById('liyiStatsAccuracy').textContent = `${accuracy}%`;
     }
 
@@ -26656,7 +27137,8 @@ ${head}
 
     // 重新开始
     restartLiyiPractice() {
-        this.initLiyiPractice();
+        // 「再来一次」= 直接进入下一组（进度已在 finishLiyiPractice 中推进，练完一轮自动回到第 1 组）
+        this.startLiyiPractice();
     }
 
     // 查看错题
@@ -26674,6 +27156,7 @@ ${head}
         
         this.liyiCurrentIndex = 0;
         this.liyiResults = [];
+        this.liyiSessionIsReview = true; // 复习错题不推进分组进度
         
         document.getElementById('liyiCompletion').classList.add('hidden');
         document.getElementById('liyiPractice').classList.remove('hidden');
@@ -27156,7 +27639,7 @@ ${head}
         } else {
             // 选择
             if (this.selectedKeywords.length >= 10) {
-                alert('最多选择10个关键词');
+                this.showToast('最多选择 10 个关键词', 'info');
                 return;
             }
             this.selectedKeywords.push(word);
@@ -27367,7 +27850,7 @@ ${head}
     pickRandomKeywords(pool, count, listEl) {
         const unique = [...new Set((pool || []).filter(Boolean))];
         if (unique.length < count) {
-            alert(`可选单词只有 ${unique.length} 个，少于要求的 ${count} 个`);
+            this.showToast(`可选单词只有 ${unique.length} 个，少于要求的 ${count} 个`, 'info');
             return false;
         }
         const selected = unique.slice().sort(() => Math.random() - 0.5).slice(0, count);
@@ -27391,14 +27874,14 @@ ${head}
     // 自动选择关键词（词单来源）
     autoSelectKeywords() {
         if (this.selectedBooks.length === 0) {
-            alert('请先选择至少一个词单');
+            this.showToast('请先选择至少一个词单', 'info');
             return;
         }
 
         const count = parseInt(document.getElementById('autoSelectCount').value);
 
         if (count < 3 || count > 20) {
-            alert('请输入3-20之间的数量');
+            this.showToast('请输入 3-20 之间的数量', 'info');
             return;
         }
 
@@ -27420,12 +27903,12 @@ ${head}
         if (!list) return;
         const count = parseInt(document.getElementById('favAutoSelectCount').value);
         if (count < 3 || count > 20) {
-            alert('请输入3-20之间的数量');
+            this.showToast('请输入 3-20 之间的数量', 'info');
             return;
         }
         const pool = Array.from(list.querySelectorAll('.keyword-item')).map(btn => btn.dataset.word);
         if (pool.length === 0) {
-            alert('暂无收藏单词可供挑选');
+            this.showToast('暂无收藏单词可供挑选', 'info');
             return;
         }
         this.pickRandomKeywords(pool, count, list);
@@ -27437,12 +27920,12 @@ ${head}
         if (!list) return;
         const count = parseInt(document.getElementById('reviewAutoSelectCount').value);
         if (count < 3 || count > 20) {
-            alert('请输入3-20之间的数量');
+            this.showToast('请输入 3-20 之间的数量', 'info');
             return;
         }
         const pool = Array.from(list.querySelectorAll('.keyword-item')).map(btn => btn.dataset.word);
         if (pool.length === 0) {
-            alert('暂无待复习单词可供挑选');
+            this.showToast('暂无待复习单词可供挑选', 'info');
             return;
         }
         this.pickRandomKeywords(pool, count, list);
@@ -27505,7 +27988,7 @@ ${head}
         
         // 检查数量限制
         if (this.selectedKeywords.length >= 20) {
-            alert('最多选择20个关键词');
+            this.showToast('最多选择 20 个关键词', 'info');
             return;
         }
         
@@ -28775,6 +29258,8 @@ ${head}
         // 包装容器
         const wrapper = document.createElement('div');
         wrapper.className = 'ai-picker setting-picker';
+        // 词书设置「背诵模式」：选项行需要两端对齐（名称在左、Pro 开关贴最右）
+        if (select.id === 'bookSettingsMode') wrapper.classList.add('setting-picker-bookmode');
 
         const parent = select.parentNode;
         parent.insertBefore(wrapper, select);
@@ -28863,8 +29348,11 @@ ${head}
             const tSpan = document.createElement('span');
             tSpan.className = 'ai-picker-trigger-id';
             const selected = options.filter(o => o.selected);
+            // 词书设置「背诵模式」：选中的模式若启用了 Pro（词书级优先，否则全局），
+            // 在名称后补「 Pro」标识，如「看单词选释义 Pro」
+            const bookProOn = select.id === 'bookSettingsMode' && this._effectiveBookProOn();
             tSpan.textContent = selected.length > 0
-                ? selected.map(o => o.textContent.trim()).join(' + ')
+                ? selected.map(o => o.textContent.trim() + (bookProOn && this._modeHasProBranch(o.value) ? ' Pro' : '')).join(' + ')
                 : '未选择（跟随全局设定）';
             trigger.appendChild(tSpan);
         } else {
@@ -28885,6 +29373,11 @@ ${head}
                 const check = document.createElement('i');
                 check.className = 'ai-picker-item-check fi-rr-check';
                 item.appendChild(check);
+            }
+            // 词书设置「背诵模式」：已选中且有 Pro 分支的模式（目前仅「看单词选释义」）
+            // 在行尾追加一个悬停才显示的 Pro 开关，用于给该词书独立开启/关闭 Pro
+            if (select.id === 'bookSettingsMode' && active && this._modeHasProBranch(opt.value)) {
+                this._appendBookProSwitch(item, opt.value);
             }
             panel.appendChild(item);
         });
@@ -28945,6 +29438,49 @@ ${head}
         }
         lead.appendChild(text);
         host.appendChild(lead);
+    }
+
+    // 词书设置下拉中的 Pro 开关：只在已选中、且有 Pro 分支的模式行尾生成。
+    // 复用应用通用 switch（.switch-wrap + .switch-slider），默认隐藏、悬停该行才浮现。
+    // 切换「该词书的独立 selectProMode」并即时落盘；未设置时沿用全局设置。
+    _appendBookProSwitch(item, modeValue) {
+        const effectiveOn = this._effectiveBookProOn();
+        const wrap = document.createElement('label');
+        wrap.className = 'ai-picker-pro-switch' + (effectiveOn ? ' on' : '');
+        wrap.dataset.mode = modeValue;
+        wrap.title = effectiveOn
+            ? '本词书 Pro 已开启（关闭则恢复普通干扰项）'
+            : '为本词书开启 Pro（干扰项改用基础词典的形近/近似词释义）';
+        wrap.innerHTML =
+            '<span class="ai-picker-pro-switch-label">Pro</span>' +
+            '<span class="switch-wrap">' +
+                '<input type="checkbox"' + (effectiveOn ? ' checked' : '') + '>' +
+                '<span class="switch-slider"></span>' +
+            '</span>';
+        const input = wrap.querySelector('input');
+        // 阻止冒泡：点开关不能被面板当成「点选项」而切换该模式选中态
+        wrap.addEventListener('click', (e) => { e.stopPropagation(); });
+        input.addEventListener('change', (e) => {
+            e.stopPropagation();
+            const b = this.currentSettingsBookId ? Storage.getBook(this.currentSettingsBookId) : null;
+            if (!b) { input.checked = !input.checked; return; }
+            const next = input.checked;
+            // 开启前确认基础词典可用（Pro 的硬依赖）；不可用则回退勾选状态
+            if (next && !this.confirmBaseDictForPro()) { input.checked = false; return; }
+            b.selectProMode = next;
+            Storage.updateBook(b.id, b);
+            // 正在用这本词书做「看单词选释义」且当前题尚未作答：即时按新口径重算选项
+            const idxNow = this.currentWordIndex;
+            const answered = this.wordFirstResults && this.wordFirstResults[idxNow];
+            if (!answered && this.currentBook && this.currentBook.id === b.id && this.currentMode === 'select') {
+                this.currentBook = Storage.getBook(b.id);
+                const word = this.sessionWords && this.sessionWords[idxNow];
+                if (word) this.generateOptions(word);
+            }
+            // 刷新触发器文案（补/去「 Pro」标识）与面板开关态
+            this.refreshSettingPicker('bookSettingsMode');
+        });
+        item.appendChild(wrap);
     }
 
     // 初始化AI模型选择器（自绘双列下拉：第1列模型ID，第2列标签；无框线、可加宽）
@@ -31763,7 +32299,7 @@ Important:
                 topicEl.classList.remove('topic-refreshing');
                 topicEl.classList.add('topic-fade-in');
             }
-            alert('AI命题生成失败：' + error.message + '\n\n请检查API密钥是否配置正确。');
+            this.showToast('AI 命题生成失败，请检查 API 密钥是否配置正确', 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -31798,7 +32334,7 @@ Important:
         const aiModel = document.getElementById('aiModel').value;
 
         if (this.selectedKeywords.length < 3) {
-            alert('请至少选择3个关键词');
+            this.showToast('请至少选择 3 个关键词', 'info');
             return;
         }
         
@@ -31832,7 +32368,7 @@ Important:
 
         } catch (error) {
             console.error('生成阅读失败:', error);
-            alert('生成阅读失败，请检查大模型API key是否配置正确');
+            this.showToast('生成阅读失败，请检查大模型 API Key 是否配置正确', 'error');
         } finally {
             generateBtn.disabled = false;
             generateBtn.innerHTML = originalText;
@@ -33028,7 +33564,7 @@ But little did she know, this was just the beginning of an extraordinary journey
     // 显示题目
     showQuestions() {
         if (!this.currentStory || !this.currentStory.questions || this.currentStory.questions.length === 0) {
-            alert('暂无题目');
+            this.showToast('暂无题目', 'info');
             return;
         }
 
@@ -33056,14 +33592,14 @@ But little did she know, this was just the beginning of an extraordinary journey
         
         // 检测设备宽度，移动端禁用
         if (window.innerWidth < 1024) {
-            alert('双页展示功能需要更大的屏幕空间，请在PC端使用');
+            this.showToast('双页展示需要更大的屏幕空间，请在 PC 端使用', 'info');
             return;
         }
         
         if (!isDualView) {
             // 检查是否有题目
             if (!this.currentStory || !this.currentStory.questions || this.currentStory.questions.length === 0) {
-                alert('请先生成题目后再使用双页展示');
+                this.showToast('请先生成题目后再使用双页展示', 'info');
                 return;
             }
             
@@ -33102,7 +33638,7 @@ But little did she know, this was just the beginning of an extraordinary journey
 
         // 检测设备宽度，仅开启时限制（退出操作不受影响）
         if (window.innerWidth < 1024 && !isDualView) {
-            alert('双页展示功能需要更大的屏幕空间，请在PC端使用');
+            this.showToast('双页展示需要更大的屏幕空间，请在 PC 端使用', 'info');
             return;
         }
 
@@ -33257,7 +33793,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         });
 
         if (!allAnswered) {
-            alert('请完成所有题目');
+            this.showToast('请完成所有题目', 'info');
             return;
         }
 
@@ -33616,16 +34152,16 @@ But little did she know, this was just the beginning of an extraordinary journey
             const result = Storage.importStatsFromJSON(text);
             
             if (result.success) {
-                alert('✅ 数据导入成功！');
+                this.showToast('数据导入成功', 'success');
                 // 刷新显示
                 this.loadCacheSettings();
                 this.updateStats();
             } else {
-                alert(`❌ 导入失败：${result.message}`);
+                this.showToast('导入失败，请检查文件格式', 'error');
             }
         } catch (e) {
             console.error('导入统计数据失败:', e);
-            alert('❌ 导入失败，请检查文件格式');
+            this.showToast('导入失败，请检查文件格式', 'error');
         }
     }
 
@@ -33644,7 +34180,7 @@ But little did she know, this was just the beginning of an extraordinary journey
             if (confirm('请再次确认：真的要清空所有历史数据吗？')) {
                 Storage.clearStatsHistory();
                 this.loadStatsHistory();
-                alert('✅ 历史统计数据已清空');
+                this.showToast('历史统计数据已清空', 'success');
                 console.log('✅ 历史统计数据已清空');
             }
         }
