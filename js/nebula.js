@@ -516,14 +516,59 @@
     function loadRootDict() {
         if (state.rootDictLoaded) return Promise.resolve(state.rootDict);
         return new Promise(function (resolve) {
-            fetch('data/英语词根词缀词频-dict.json', { cache: 'no-cache' })
-                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            var source = location.protocol === 'file:'
+                // file:// 直开：fetch 本地 json 必被 CORS 拦，改从用户已授权的本地目录句柄
+                // 直接读取原文件（与查词引擎共用同一句柄，不产生副本、避免控制台报错）
+                ? readLocalDictFile('英语词根词缀词频-dict.json')
+                : fetch('data/英语词根词缀词频-dict.json', { cache: 'no-cache' })
+                    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+            source
                 .then(function (data) {
                     state.rootDictLoaded = true;
                     state.rootDict = (data && typeof data === 'object') ? data : null;
                     resolve(state.rootDict);
                 })
                 .catch(function () { state.rootDictLoaded = true; state.rootDict = null; resolve(null); });
+        });
+    }
+
+    // 从「本地词典目录」句柄（存于查词引擎共享的 dict-cache 库）读取词典原文件文本；
+    // 未授权 / 读取失败均 resolve(null)。仅 file:// 下调用
+    function readLocalDictFile(file) {
+        return new Promise(function (resolve) {
+            var rq;
+            try { rq = indexedDB.open('dict-cache', 1); } catch (e) { resolve(null); return; }
+            rq.onupgradeneeded = function () { try { rq.result.createObjectStore('dicts'); } catch (e) { /* 已存在 */ } };
+            rq.onerror = function () { resolve(null); };
+            rq.onsuccess = function () {
+                var dir;
+                try {
+                    var get = rq.result.transaction('dicts').objectStore('dicts').get('__dict_dir_handle__');
+                    get.onerror = function () { resolve(null); };
+                    get.onsuccess = function () {
+                        dir = get.result;
+                        if (!dir || typeof dir.getFileHandle !== 'function') { resolve(null); return; }
+                        var perm = (dir.queryPermission && dir.queryPermission({ mode: 'read' })) || Promise.resolve('granted');
+                        perm.then(function (p) {
+                            if (p !== 'granted') { resolve(null); return; }
+                            // 先按所选目录读取，再回退其 data/ 子目录（用户可能选的是项目根）
+                            var cands = [dir];
+                            var dataDir = dir.getDirectoryHandle ? dir.getDirectoryHandle('data').catch(function () { return null; }) : Promise.resolve(null);
+                            dataDir.then(function (d) {
+                                if (d) cands.push(d);
+                                return tryRead(cands, 0);
+                            });
+                            function tryRead(list, i) {
+                                if (i >= list.length) { resolve(null); return; }
+                                list[i].getFileHandle(file).then(function (fh) {
+                                    return fh.getFile().then(function (f) { return f.text(); });
+                                }).then(function (text) { resolve(JSON.parse(text)); })
+                                  .catch(function () { tryRead(list, i + 1); });
+                            }
+                        }).catch(function () { resolve(null); });
+                    };
+                } catch (e) { resolve(null); }
+            };
         });
     }
 
@@ -541,6 +586,8 @@
         // 并发去重：形近词/近似词/词卡详情可能同时需要，只加载一次
         if (state.baseDictPromise) return state.baseDictPromise;
         state.baseDictPromise = new Promise(function (resolve) {
+            // file:// 直开：fetch 本地 json 必被 CORS 拦（Worker 同样不可用），直接走 <script> 兜底副本，避免控制台报错
+            if (location.protocol === 'file:') { loadBaseDictViaScript(resolve); return; }
             fetch('data/englishwords-dict.json', { cache: 'no-cache' })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                 .then(function (data) { global.ENGLISHWORDS_DICT = data || null; resolve(global.ENGLISHWORDS_DICT); })

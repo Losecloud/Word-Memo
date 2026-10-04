@@ -38,17 +38,17 @@
     
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://Losecloud.github.io/VocRec/">
+    <meta property="og:url" content="https://Losecloud.github.io/Word-Memo/">
     <meta property="og:title" content="词忆 - 专攻难词 · 趣味高效">
     <meta property="og:description" content="专攻难词、趣味高效的单词记忆工具，支持多词书管理、语义星云、智能复习、AI工坊等功能。">
-    <meta property="og:image" content="https://Losecloud.github.io/VocRec/static/image/icon-512.png">
+    <meta property="og:image" content="https://Losecloud.github.io/Word-Memo/static/image/icon-512.png">
     
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://Losecloud.github.io/VocRec/">
+    <meta property="twitter:url" content="https://Losecloud.github.io/Word-Memo/">
     <meta property="twitter:title" content="词忆 - 专攻难词 · 趣味高效">
     <meta property="twitter:description" content="专攻难词、趣味高效的单词记忆工具，支持多词书管理、语义星云、智能复习、AI工坊等功能。">
-    <meta property="twitter:image" content="https://Losecloud.github.io/VocRec/static/image/icon-512.png">
+    <meta property="twitter:image" content="https://Losecloud.github.io/Word-Memo/static/image/icon-512.png">
     
     <title>词忆 - 专攻难词 · 趣味高效</title>
     <link rel="icon" type="image/svg+xml" href="static/image/word-memo-logo-heavy.svg">
@@ -459,6 +459,7 @@
         /* 「我的笔记」：复用 tools/browse-dict.html 详情页底部笔记区的统一外观（同一组类名，
            仅按宿主变量适配配色与下拉内边距），用于清单页就地记笔记 */
         .word-note {
+            position: relative;
             flex: 0 0 auto;
             height: 140px;
             box-sizing: border-box;
@@ -490,6 +491,31 @@
         }
         .word-note-input::placeholder { color: #b3b7bd; }
         [data-theme="dark"] .word-note-input::placeholder { color: #6b7078; }
+        /* 「我的笔记」高度拖拽：悬浮在上边界线附近时变为上下拉伸光标，拖动实时改高度 */
+        .word-note-resize {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -4px;
+            height: 9px;
+            cursor: row-resize;
+            z-index: 3;
+        }
+        .word-note-resize::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 3px;
+            transform: translateX(-50%);
+            width: 44px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--border-color);
+            opacity: 0;
+            transition: opacity 0.15s ease, background 0.15s ease;
+        }
+        .word-note-resize:hover::after,
+        .word-note-resize.dragging::after { opacity: 1; background: var(--primary-color); }
         /* ===== Obsidian 右侧栏模式（?wmView=dict）：特化为「上方输入框 + 下方结果列」两块内容 ===== */
         html.wm-sidebar-mode,
         html.wm-sidebar-mode body {
@@ -1125,6 +1151,7 @@
                     </div>
                     <!-- 清单页「我的笔记」：单词/短语查不到详情时停留清单，可就地记笔记（ob 侧栏亦适用） -->
                     <div class="word-note hidden" id="dictLookupNote">
+                        <div class="word-note-resize" id="dictLookupNoteResize" title="拖拽调节笔记高度"></div>
                         <div class="word-note-head"><i class="fi-rr-comment-pen"></i> 我的笔记<span class="word-note-date"></span></div>
                         <textarea class="word-note-input" placeholder="暂无笔记" spellcheck="false"></textarea>
                     </div>
@@ -1164,9 +1191,9 @@
                         <i class="user-caret fi-rr-caret-down"></i>
                     </button>
                     <div class="user-dropdown hidden" id="userDropdown">
-                        <div class="dropdown-item" id="dropdownProfile">个人信息</div>
-                        <div class="dropdown-item" id="dropdownStats">学习数据</div>
-                        <div class="dropdown-item" id="dropdownSyncDir">绑定本地文件夹</div>
+                        <div class="dropdown-item" id="dropdownProfile"><i class="dropdown-item-icon fi-rr-user"></i><span>个人信息</span></div>
+                        <div class="dropdown-item" id="dropdownStats"><i class="dropdown-item-icon fi-rr-chart-histogram"></i><span>学习数据</span></div>
+                        <div class="dropdown-item" id="dropdownSyncDir"><i class="dropdown-item-icon fi-rr-folder"></i><span>绑定本地文件夹</span></div>
                         <div class="dropdown-item" id="dropdownSaveConfig">
                             <i class="dropdown-item-icon fi-rr-disk"></i>
                             <span>保存用户配置</span>
@@ -1209,7 +1236,7 @@
                             <span>关于词忆</span>
                         </div>
                         <div class="dropdown-divider"></div>
-                        <div class="dropdown-item dropdown-danger" id="dropdownLogout">退出登录</div>
+                        <div class="dropdown-item dropdown-danger" id="dropdownLogout"><i class="dropdown-item-icon fi-rr-sign-out-alt"></i><span>退出登录</span></div>
                     </div>
                 </div>
             </div>
@@ -1984,10 +2011,6 @@
                             <div class="stat-label">学习单词</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value" id="statsCorrect">18</div>
-                            <div class="stat-label">正确</div>
-                        </div>
-                        <div class="stat-item">
                             <div class="stat-value" id="statsWrong">2</div>
                             <div class="stat-label">错误</div>
                         </div>
@@ -2005,10 +2028,22 @@
                         <button class="btn-secondary hidden" id="switchModeBtn">换个模式？</button>
                         <button class="btn-primary" id="continueBtn">继续学习</button>
                     </div>
+                    <!-- 加星提示：常驻显示（各结算页共用 class，由 maybeShowStarNudge 统一控制） -->
+                    <div class="star-nudge hidden">
+                        <span class="star-nudge-text">
+                            喜欢词忆？
+                            <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo" target="_blank" rel="noopener noreferrer"><i class="fi-sr-star"></i> 去 GitHub 点个 Star</a>
+                            支持一下 · 有问题欢迎
+                            <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo/issues/new?template=bug_report.md" target="_blank" rel="noopener noreferrer">反馈</a>
+                        </span>
+                        <button type="button" class="star-nudge-close" title="不再提示"><i class="fi-rr-cross-small"></i> 不再提示</button>
+                    </div>
                     <!-- 作答节奏 × 掌握程度散点图（田字十字轴） -->
                     <div class="completion-scatter" id="completionScatter">
                         <div class="cs-head">
-                            <h3 class="cs-title"><i class="fi-rr-chart-scatter"></i> 作答节奏 × 掌握程度</h3>
+                            <h3 class="cs-title"><i class="fi-rr-chart-scatter"></i> 作答节奏 × 掌握程度
+                                <button type="button" class="cs-help-btn" id="scatterHelpBtn" title="图表说明"><i class="fi-rr-info"></i></button>
+                            </h3>
                             <label class="cs-switch" title="显示本轮正确率相对历史平均正确率的位移">
                                 <span class="cs-switch-label">正确率位移</span>
                                 <span class="switch-wrap">
@@ -3004,7 +3039,7 @@
                                     <span class="info-icon"><i class="fi-rr-document"></i></span>
                                     <span class="info-text">
                                         当前：<span id="synonymCurrentDocName">未选择</span>
-                                        （<span id="synonymCurrentDocCount">0</span> 个单词）
+                                        （<span id="synonymCurrentDocCount">0</span> 个单词<span id="synonymCurrentGroup"></span>）
                                     </span>
                                 </div>
                             </div>
@@ -3020,7 +3055,12 @@
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">单词数量</label>
-                                    <input type="number" class="form-select" id="synonymCount" value="20" min="5" max="100">
+                                    <select class="form-select setting-select" id="synonymCount">
+                                        <option value="20" selected>20词</option>
+                                        <option value="30">30词</option>
+                                        <option value="50">50词</option>
+                                        <option value="100">100词</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -3042,6 +3082,7 @@
                                 <span class="progress-text">
                                     <span id="synonymCurrentIndex">0</span> / <span id="synonymTotalWords">0</span>
                                 </span>
+                                <span class="group-info-text" id="synonymGroupInfo"></span>
                                 <span class="accuracy-text">
                                     正确率: <span id="synonymAccuracy">0%</span>
                                 </span>
@@ -3132,8 +3173,17 @@
                             </div>
                             <div class="completion-actions">
                                 <button class="btn-secondary" id="synonymReviewBtn">查看错题</button>
-                                <button class="btn-primary" id="synonymRestartBtn">再来一次</button>
-                                <button class="btn-text" id="synonymBackBtn">返回工坊</button>
+                                <button class="btn-primary" id="synonymRestartBtn">再来一组</button>
+                            </div>
+                            <!-- 加星提示（与主结算页共用 class，便于统一显示/关闭） -->
+                            <div class="star-nudge hidden">
+                                <span class="star-nudge-text">
+                                    喜欢词忆？
+                                    <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo" target="_blank" rel="noopener noreferrer"><i class="fi-sr-star"></i> 去 GitHub 点个 Star</a>
+                                    支持一下 · 有问题欢迎
+                                    <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo/issues/new?template=bug_report.md" target="_blank" rel="noopener noreferrer">反馈</a>
+                                </span>
+                                <button type="button" class="star-nudge-close" title="不再提示"><i class="fi-rr-cross-small"></i> 不再提示</button>
                             </div>
                         </div>
                     </div>
@@ -3561,7 +3611,7 @@
                                     <span class="info-icon"><i class="fi-rr-document"></i></span>
                                     <span class="info-text">
                                         当前：<span id="liyiCurrentDocName">未选择</span>
-                                        （<span id="liyiCurrentDocCount">0</span> 个单词）
+                                        （<span id="liyiCurrentDocCount">0</span> 个单词<span id="liyiCurrentGroup"></span>）
                                     </span>
                                 </div>
                             </div>
@@ -3577,7 +3627,12 @@
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">单词数量</label>
-                                    <input type="number" class="form-select" id="liyiCount" value="20" min="5" max="100">
+                                    <select class="form-select setting-select" id="liyiCount">
+                                        <option value="20" selected>20词</option>
+                                        <option value="30">30词</option>
+                                        <option value="50">50词</option>
+                                        <option value="100">100词</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -3599,6 +3654,7 @@
                                 <span class="progress-text">
                                     <span id="liyiCurrentIndex">0</span> / <span id="liyiTotalWords">0</span>
                                 </span>
+                                <span class="group-info-text" id="liyiGroupInfo"></span>
                                 <span class="accuracy-text">
                                     正确率: <span id="liyiAccuracy">0%</span>
                                 </span>
@@ -3690,14 +3746,27 @@
                                     <div class="stat-label">回答正确</div>
                                 </div>
                                 <div class="stat-item">
+                                    <div class="stat-value" id="liyiStatsWrong">0</div>
+                                    <div class="stat-label">回答错误</div>
+                                </div>
+                                <div class="stat-item">
                                     <div class="stat-value" id="liyiStatsAccuracy">0%</div>
                                     <div class="stat-label">正确率</div>
                                 </div>
                             </div>
                             <div class="completion-actions">
                                 <button class="btn-secondary" id="liyiReviewBtn">查看错题</button>
-                                <button class="btn-primary" id="liyiRestartBtn">再来一次</button>
-                                <button class="btn-text" id="liyiBackBtn">返回工坊</button>
+                                <button class="btn-primary" id="liyiRestartBtn">再来一组</button>
+                            </div>
+                            <!-- 加星提示（与主结算页共用 class，便于统一显示/关闭） -->
+                            <div class="star-nudge hidden">
+                                <span class="star-nudge-text">
+                                    喜欢词忆？
+                                    <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo" target="_blank" rel="noopener noreferrer"><i class="fi-sr-star"></i> 去 GitHub 点个 Star</a>
+                                    支持一下 · 有问题欢迎
+                                    <a class="star-nudge-link" href="https://github.com/Losecloud/Word-Memo/issues/new?template=bug_report.md" target="_blank" rel="noopener noreferrer">反馈</a>
+                                </span>
+                                <button type="button" class="star-nudge-close" title="不再提示"><i class="fi-rr-cross-small"></i> 不再提示</button>
                             </div>
                         </div>
                     </div>
@@ -4605,6 +4674,12 @@
                                 <div class="dict-picker-section" data-zone="downloadable" id="settingsDictDownloadSection">
                                     <div class="dict-picker-section-title"><i class="fi-rr-cloud-download"></i>可下载词典 · 悬浮点击下载</div>
                                     <div class="dict-picker-list" id="settingsDictDownloadable"></div>
+                                </div>
+                                <div class="dict-picker-section" id="settingsDictLocalSection" style="display:none">
+                                    <div class="dict-picker-section-title"><i class="fi-rr-folder"></i>本地目录</div>
+                                    <div class="dict-picker-list">
+                                        <button type="button" id="settingsDictLocalBtn" style="width:100%; padding:8px 10px; font-size:13px; border:1px solid var(--border-color); border-radius:8px; background:var(--surface); color:var(--text-primary); cursor:pointer;">📁 选择目录</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -5665,6 +5740,21 @@
                     </div>
                 </div>
             </div>
+            <!-- 常驻支持栏：把加星与反馈放在「关于」这一高意愿场景，降低行动门槛 -->
+            <div class="modal-footer about-footer">
+                <div class="about-footer-hint">如果词忆帮到了你，欢迎在Github加星或留下反馈~</div>
+                <div class="about-footer-btns">
+                    <a class="about-action about-action-star" href="https://github.com/Losecloud/Word-Memo" target="_blank" rel="noopener noreferrer">
+                        <i class="fi-sr-star"></i> 加个 Star
+                    </a>
+                    <a class="about-action" href="https://github.com/Losecloud/Word-Memo/issues/new?template=bug_report.md" target="_blank" rel="noopener noreferrer">
+                        <i class="fi-rr-bug"></i> 反馈问题
+                    </a>
+                    <a class="about-action" href="https://github.com/Losecloud/Word-Memo/discussions" target="_blank" rel="noopener noreferrer">
+                        <i class="fi-rr-comments"></i> 讨论建议
+                    </a>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -5683,6 +5773,25 @@
             </div>
             <div class="modal-body">
                 <div class="md-reader" id="memoryHelpContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结算页散点图说明：标题旁 info 图标弹出的 md 详情 -->
+    <div class="modal hidden" id="scatterHelpModal">
+        <div class="modal-overlay" data-close-modal="scatterHelpModal"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>作答节奏 × 掌握程度 · 图例说明</h3>
+                <button class="btn-icon" data-close-modal="scatterHelpModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="md-reader" id="scatterHelpContent"></div>
             </div>
         </div>
     </div>
@@ -5752,6 +5861,15 @@
         const aiDetail = document.getElementById('dictLookupAiDetail');
         const clearBtn = document.getElementById('dictLookupClear');
         const wrap = document.getElementById('dictLookup');
+        // 详情页「我的笔记」高度：由宿主承接持久化（引擎 iframe 与宿主可能不同源，
+        // 不能只依赖 iframe 自身 localStorage）。拖动时引擎回传 note-height，打开详情时下发
+        let hostNoteHeight = 0;
+        try { hostNoteHeight = parseInt(localStorage.getItem('noteHeightDetail') || '', 10) || 0; } catch (e) { /* 忽略 */ }
+        function pushNoteHeight() {
+            // 仅在引擎已就绪的时机（ready / opened）调用，故直接用本闭包的 post 发送
+            if (!(hostNoteHeight > 0) || !window.__dictLookupReady) return;
+            post({ cmd: 'set-note-height', h: hostNoteHeight });
+        }
         // Obsidian 右侧栏模式（?wmView=dict）：仅保留查词引擎，下拉常驻展开并铺满侧栏。
         // 布局覆盖见上方 html.wm-sidebar-mode 系列样式，此处仅切换行为
         const SIDEBAR = new URLSearchParams(location.search).get('wmView') === 'dict';
@@ -6031,6 +6149,18 @@
         function listNoteVisible() {
             return !!(listNoteEl && !listNoteEl.classList.contains('hidden'));
         }
+        // 应用清单页笔记的缓存高度（缓存键 noteHeightList，随用户配置持久化）。
+        // 需在「展示时」也调用：配置回填晚于脚本解析，仅解析期读一次会取不到值而回落默认
+        function applyListNoteHeight() {
+            if (!listNoteEl) return;
+            try {
+                const saved = parseInt(localStorage.getItem('noteHeightList') || '', 10);
+                if (saved > 0) {
+                    const maxH = Math.max(64, Math.round(window.innerHeight * 0.75));
+                    listNoteEl.style.height = Math.max(64, Math.min(maxH, saved)) + 'px';
+                }
+            } catch (e) { /* 忽略 */ }
+        }
         // 在清单页展示某词/短语的笔记
         function showListNote(word, disp) {
             if (!listNoteEl) return;
@@ -6046,6 +6176,7 @@
             }
             const dateEl = listNoteEl.querySelector('.word-note-date');
             if (dateEl) dateEl.textContent = (meta.text && meta.text.trim()) ? formatListNoteDate(meta.ts) : '';
+            applyListNoteHeight(); // 展示时套用缓存高度（配置回填可能晚于解析期）
             listNoteEl.classList.remove('hidden');
         }
         function hideListNote() {
@@ -6078,6 +6209,48 @@
                 }, 300);
             });
         }
+        // 清单页「我的笔记」高度拖拽调节：拖动上边界实时改高度，松手写入
+        // 镜像键 noteHeightList（随用户配置持久化，下次自动复用；与详情页笔记高度互为独立）
+        (function initListNoteResize() {
+            const handle = document.getElementById('dictLookupNoteResize');
+            if (!listNoteEl || !handle) return;
+            const KEY = 'noteHeightList';
+            const MIN = 64;
+            const clamp = function (h) {
+                const maxH = Math.max(MIN, Math.round(window.innerHeight * 0.75));
+                return Math.max(MIN, Math.min(maxH, Math.round(h)));
+            };
+            const apply = function (h) { const v = clamp(h); listNoteEl.style.height = v + 'px'; return v; };
+            applyListNoteHeight(); // 解析期先套用一次（配置可能尚未回填，展示时 showListNote 会再套用）
+            let dragging = false, startY = 0, startH = 0;
+            const onMove = function (e) {
+                if (!dragging) return;
+                e.preventDefault();
+                apply(startH + (startY - e.clientY)); // 向上拖 = 增高
+            };
+            const onUp = function () {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('dragging');
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                try {
+                    const h = parseInt(listNoteEl.style.height, 10);
+                    if (h > 0) localStorage.setItem(KEY, String(h)); // 写入即触发用户配置镜像
+                } catch (e) { /* 忽略 */ }
+            };
+            handle.addEventListener('mousedown', function (e) {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                dragging = true;
+                startY = e.clientY;
+                startH = listNoteEl.offsetHeight;
+                handle.classList.add('dragging');
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+        })();
         // 「添加笔记」外部入口（如记忆方法卡片）：把一段内容追加到当前单词的笔记末尾
         window.appendToWordNote = function (word, addition) {
             const k = String(word == null ? '' : word).toLowerCase().trim();
@@ -6755,7 +6928,9 @@
                 });
             }
             const itNote = getWordNoteMeta(it.w);
-            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, favorited: favorited, cands: dictCandidates(it.w), note: itNote.text, noteTs: itNote.ts });
+            // 基础词典兜底条目（dl-dict-sim「基础词典」）：只展示基础词典本身，
+            // 不再连带当前首选词典（柯林斯/词根词缀）的释义，故传 baseOnly
+            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, baseOnly: !!it.baseFallback, favorited: favorited, cands: dictCandidates(it.w), note: itNote.text, noteTs: itNote.ts });
             input.blur();
             sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦，如由主页转交的请求）
         }
@@ -7017,6 +7192,7 @@
                     try { frame.contentWindow.postMessage(m, '*'); } catch (e) { /* 忽略 */ }
                 });
                 syncTheme(); // 就绪后同步当前主题（深色/浅色）到引擎
+                pushNoteHeight(); // 就绪后下发已保存的详情笔记高度，避免重开时回落到默认高度
                 if (lastQuery) post({ cmd: 'search', q: lastQuery });
                 else if (SIDEBAR) showRecent(); // 侧栏：直接展示最近查词，保持常驻展开
                 else if (document.activeElement === input && !input.value.trim()) post({ cmd: 'recent' });
@@ -7066,6 +7242,20 @@
                 if (lastQuery && dropdownOpen) post({ cmd: 'search', q: lastQuery });
                 return;
             }
+            if (d.type === 'detail-height') {
+                // 详情页「我的笔记」拖拽调高：iframe 内容高度变化，重测 iframe 高度（侧栏由 flex 自适应）
+                scheduleFrameResize(0);
+                return;
+            }
+            if (d.type === 'note-height') {
+                // 引擎页拖动详情笔记高度：由宿主写入自身上下文（触发镜像持久化），并记于内存供重开详情时下发
+                const h = parseInt(d.h, 10) || 0;
+                if (h > 0) {
+                    hostNoteHeight = h;
+                    try { localStorage.setItem('noteHeightDetail', String(h)); } catch (e) { /* 忽略 */ }
+                }
+                return;
+            }
             if (d.type === 'collapsed') {
                 // 词条 header 空白处折叠：返回结果列表视图
                 if (dropdown.classList.contains('detail')) exitDetail();
@@ -7074,6 +7264,7 @@
             if (d.type === 'opened') {
                 // 引擎渲染完成：从清单无缝切换到详情视图（清单保持显示到此刻，避免闪烁），再按内容撑开 iframe
                 setDictStatus(false); // 查询结果已就绪，收起顶部「查询中」提示
+                pushNoteHeight(); // 详情渲染后下发已保存的详情笔记高度
                 if (pendingDetail) {
                     // 无法查得任何详情内容（首选词典无该词条，且基础词典/兜底也无内容）：
                     // 不跳空白详情，留在清单展示该词/短语，并就地展开清单页「我的笔记」（固定短语等无词库词条亦适用）
@@ -7898,6 +8089,43 @@
                 panel.style.width = Math.max(r.width, 340) + 'px';
             }
         });
+        // file:// 直开：浏览器禁止页面 fetch 本地 json（CORS）。提供一次授权入口——选择本地 data
+        // 目录后，句柄写入引擎的 IndexedDB，引擎改从该目录直接读取词典原文件：无需 serve.js、无副本，
+        // 且授权可跨会话复用（此后进入自动读取，不再弹窗）
+        const localSec = document.getElementById('settingsDictLocalSection');
+        const localBtn = document.getElementById('settingsDictLocalBtn');
+        if (localSec && localBtn && location.protocol === 'file:' && window.showDirectoryPicker) {
+            localSec.style.display = '';
+            localBtn.addEventListener('click', async function () {
+                let dir;
+                try { dir = await window.showDirectoryPicker({ mode: 'read' }); }
+                catch (e) { return; } // 用户取消
+                await saveDictDirHandle(dir);
+                try {
+                    document.getElementById('dictLookupFrame').contentWindow
+                        .postMessage({ __dictLookup: 1, cmd: 'reload-dicts' }, '*');
+                } catch (e) { /* 忽略 */ }
+                if (window.app && window.app.showToast) window.app.showToast('已授权本地词典目录，正在从本地读取词典…', 'success');
+            });
+        }
+        // 把目录句柄存进引擎同源共享的 dict-cache 库，供查词引擎直接读取本地词典原文件
+        function saveDictDirHandle(dir) {
+            return new Promise(function (resolve) {
+                try {
+                    const rq = indexedDB.open('dict-cache', 1);
+                    rq.onupgradeneeded = function () { try { rq.result.createObjectStore('dicts'); } catch (e) { /* 已存在 */ } };
+                    rq.onsuccess = function () {
+                        try {
+                            const tx = rq.result.transaction('dicts', 'readwrite');
+                            tx.objectStore('dicts').put(dir, '__dict_dir_handle__');
+                            tx.oncomplete = function () { resolve(); };
+                            tx.onerror = function () { resolve(); };
+                        } catch (e) { resolve(); }
+                    };
+                    rq.onerror = function () { resolve(); };
+                } catch (e) { resolve(); }
+            });
+        }
         // 设置弹窗每次打开时重新渲染（引擎导入新词库后即时反映）
         const settingsModal = document.getElementById('settingsModal');
         if (settingsModal) {

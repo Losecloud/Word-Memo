@@ -3334,6 +3334,15 @@ body.nebula-word-themed .nebula-card {
     color: var(--text-secondary);
 }
 
+/* 同义替换/熟词僻义进度条：组号紧邻正确率右侧对齐（margin-left:auto 吃掉剩余空间，
+   把「当前第n组」与「正确率」一起推到最右） */
+.group-info-text {
+    margin-left: auto;
+    margin-right: var(--spacing-md);
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
 .progress-track {
     height: 8px;
     background: var(--border-color);
@@ -3999,22 +4008,22 @@ body.nebula-word-themed .nebula-card {
     align-items: center;
     gap: 0.35rem;
     padding: 0.25rem 0.75rem;
-    font-size: 0.8rem;
 }
 
 .word-stats .stats-label {
     color: var(--text-tertiary);
     font-weight: 500;
+    font-size: 1rem;
 }
 
 .word-stats .stats-value {
     color: var(--text-tertiary);
-    font-size: 0.75rem;
+    font-size: 1rem;
 }
 
 .word-stats .stats-detail {
     color: var(--text-tertiary);
-    font-size: 0.75rem;
+    font-size: 1rem;
 }
 
 /* 拼写模式的正确率内联在 word-meta-inline（CEFR 等级左侧），需收紧内边距以贴合一行 */
@@ -4057,6 +4066,9 @@ body.nebula-word-themed .nebula-card {
     border: 2px solid var(--border-color);
     border-radius: var(--radius-md);
     font-size: 1rem;
+    /* button 默认不继承 body 字体，须显式跟随「页面设置」所选字体，
+       否则选项释义（含词性标记）会以浏览器默认字体渲染而显得风格迥异 */
+    font-family: var(--ui-font-stack);
     color: var(--text-primary);
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -4196,7 +4208,8 @@ body.nebula-word-themed .nebula-card {
 
 /* "如何记忆？"按钮特殊样式 */
 .option-btn.memory-aid-btn,
-.remember-actions .btn-secondary.memory-aid-btn {
+.remember-actions .btn-secondary.memory-aid-btn,
+.spell-actions .btn-secondary.memory-aid-btn {
     border-color: #FB923C;
     background: linear-gradient(135deg, #FFF9F0 0%, #FFEDD5 100%);
     color: #EA580C;
@@ -4206,13 +4219,15 @@ body.nebula-word-themed .nebula-card {
 }
 
 [data-theme="dark"] .option-btn.memory-aid-btn,
-[data-theme="dark"] .remember-actions .btn-secondary.memory-aid-btn {
+[data-theme="dark"] .remember-actions .btn-secondary.memory-aid-btn,
+[data-theme="dark"] .spell-actions .btn-secondary.memory-aid-btn {
     background: linear-gradient(135deg, #3E3520 0%, #4A3926 100%);
     color: #FB923C;
 }
 
 .option-btn.memory-aid-btn:hover,
-.remember-actions .btn-secondary.memory-aid-btn:hover {
+.remember-actions .btn-secondary.memory-aid-btn:hover,
+.spell-actions .btn-secondary.memory-aid-btn:hover {
     border-color: #EA580C;
     background: linear-gradient(135deg, #FFEDD5 0%, #FED7AA 100%);
     transform: translateY(-3px);
@@ -4280,12 +4295,50 @@ body.nebula-word-themed .nebula-card {
 }
 
 /* 模式2: 看释义拼单词 */
+/* 题干区渐变色标：注册为可插值的自定义属性，使切题时背景在「当前色调 → 下一题默认色」
+   之间直接做颜色插值，而不是整块背景淡入淡出（分层交叉淡化造成的割裂感） */
+@property --md-bg1 { syntax: '<color>'; inherits: false; initial-value: #e8f5f4; }
+@property --md-bg2 { syntax: '<color>'; inherits: false; initial-value: #e8f5f4; }
+
 .meaning-display {
     padding: var(--spacing-xl);
-    background: var(--primary-light);
+    --md-bg1: var(--primary-light);
+    --md-bg2: var(--primary-light);
+    background: linear-gradient(135deg, var(--md-bg1) 0%, var(--md-bg2) 100%);
     border-radius: var(--radius-lg);
     margin-bottom: var(--spacing-xl);
+    transition: --md-bg1 0.35s ease-out, --md-bg2 0.35s ease-out;
 }
+
+/* 拼写模式题干区：背景随答题状态切换（渐变风格参考 remember-meaning-display） */
+.meaning-display.meaning-correct {
+    --md-bg1: #F0FDF4;
+    --md-bg2: #DCFCE7;
+}
+.meaning-display.meaning-warning {
+    --md-bg1: #FFF9E6;
+    --md-bg2: #FFE8CC;
+}
+.meaning-display.meaning-error {
+    --md-bg1: #FEF2F2;
+    --md-bg2: #FEE2E2;
+}
+[data-theme="dark"] .meaning-display.meaning-correct {
+    --md-bg1: #14301F;
+    --md-bg2: #1A3B27;
+}
+[data-theme="dark"] .meaning-display.meaning-warning {
+    --md-bg1: #3E3520;
+    --md-bg2: #4A3F26;
+}
+[data-theme="dark"] .meaning-display.meaning-error {
+    --md-bg1: #3A1E1E;
+    --md-bg2: #461F1F;
+}
+/* 例句左侧竖线随题干背景状态着色 */
+.meaning-display.meaning-correct .example-sentence { border-left-color: var(--success); }
+.meaning-display.meaning-warning .example-sentence { border-left-color: var(--warning); }
+.meaning-display.meaning-error .example-sentence { border-left-color: var(--error); }
 
 .meaning-content {
     margin-bottom: var(--spacing-md);
@@ -4312,6 +4365,11 @@ body.nebula-word-themed .nebula-card {
     font-size: 1.125rem;
     color: var(--text-primary);
     flex: 1;
+}
+
+/* 三大练习模式释义中的词性标记（n./v./adj. …，含 a./aj./av. 等缩写）用特粗体突出 */
+.pos-strong {
+    font-weight: 800;
 }
 
 .meaning-pos {
@@ -4356,11 +4414,12 @@ body.nebula-word-themed .nebula-card {
 }
 
 .example-sentence {
-    font-size: 0.875rem;
+    font-size: 1.1rem;
     color: var(--text-secondary);
     font-style: italic;
     padding-left: var(--spacing-md);
     border-left: 3px solid var(--primary-color);
+    transition: border-left-color 0.3s ease-out;
 }
 
 /* 答错时显示的例句容器 */
@@ -4482,7 +4541,7 @@ body.nebula-word-themed .nebula-card {
 }
 
 .example-sentence-choice {
-    font-size: 0.9rem;
+    font-size: 1.1rem;
     color: var(--text-primary);
     font-style: italic;
     line-height: 1.6;
@@ -4789,7 +4848,7 @@ body.nebula-word-themed .nebula-card {
 .memory-method-title > .memory-method-content {
     flex: 1 1 auto;
     min-width: 0;
-    padding-left: 0;
+    padding-left: var(--spacing-md);
     margin: 0;
     font-size: 0.9rem;
     font-weight: 400;
@@ -5050,6 +5109,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     100% { transform: scale(1); }
 }
 
+/* 拼写模式：点击「不知道」后逐个淡入揭示完整单词。
+   仅做 opacity 动画，不使用 transform，避免与随后的音节拆分 translateX 冲突。
+   字母用「不知道」的黄橙主题色，与判「不知道」的语义一致。 */
+@keyframes letterReveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.letter-slot.reveal {
+    color: #ffa502;
+    animation: letterReveal 0.35s ease both;
+}
+
 /* 拼写模式：答对后「音节拆分」动画。
    同音节的 letter-slot 相互靠拢，使其下方短划线合并为长划线；音节之间淡入
    隔音符「·」，形成 ___·__·_____ 的长划线组合（如 per·ma·nence）。
@@ -5074,6 +5146,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 点击「不知道」后的音节拆分（揭示答案路径）：隔音符改用黄橙主题色 */
+.letter-slots.spell-revealed .syllable-dot {
+    color: #ffa502;
 }
 
 .letter-slots.syllable-splitting-show .syllable-dot {
@@ -5219,7 +5296,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 
 .stats-summary {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    /* 固定 4 列（普通练习已隐藏「正确」格，同义替换也是 4 格），保持各结算页风格一致 */
+    grid-template-columns: repeat(4, minmax(120px, 160px));
+    justify-content: center;
     gap: var(--spacing-lg);
     margin-bottom: var(--spacing-xl);
 }
@@ -5248,6 +5327,47 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     gap: var(--spacing-md);
     justify-content: center;
     flex-wrap: wrap;
+}
+
+/* 结算页低频加星提示：轻量一行，居中，紧贴操作按钮下方 */
+.star-nudge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm) var(--spacing-md);
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-lg);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.star-nudge-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.star-nudge-link:hover {
+    text-decoration: underline;
+}
+.star-nudge-close {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.78rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+.star-nudge-close:hover {
+    color: var(--primary-color);
+    background: var(--surface);
 }
 
 /* 结算页散点图：作答节奏 × 掌握程度（田字十字轴，颜色红→黄→绿） */
@@ -5291,6 +5411,30 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .cs-title i {
     color: var(--primary-color);
     margin-right: 4px;
+}
+
+/* 标题旁的图表说明入口：弱化的小图标按钮，悬停高亮 */
+.cs-help-btn {
+    border: none;
+    background: transparent;
+    padding: 2px;
+    margin-left: 2px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    line-height: 1;
+    vertical-align: middle;
+    transition: all var(--transition-fast);
+}
+.cs-help-btn i {
+    color: var(--text-secondary);
+    margin-right: 0;
+    font-size: 0.95rem;
+}
+.cs-help-btn:hover {
+    background: var(--primary-light);
+}
+.cs-help-btn:hover i {
+    color: var(--primary-color);
 }
 
 #completionScatterCanvas {
@@ -7686,6 +7830,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     width: 100%;
     min-height: 5rem;
     line-height: 1;
+}
+
+/* 词典卡片 emoji 专用容器：上下留出 --spacing-md 间距，避免 emoji 紧贴卡片边缘 */
+.workshop-app-emoji {
+    padding: var(--spacing-xl) 0;
 }
 
 /* 应用封面图标改用实际图片（已去背景，深浅主题通用） */
@@ -10591,6 +10740,49 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 #aboutModal .modal-body {
     padding: 0;
 }
+/* 关于词忆底栏：常驻加星 / 反馈入口（左提示 + 右按钮组） */
+.about-footer {
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+.about-footer-hint {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.about-footer-btns {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+.about-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: all var(--transition-fast);
+}
+.about-action:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: var(--primary-light);
+}
+.about-action-star {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+.about-action-star:hover {
+    color: #fff;
+    opacity: 0.9;
+    background: var(--primary-color);
+}
 .md-layout {
     display: flex;
     align-items: flex-start;
@@ -11846,24 +12038,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 @media (max-width: 1024px) {
-    .stats-panel {
-        display: none;
-    }
-    
-    .sidebar {
-        position: fixed;
-        left: 0;
-        top: 56px;
-        height: calc(100vh - 56px);
-        z-index: 50;
-        transform: translateX(-100%);
-     
-    }
-    
-    .sidebar.show {
-        transform: translateX(0);
-        box-shadow: var(--shadow-xl);
-    }
+    /* 769–1024（平板/窄笔记本）：沿用桌面端的「绝对定位覆盖层 + .collapsed 折叠」机制，
+       由 .edge-toggle 控制。旧代码在此区间把 .sidebar 改成 fixed + translateX(-100%)
+       （仅 .sidebar.show 可恢复，但没有任何代码添加 .show），又把 .stats-panel 直接
+       display:none，导致两侧栏都无法显示、只剩边缘箭头。≤768 的移动端抽屉规则
+       （.sidebar.show 由 .mobile-show / display:block!important 覆盖）在其后生效，不受影响。 */
 
 /* Immersive mode: hide side panels for focused experience */
 .immersive-mode .sidebar,
@@ -11907,7 +12086,12 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     
     .main-content {
         width: 100%;
-        padding: var(--spacing-md);
+        /* 保留侧栏让位内边距（--main-side-*）：星云封面靠负外边距抵消它做全宽，
+           若在此改为统一 padding 会丢失让位量，导致封面被 overflow:hidden 裁切偏移 */
+        padding-top: var(--spacing-md);
+        padding-bottom: var(--spacing-md);
+        padding-left: calc(var(--spacing-sm) + var(--main-side-left));
+        padding-right: calc(var(--spacing-sm) + var(--main-side-right));
     }
 }
 
@@ -11939,7 +12123,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .stats-summary {
-        grid-template-columns: repeat(2, 1fr);
+        /* 固定 4 列（不用 auto-fit）：配合已隐藏「正确」格的普通练习，各页保持一致 */
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        justify-content: center;
     }
     
     .letter-slot {
@@ -11988,7 +12174,8 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     }
     
     .stats-summary {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        justify-content: center;
         gap: var(--spacing-sm);
     }
     
@@ -12579,6 +12766,11 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 .current-doc-info .info-text span {
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* 同义替换/熟词僻义「单词数量」：档位选「自定义」时浮现的数字输入框 */
+.practice-count-custom {
+    margin-top: var(--spacing-sm);
 }
 
 .file-upload-area {
@@ -14622,7 +14814,7 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
 }
 
 .liyi-example-text {
-    font-size: 1rem;
+    font-size: 1.1rem;
     line-height: 1.6;
     color: var(--text-primary);
     font-style: italic;
@@ -21610,6 +21802,55 @@ body.textgame-dual-view #textGameDisplay #gameChoices .quick-reply-btn {
 .ai-picker-item-active .ai-picker-item-id {
     color: var(--primary-color);
     font-weight: 600;
+}
+
+/* 词书设置「背诵模式」：选项行两端对齐（模式名在左，Pro 开关贴最右） */
+.setting-picker-bookmode .ai-picker-item {
+    justify-content: space-between;
+}
+
+/* 词书设置「背诵模式」下拉：已选中且有 Pro 分支的模式行尾的 Pro 开关。
+   复用应用通用 switch（.switch-wrap/.switch-slider）；默认隐藏，仅鼠标悬浮到该行时浮现。 */
+.ai-picker-pro-switch {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+}
+
+.ai-picker-item:hover .ai-picker-pro-switch,
+.ai-picker-pro-switch:focus-within {
+    opacity: 1;
+    visibility: visible;
+}
+
+.ai-picker-pro-switch-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+}
+
+/* 开启态：Pro 文字用主色，开关滑块自动随 input:checked 变色 */
+.ai-picker-pro-switch.on .ai-picker-pro-switch-label {
+    color: var(--primary-color);
+}
+
+/* 下拉行内空间有限：适度缩小通用 switch，避免挤压模式名称 */
+.ai-picker-pro-switch .switch-wrap {
+    width: 34px;
+    height: 18px;
+}
+.ai-picker-pro-switch .switch-slider::before {
+    width: 14px;
+    height: 14px;
+}
+.ai-picker-pro-switch .switch-wrap input:checked + .switch-slider::before {
+    transform: translateX(16px);
 }
 
 /* 写作 / 原著榜设置弹窗内的自绘下拉（撑满整行） */

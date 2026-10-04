@@ -753,7 +753,7 @@ const AIService = {
         // JSON 模板：仅包含需要返回的字段
         const tmplFields = [];
         if (wantPhonetic) tmplFields.push(`        "phonetic": "/ɪɡˈzæmpl/"`);
-        if (wantMeaning) tmplFields.push(`        "meaning": "n. 例子；榜样 v. 举例说明; adj. 榜样性的 adv. 作为例证..."`);
+        if (wantMeaning) tmplFields.push(`        "meaning": "n. 例子；榜样，v. 举例说明; adj. 榜样性的 adv. 作为例证..."`);
         if (wantExample) tmplFields.push(`        "example": "Can you give me an example of what you mean?"`);
         if (wantCategory) tmplFields.push(`        "category": "政法与军事/国家与社会/朝代王国"`);
         const tmplJson = `[\n    {\n        "word": "example",\n${tmplFields.join(',\n')}\n    }\n]`;
@@ -822,7 +822,7 @@ Return the result in JSON format:
     {
         "word": "example",
         "phonetic": "/ɪɡˈzæmpl/",
-        "meaning": "n. 例子；榜样 v. 举例说明",
+        "meaning": "n. 例子；榜样，v. 举例说明",
         "example": "Can you give me an example of what you mean?"
     }
 ]

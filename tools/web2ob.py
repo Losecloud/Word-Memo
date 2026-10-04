@@ -42,12 +42,12 @@ ENTRY_FILE = "index - 词忆.html"
 ENGINE_FILE = "tools/browse-dict.html"
 CONTAINER_MAGIC = b"WMB1"
 
-RECITING_RAW = "https://raw.githubusercontent.com/Losecloud/reciting/main/data/"
+RECITING_RAW = "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/"
 # examples/ 整个目录不内嵌：内含示例图（两张共约 1.5MB）与大量测试样本（xlsx/pdf/mp4），
 # base64 后会把 main.js 顶过 Obsidian Sync 的单文件 5MB 上限。故打包时把样式表里对示例图的
 # 本地引用改写为仓库 raw 地址（图片已在主仓库跟踪，raw 可直连），两端因此共用同一份 CSS。
 EXAMPLES_LOCAL_REF = "../examples/"
-EXAMPLES_REMOTE_REF = "https://raw.githubusercontent.com/Losecloud/reciting/main/examples/"
+EXAMPLES_REMOTE_REF = "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/examples/"
 WORD_MEMO_RELEASE = "https://github.com/Losecloud/Obsidian-Word-Memo/releases/download/"
 # 承载超大词典（oaldpe，320MB，超出 GitHub 仓库单文件 100MB 限制）的 Release 标签
 DICT_RELEASE_TAG = "dict-v1"
@@ -68,7 +68,7 @@ DICT_CATALOG = [
         # 命名规范：中文名 + 英文名（如「优词词根 Youci Root」），label 与 name 保持一致，
         # 使 AI 工坊卡片与查词引擎显示同一名称。
         "name": "基础词典 Basic",
-        "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，作为默认兜底词库",
+        "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，默认词典",
         "icon": "🔤",
         "source": "reciting",
     },
@@ -78,7 +78,7 @@ DICT_CATALOG = [
         "label": "优词词根 Youci Root",
         "name": "优词词根 Youci Root",
         "desc": "优词词根词源词典，讲透单词的来龙去脉",
-        "icon": "🔠",
+        "icon": "🌱",
         "source": "reciting",
     },
     {
@@ -87,7 +87,7 @@ DICT_CATALOG = [
         "label": "柯林斯同义词 Collins Thesaurus",
         "name": "柯林斯同义词 Collins Thesaurus",
         "desc": "柯林斯英语同义词字典，扩展同义替换表达",
-        "icon": "📚",
+        "icon": "🔁",
         "source": "reciting",
     },
     {
@@ -96,7 +96,7 @@ DICT_CATALOG = [
         "label": "牛津同义词 Oxford Thesaurus",
         "name": "牛津同义词 Oxford Thesaurus",
         "desc": "牛津同义词词词典，辨析近义词差异",
-        "icon": "📖",
+        "icon": "⚖️",
         "source": "reciting",
     },
     {
@@ -220,6 +220,8 @@ def sync_repo_manifest():
             # 显示名优先取 catalog 的 name（如 englishwords → 基础词典），否则按文件名推导
             "name": item.get("name") or item["file"][:-len("-dict.json")],
             "varName": item["varName"],
+            # 真实字节数：查词引擎据此校验 IndexedDB 缓存，词典内容更新后自动失效、重新加载
+            "size": (ROOT / "data" / item["file"]).stat().st_size,
         })
     text = ("// 自动生成：tools/web2ob.py 按 DICT_CATALOG 同步，请勿手改\n"
             "var DICT_MANIFEST = " + json.dumps(entries, ensure_ascii=False, indent=1) + ";\n")
@@ -312,6 +314,15 @@ def collect():
 
     add_file(ROOT / ENTRY_FILE)
     add_file(ROOT / ENGINE_FILE)
+    # 查词引擎页引用的两个解析辅助脚本（<script src>）：必须随包内嵌，
+    # 否则插件内置服务下 404（MDX 导入解压/校验会失败）
+    add_file(ROOT / "tools" / "_minilzo-decompress.js")
+    add_file(ROOT / "tools" / "_ripemd128.js")
+    # 入口页的 <link rel="manifest" href="manifest.json">：内嵌后由插件服务提供，
+    # 避免 404。去掉 screenshots（该两个截图未打包，留着只会多出 404）；图标已在 static/image 内嵌
+    mf = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+    mf.pop("screenshots", None)
+    add("manifest.json", json.dumps(mf, ensure_ascii=False, indent=2).encode("utf-8"))
 
     for d in INCLUDE_DIRS:
         for p in sorted((ROOT / d).rglob("*")):
@@ -388,7 +399,7 @@ def main():
         " *\n"
         " * 可读源码：\n"
         " *   宿主逻辑  tools/word-memo/src/plugin.js\n"
-        " *   应用源码  https://github.com/Losecloud/reciting\n"
+        " *   应用源码  https://github.com/Losecloud/Word-Memo\n"
         " *   构建脚本  tools/web2ob.py（可复现本文件）\n"
         " */\n"
         "const WM_APP_VERSION = " + json.dumps(version) + ";\n"

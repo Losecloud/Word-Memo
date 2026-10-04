@@ -23,6 +23,8 @@ const Storage = {
     // 探测内置服务是否可用（幂等，只探测一次）
     initHttpBridge() {
         if (this._httpProbe) return this._httpProbe;
+        // file:// 直开：不存在内置服务（该接口仅 Obsidian 插件端提供），跳过探测避免 CORS 报错
+        if (location.protocol === 'file:') { this._httpProbe = Promise.resolve(false); return this._httpProbe; }
         this._httpProbe = fetch('/__wm__/ping', { cache: 'no-store' })
             .then((res) => res.ok)
             .catch(() => false)
@@ -148,6 +150,7 @@ const Storage = {
         'wordListColWidths',            // 浏览词单列宽
         'enabledDicts', 'knownDicts', 'dictMetas', 'browseDictCur', 'baseDictDisabled', // 词典启用/清单/首选
         'wordNotes',                    // 查词详情页「我的笔记」（按单词小写索引）
+        'noteHeightList', 'noteHeightDetail', // 「我的笔记」拖拽调节的容器高度（清单页 / 详情页各一份，互为独立）
         'writingInputDebounce', 'cefrMarkEnabled', 'aiCorrectionEnabled' // AI 工坊写作设置
     ],
     MIRROR_KEY_PREFIXES: ['aiModel_'],  // AI 各下拉上次选中的模型 ID
@@ -247,6 +250,11 @@ const Storage = {
             rawRemove(k);
             if (!self._applyingExtras && self._isMirrorKey(k)) self.scheduleExtrasMirror();
         };
+        // iframe（查词引擎页）等其它文档写入镜像键时，本页收不到 setItem 钩子，
+        // 只能靠 storage 事件感知（跨文档触发），据此补一次镜像，确保详情页笔记高度等也随配置持久化
+        window.addEventListener('storage', function (ev) {
+            if (ev && ev.key && self._isMirrorKey(ev.key)) self.scheduleExtrasMirror();
+        });
     },
 
     // 防抖同步：把当前待镜像键写入当前用户配置并落盘
