@@ -3134,15 +3134,6 @@ class WordMemoryApp {
                 this.updateSm2Panel();
             });
         }
-        // 每日到期上限：修改后立即持久化并重排（超出部分顺延次日）
-        const sm2CapInput = document.getElementById('sm2DailyCapInput');
-        if (sm2CapInput) {
-            sm2CapInput.addEventListener('change', () => {
-                if (typeof Storage.saveSm2DailyCap === 'function') Storage.saveSm2DailyCap(sm2CapInput.value);
-                this.updateSm2Panel();
-            });
-        }
-
         // 学习数据页到期单词分页：顶部页码切换
         const sm2Pager = document.getElementById('sm2DuePager');
         if (sm2Pager) {
@@ -10904,8 +10895,7 @@ ${example ? `- 例句：${example}` : ''}
             // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
             // 故当前只剩 189。这里同时给出「本轮 N · 剩余 M」，两者都明确。
-            // 剩余同样按每日上限口径（顺延部分不计入今日剩余）
-            const remaining = Storage.getDueWords({ cap: Storage.getSm2DailyCap() }).length;
+            const remaining = Storage.getDueWords().length;
             continueBtn.textContent = remaining > 0
                 ? `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${remaining})`
                 : '今日到期已复习完';
@@ -13615,12 +13605,6 @@ ${example ? `- 例句：${example}` : ''}
                     this.refreshSettingPicker(orderSel);
                 }
             }
-            // 每日到期上限：回填当前设定
-            const capInput = document.getElementById('sm2DailyCapInput');
-            if (capInput) {
-                const cap = (typeof Storage.getSm2DailyCap === 'function') ? Storage.getSm2DailyCap() : 200;
-                if (String(capInput.value) !== String(cap)) capInput.value = cap;
-            }
             const overview = Storage.getMemoryOverview();
             // 学习数据页
             document.getElementById('sm2DueToday').textContent = overview.dueToday;
@@ -13642,15 +13626,12 @@ ${example ? `- 例句：${example}` : ''}
             if (sidebarEls.avgEF) sidebarEls.avgEF.textContent = overview.avgEF;
 
             // 渲染到期单词列表（按当前复习顺序重排展示，与「开始复习」实际顺序一致）
-            // 平摊：每日到期上限（sm2DailyCap，默认 200），超出部分顺延、次日优先复习
-            const dailyCap = Storage.getSm2DailyCap();
-            const allDueOrdered = this.orderSm2DueWords(Storage.getDueWords()).words; // 全部到期单词（真实积压）
-            const overCap = Math.max(0, allDueOrdered.length - dailyCap);
-            const allDueWords = allDueOrdered.slice(0, dailyCap);
+            // 按现有到期单词量正常提醒，不设每日上限，由用户自行决定复习节奏
+            const allDueWords = this.orderSm2DueWords(Storage.getDueWords()).words; // 全部到期单词
             const list = document.getElementById('sm2DueList');
             const reviewBtn = document.getElementById('sm2StartReviewBtn');
 
-            // 「今日到期」数字：今日未完成复习→显示今日到期（上限内）；
+            // 「今日到期」数字：今日未完成复习→显示今日到期；
             // 今日已完成（无到期词）→切换为「明日预计」，显示明日到期真实量
             const dueTodayLabel = document.getElementById('sm2DueTodayLabel');
             const sidebarDueTodayLabel = document.getElementById('sidebarSm2DueTodayLabel');
@@ -13666,7 +13647,7 @@ ${example ? `- 例句：${example}` : ''}
                 if (sidebarDueTodayLabel) sidebarDueTodayLabel.textContent = '明日预计';
             } else {
                 document.getElementById('sm2DueToday').textContent = allDueWords.length;
-                document.getElementById('sm2DueToday').title = `每日上限 ${dailyCap} · 真实到期 ${allDueOrdered.length}${overCap > 0 ? ` · ${overCap} 个顺延次日` : ''}`;
+                document.getElementById('sm2DueToday').title = `今日到期 ${allDueWords.length} 个`;
                 if (dueTodayLabel) dueTodayLabel.textContent = '今日到期';
                 if (sidebarEls.dueToday) {
                     sidebarEls.dueToday.textContent = allDueWords.length;
@@ -14432,10 +14413,9 @@ ${example ? `- 例句：${example}` : ''}
     /** 开始 SM-2 艾宾浩斯复习（ahead=true 为超前练习明日到期单词） */
     startSm2Review(ahead = false) {
         // 本轮开始时全部到期单词：结算页按钮用它显示「本轮复习数/到期总数」，如 50/83
-        // 平摊：正常复习按每日上限截取；超前练习取明日到期清单
         let allDueWords = ahead
             ? Storage.getDueWords({ ahead: true })
-            : Storage.getDueWords({ cap: Storage.getSm2DailyCap() });
+            : Storage.getDueWords();
         if (allDueWords.length === 0) {
             this.showToast(ahead ? '🎉 明日也没有可提前练习的单词！' : '🎉 暂无到期需要复习的单词！', 'success');
             return;

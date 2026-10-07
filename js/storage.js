@@ -344,7 +344,6 @@ const Storage = {
                 learningData: {
                     autoSaveStats: true,
                     sm2Order: 'book',
-                    sm2DailyCap: 200, // 艾宾浩斯每日到期上限（平摊复习量，超出顺延次日）
                     todayStats: {
                         date: new Date().toDateString(),
                         time: 0,
@@ -1449,23 +1448,7 @@ const Storage = {
         return this.saveUserConfig(config);
     },
 
-    /** 艾宾浩斯每日到期上限（50-500，默认 200）：超出部分顺延、次日优先复习 */
-    getSm2DailyCap() {
-        const config = this.getUserConfig();
-        const cap = config && config.learningData ? config.learningData.sm2DailyCap : null;
-        const n = parseInt(cap, 10);
-        return (n >= 50 && n <= 500) ? n : 200;
-    },
 
-    /** 保存艾宾浩斯每日到期上限 */
-    saveSm2DailyCap(cap) {
-        const config = this.getUserConfig();
-        if (!config) return false;
-        const n = parseInt(cap, 10);
-        if (!config.learningData) config.learningData = {};
-        config.learningData.sm2DailyCap = (n >= 50 && n <= 500) ? n : 200;
-        return this.saveUserConfig(config);
-    },
 
     /**
      * SM-2 算法核心
@@ -1542,10 +1525,9 @@ const Storage = {
     },
 
     /** 获取今日到期复习的单词列表
-     *  options.ahead=true：取「明日到期」（超前练习用，排除今日已到期）
-     *  options.cap：每日到期上限（平摊复习量，超出部分顺延次日优先） */
+     *  options.ahead=true：取「明日到期」（超前练习用，排除今日已到期） */
     getDueWords(options = {}) {
-        const { bookId, limit, ahead, cap } = options;
+        const { bookId, limit, ahead } = options;
         const map = this.loadAllMemory();
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1568,10 +1550,7 @@ const Storage = {
         // 按到期时间排序（最急的先）
         results.sort((a, b) => new Date(a.memory.nextReviewDate) - new Date(b.memory.nextReviewDate));
 
-        // 每日上限：超出部分顺延（次日仍到期，按逾期最久优先自然排在前列）
-        let list = results;
-        if (cap && cap > 0 && list.length > cap) list = list.slice(0, cap);
-        return limit ? list.slice(0, limit) : list;
+        return limit ? results.slice(0, limit) : results;
     },
 
     /** 每日掌握分布快照：按当前 EF 三桶统计已记忆单词数（排除「太简单」黑名单）
