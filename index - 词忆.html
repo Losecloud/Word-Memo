@@ -4027,17 +4027,17 @@
                     <!-- 左栏：历史趋势（时间范围 + Sheet 折线图） -->
                     <div class="ld-section" id="historySection">
                         <div class="ld-section-header">
-                            <h3><svg class="svg-ic" aria-hidden="true"><use href="#ic-trend"></use></svg>历史趋势</h3>
+                            <div class="chart-sheet-tabs" id="chartSheetTabs">
+                                <button class="chart-sheet-tab active" data-sheet="ebbinghaus"><svg class="svg-ic" aria-hidden="true"><use href="#ic-brain"></use></svg>艾宾浩斯</button>
+                                <button class="chart-sheet-tab" data-sheet="time"><svg class="svg-ic" aria-hidden="true"><use href="#ic-time"></use></svg>时长</button>
+                                <button class="chart-sheet-tab" data-sheet="words"><svg class="svg-ic" aria-hidden="true"><use href="#ic-word"></use></svg>单词</button>
+                                <button class="chart-sheet-tab" data-sheet="accuracy"><svg class="svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>正确率</button>
+                            </div>
                             <div class="time-range-buttons">
-                                <button class="time-range-btn active" data-range="7">7天</button>
-                                <button class="time-range-btn" data-range="14">14天</button>
+                                <button class="time-range-btn" data-range="7">7天</button>
+                                <button class="time-range-btn active" data-range="14">14天</button>
                                 <button class="time-range-btn" data-range="30">30天</button>
                             </div>
-                        </div>
-                        <div class="chart-sheet-tabs" id="chartSheetTabs">
-                            <button class="chart-sheet-tab active" data-sheet="time"><svg class="svg-ic" aria-hidden="true"><use href="#ic-time"></use></svg>时长</button>
-                            <button class="chart-sheet-tab" data-sheet="words"><svg class="svg-ic" aria-hidden="true"><use href="#ic-word"></use></svg>单词</button>
-                            <button class="chart-sheet-tab" data-sheet="accuracy"><svg class="svg-ic" aria-hidden="true"><use href="#ic-ok"></use></svg>正确率</button>
                         </div>
                         <div class="chart-wrapper">
                             <canvas id="statsSheetChart" class="chart-canvas"></canvas>
@@ -4049,12 +4049,17 @@
                     <div class="ld-section" id="sm2Panel">
                         <div class="ld-section-header">
                             <h3><svg class="svg-ic" aria-hidden="true"><use href="#ic-brain"></use></svg>艾宾浩斯复习</h3>
-                            <span class="ld-section-hint">SM-2 智能安排</span>
+                            <select class="setting-select sm2-order-select" id="sm2OrderSelect" title="复习顺序（更改后立即生效）">
+                                <option value="book" data-icon="fi-rr-apps">按词书分组</option>
+                                <option value="overdue" data-icon="fi-rr-clock">逾期最久优先</option>
+                                <option value="ef" data-icon="fi-rr-flame">EF 低的优先</option>
+                            </select>
+                            <input type="number" class="setting-select sm2-cap-input" id="sm2DailyCapInput" min="50" max="500" step="10" title="每日到期上限（50-500，超出顺延次日优先复习）">
                         </div>
                         <div class="sm2-overview" id="sm2Overview">
                             <div class="sm2-stat">
                                 <span class="sm2-stat-num" id="sm2DueToday">0</span>
-                                <span class="sm2-stat-label">今日到期</span>
+                            <span class="sm2-stat-label" id="sm2DueTodayLabel">今日到期</span>
                             </div>
                             <div class="sm2-stat">
                                 <span class="sm2-stat-num" id="sm2Overdue">0</span>
@@ -4188,7 +4193,7 @@
                     <div class="sm2-overview">
                         <div class="sm2-stat">
                             <span class="sm2-stat-num" id="sidebarSm2DueToday">0</span>
-                            <span class="sm2-stat-label">今日到期</span>
+                            <span class="sm2-stat-label" id="sidebarSm2DueTodayLabel">今日到期</span>
                         </div>
                         <div class="sm2-stat">
                             <span class="sm2-stat-num" id="sidebarSm2Overdue">0</span>
@@ -4849,9 +4854,9 @@
                     
                 </div>
                 <div class="book-settings-mode-row">
-                    <label class="book-settings-mode-label">自动切换秒数（0.1-10，覆盖全局设定）</label>
+                    <label class="book-settings-mode-label">自动切换秒数（0.1-10；-1 为 -∞ 不切题，覆盖全局设定）</label>
                     <input type="number" class="setting-input" id="bookSettingsAutoNextTime"
-                           value="" min="0.1" max="10" step="0.1" placeholder="使用全局设置">
+                           value="" min="-1" max="10" step="0.1" placeholder="使用全局设置">
                     
                 </div>
                 <div class="book-settings-divider"></div>
@@ -6292,6 +6297,15 @@
             } catch (e) { /* 忽略 */ }
             return null;
         }
+        // 不规则变体（如 strike→struck）：前缀与主词差异大，需单列一份「可信」清单供引擎免过滤高亮
+        function dictIrregular(word) {
+            try {
+                if (window.app && typeof window.app.buildIrregularForms === 'function') {
+                    return window.app.buildIrregularForms(word);
+                }
+            } catch (e) { /* 忽略 */ }
+            return null;
+        }
         // 引擎就绪握手：主页（js/app.js 与词典数据脚本）解析较慢时，其 message 监听可能晚于
         // iframe 引擎发出的首次 ready，导致该消息被丢弃（表现为首次打开无下拉、刷新即恢复）。
         // 挂载后主动多次发送 hello，引擎就绪后会补发 ready，直至握手成功。
@@ -6913,24 +6927,28 @@
             if ((it.similar || it.reverse || it.baseFallback) && window.NebulaCover && typeof window.NebulaCover.lookup === 'function') {
                 base = window.NebulaCover.lookup(it.w);
             }
-            // 检查该单词是否已收藏（全局收藏词单或任意词书中的收藏标记），告知引擎以正确显示星标初始状态
+            // 检查该单词是否已收藏（首选自建词单 / 全局收藏 / 任意词书收藏标记），告知引擎以正确显示星标初始状态
             let favorited = false;
-            if (typeof Storage.loadFavoriteItems === 'function') {
-                const favs = Storage.loadFavoriteItems();
-                favorited = favs.some(function (f) { return f.word && f.word.toLowerCase() === it.w.toLowerCase(); });
-            }
-            if (!favorited && typeof Storage.loadBooks === 'function') {
-                const wk = it.w.toLowerCase();
-                favorited = Storage.loadBooks().some(function (book) {
-                    return book && Array.isArray(book.words) && book.words.some(function (w) {
-                        return w && w.word && w.favorite && w.word.toLowerCase() === wk;
+            if (typeof app.isWordFavorited === 'function') {
+                favorited = app.isWordFavorited(it.w);
+            } else {
+                if (typeof Storage.loadFavoriteItems === 'function') {
+                    const favs = Storage.loadFavoriteItems();
+                    favorited = favs.some(function (f) { return f.word && f.word.toLowerCase() === it.w.toLowerCase(); });
+                }
+                if (!favorited && typeof Storage.loadBooks === 'function') {
+                    const wk = it.w.toLowerCase();
+                    favorited = Storage.loadBooks().some(function (book) {
+                        return book && Array.isArray(book.words) && book.words.some(function (w) {
+                            return w && w.word && w.favorite && w.word.toLowerCase() === wk;
+                        });
                     });
-                });
+                }
             }
             const itNote = getWordNoteMeta(it.w);
             // 基础词典兜底条目（dl-dict-sim「基础词典」）：只展示基础词典本身，
             // 不再连带当前首选词典（柯林斯/词根词缀）的释义，故传 baseOnly
-            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, baseOnly: !!it.baseFallback, favorited: favorited, cands: dictCandidates(it.w), note: itNote.text, noteTs: itNote.ts });
+            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, baseOnly: !!it.baseFallback, favorited: favorited, cands: dictCandidates(it.w), irr: dictIrregular(it.w), note: itNote.text, noteTs: itNote.ts });
             input.blur();
             sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦，如由主页转交的请求）
         }
@@ -7318,10 +7336,35 @@
                 return;
             }
             if (d.type === 'favorite') {
-                // 查词详情页收藏/取消收藏单词（全局收藏词单）
+                // 查词详情页收藏/取消收藏单词
                 const word = d.word;
                 if (!word) return;
                 const key = word.toLowerCase();
+                // 首选收藏为自建词单时，收藏动作写入该词单（与主页收藏路由一致，不再写入默认收藏）
+                if (typeof app.getFavoriteTargetList === 'function' && app.getFavoriteTargetList()) {
+                    let phonetic = d.phonetic || '';
+                    let defs = null;
+                    const bk = (typeof Storage.loadBooks === 'function') ? Storage.loadBooks() : [];
+                    for (let i = 0; i < bk.length && (!phonetic || !defs); i++) {
+                        const bw = bk[i] && Array.isArray(bk[i].words) ? bk[i].words.find(function (w) { return w && w.word && w.word.toLowerCase() === key; }) : null;
+                        if (bw) {
+                            if (!phonetic) phonetic = bw.phonetic || '';
+                            if (!defs && Array.isArray(bw.definitions) && bw.definitions.length) defs = JSON.parse(JSON.stringify(bw.definitions));
+                        }
+                    }
+                    if ((!defs || !phonetic) && window.NebulaCover && typeof window.NebulaCover.lookup === 'function') {
+                        const entry = window.NebulaCover.lookup(word);
+                        if (entry) { if (!phonetic) phonetic = entry.phonetic || ''; if (!defs) defs = [{ pos: '', meaning: entry.meaning || '', example: '' }]; }
+                    }
+                    app.setFavoriteInTarget({
+                        word: word,
+                        phonetic: phonetic,
+                        definitions: defs || [{ pos: '', meaning: d.meaning || '', example: '' }],
+                        meaning: d.meaning || ''
+                    }, !!d.favorited);
+                    if (typeof app.renderBookList === 'function') app.renderBookList();
+                    return;
+                }
                 const favItems = (typeof Storage.loadFavoriteItems === 'function') ? Storage.loadFavoriteItems() : [];
                 const idx = favItems.findIndex(function (f) { return f.word && f.word.toLowerCase() === key; });
                 // 在用户已导入的所有词书中检索该单词；收藏时激活其收藏标记，取消时移除
@@ -7432,7 +7475,7 @@
                 // 引擎未就绪：缓存 open 命令，就绪后自动补发（沿用设置页 pending 机制）
                 const pend = window.__dictLookupPending || (window.__dictLookupPending = []);
                 const qNote = getWordNoteMeta(q);
-                pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q), note: qNote.text, noteTs: qNote.ts });
+                pend.push({ __dictLookup: 1, cmd: 'open', w: q, disp: disp, q: q, dict: dict, cands: dictCandidates(q), irr: dictIrregular(q), note: qNote.text, noteTs: qNote.ts });
             }
             openWord({ w: q, disp: disp, q: q, dict: dict }, true);
             // 同时检索该词，填充下拉结果列表（多本词典释义列表，首选词典优先）：

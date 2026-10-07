@@ -135,6 +135,36 @@ const IRREGULAR_WORD_FORMS = {
     'withstand': ['withstood', 'withstands', 'withstanding'],
     'foresee': ['foresaw', 'foreseen', 'foresees', 'foreseeing'],
     'beat': ['beat', 'beaten', 'beats', 'beating'],
+    'strike': ['struck', 'stricken', 'strikes', 'striking'],
+    'wake': ['woke', 'woken', 'wakes', 'waking'],
+    'awake': ['awoke', 'awoken', 'awakes', 'awaking'],
+    'weave': ['wove', 'woven', 'weaves', 'weaving'],
+    'shine': ['shone', 'shined', 'shines', 'shining'],
+    'sink': ['sank', 'sunk', 'sinks', 'sinking'],
+    'spring': ['sprang', 'sprung', 'springs', 'springing'],
+    'shrink': ['shrank', 'shrunk', 'shrinks', 'shrinking'],
+    'spin': ['spun', 'spins', 'spinning'],
+    'sling': ['slung', 'slings', 'slinging'],
+    'fling': ['flung', 'flings', 'flinging'],
+    'stink': ['stank', 'stunk', 'stinks', 'stinking'],
+    'strive': ['strove', 'striven', 'strives', 'striving'],
+    'wring': ['wrung', 'wrings', 'wringing'],
+    'spit': ['spat', 'spits', 'spitting'],
+    'sew': ['sewed', 'sewn', 'sews', 'sewing'],
+    'sow': ['sowed', 'sown', 'sows', 'sowing'],
+    'bind': ['bound', 'binds', 'binding'],
+    'bleed': ['bled', 'bleeds', 'bleeding'],
+    'cling': ['clung', 'clings', 'clinging'],
+    'lay': ['laid', 'lays', 'laying'],
+    'bear': ['bore', 'borne', 'born', 'bears', 'bearing'],
+    'forsake': ['forsook', 'forsaken', 'forsakes', 'forsaking'],
+    'shed': ['sheds', 'shedding', 'shed'],
+    'tread': ['trod', 'trodden', 'treads', 'treading'],
+    'forbear': ['forbore', 'forborne', 'forbears', 'forbearing'],
+    'foretell': ['foretold', 'foretells', 'foretelling'],
+    'outgrow': ['outgrew', 'outgrown', 'outgrows', 'outgrowing'],
+    'overdo': ['overdid', 'overdone', 'overdoes', 'overdoing'],
+    'undo': ['undid', 'undone', 'undoes', 'undoing'],
     'became': ['become'],
     'good': ['better', 'best'],
     'well': ['better', 'best'],
@@ -3093,8 +3123,25 @@ class WordMemoryApp {
 
         // ===== SM-2 艾宾浩斯复习面板事件 =====
         document.getElementById('sm2StartReviewBtn').addEventListener('click', () => {
-            this.startSm2Review();
+            this.startSm2Review(this._sm2AheadMode);
         });
+
+        // 复习顺序下拉：切换后立即持久化并重排列表（下一轮复习即按新顺序）
+        const sm2OrderSel = document.getElementById('sm2OrderSelect');
+        if (sm2OrderSel) {
+            sm2OrderSel.addEventListener('change', () => {
+                if (typeof Storage.saveSm2Order === 'function') Storage.saveSm2Order(sm2OrderSel.value);
+                this.updateSm2Panel();
+            });
+        }
+        // 每日到期上限：修改后立即持久化并重排（超出部分顺延次日）
+        const sm2CapInput = document.getElementById('sm2DailyCapInput');
+        if (sm2CapInput) {
+            sm2CapInput.addEventListener('change', () => {
+                if (typeof Storage.saveSm2DailyCap === 'function') Storage.saveSm2DailyCap(sm2CapInput.value);
+                this.updateSm2Panel();
+            });
+        }
 
         // 学习数据页到期单词分页：顶部页码切换
         const sm2Pager = document.getElementById('sm2DuePager');
@@ -6369,6 +6416,7 @@ class WordMemoryApp {
         // 首次作出判断的时刻。答题耗时只算到「判断」为止，判断之后的自动切换等待、
         // 阅读释义例句等都不计入，否则每个词都会多出 autoNextTime 秒
         this._wordAnswerT = null;
+        this._wordAnswerMode = null; // 作答瞬间的练习模式（供错误次数按模式细分）
         this._viewingLastWord = false;
         
         // 更新进度
@@ -6842,8 +6890,8 @@ class WordMemoryApp {
             this.buildProDistractorPool(word, needCount).then(pool => {
                 // 期间已切词/重新生成：丢弃迟到结果，避免覆盖新题选项
                 if (token !== this._proOptionToken) return;
-                // 基础词典在运行时取不到（未下载/被拦截）或该词形近近似词过少：退回普通随机干扰项，
-                // 绝不让选项退化为「其他含义/与该词无关的释义」的占位堆
+                // 基础词典在运行时取不到（未下载/被拦截/读取失败）：提示并降级，
+                // 关掉开关退回普通干扰项，避免每道题都白等一次异步取池
                 if (!pool) {
                     if (!this._proWarned) {
                         this._proWarned = true;
@@ -6854,6 +6902,18 @@ class WordMemoryApp {
                     const fallback = DictionaryAPI.getDistractors(word, allWords, needCount);
                     this.renderOptions(word, fallback, noCorrectAnswerIsCorrect, settingNoAnswerProb, correctAnswer);
                     return;
+                }
+                // 该词形近/近似词不足：用普通随机干扰项补齐剩余名额（仅本题补位）。
+                // 单词缺形近词 ≠ 基础词典不可用，故不关闭 Pro——
+                // 否则任一词无 pro 可选就会把刚在设置里启用的 Pro 又关掉
+                if (pool.length < needCount) {
+                    const haveMeaning = new Set(pool.map(p => p.meaning));
+                    const haveWord = new Set(pool.map(p => p.word));
+                    const extra = DictionaryAPI.getDistractors(word, allWords, needCount * 2)
+                        .filter(d => d && d.meaning
+                            && !haveMeaning.has(d.meaning)
+                            && !(d.word && haveWord.has(String(d.word).trim().toLowerCase())));
+                    pool = pool.concat(extra.slice(0, needCount - pool.length));
                 }
                 this.renderOptions(word, pool, noCorrectAnswerIsCorrect, settingNoAnswerProb, correctAnswer);
             });
@@ -6877,10 +6937,26 @@ class WordMemoryApp {
         );
     }
 
+    // 判定释义是否含词性标记（n./v./adj. …），供选项排版决定是否隐去词性
+    hasPosMarker(text) {
+        return /(?:^|[\s\u3000；;，,、。（()）【\[\]】「」『』!！?？~～—\-·:：/|&=])(?:vt|vi|vbl|adj|adv|prep|conj|pron|num|interj|aux|abbr|art|int|pl|ad|aj|av|n|v|a)\./.test(String(text == null ? '' : text));
+    }
+
+    // 隐去释义中的词性标记（含其后空格），用于「正确答案无词性时，干扰项同样不显示词性」的场景
+    stripPosMarkers(text) {
+        return String(text == null ? '' : text).replace(
+            /(^|[\s\u3000；;，,、。（()）【\[\]】「」『』!！?？~～—\-·:：/|&=])((?:vt|vi|vbl|adj|adv|prep|conj|pron|num|interj|aux|abbr|art|int|pl|ad|aj|av|n|v|a)\.)\s?/g,
+            '$1'
+        ).trim();
+    }
+
     // 渲染选项（普通随机干扰项与 Pro 形近词干扰项共用同一套排版、快捷键与"无正确答案"口径）
     renderOptions(word, distractors, noCorrectAnswerIsCorrect, settingNoAnswerProb, correctAnswer) {
         const container = document.getElementById('optionsContainer');
         container.innerHTML = '';
+
+        // 正确答案未标词性（如固定搭配词组）时，干扰项也隐去词性标记，从结构上增大分辨难度
+        const hidePos = !this.hasPosMarker(correctAnswer);
 
         // 创建释义到原词的映射
         this.meaningToWordMap = {};
@@ -6947,7 +7023,9 @@ class WordMemoryApp {
             const originalIndex = allOptions.indexOf(option);
             
             // 将换行符转换为<br>标签以支持多行显示；词性标记用特粗体突出
-            const optionText = this.boldPosHtml(option).replace(/\n/g, '<br>');
+            // 正确答案无词性时，先隐去所有选项的词性标记，再走统一的词性加粗排版
+            const shownOption = hidePos ? this.stripPosMarkers(option) : option;
+            const optionText = this.boldPosHtml(shownOption).replace(/\n/g, '<br>');
             
             // 为前4个选项（正确答案+干扰项）显示完整释义
             if (originalIndex < 4) {
@@ -7059,8 +7137,9 @@ class WordMemoryApp {
                 if (pool.length >= count) return pool;
             }
         }
-        // 候选不足（短词/生僻词）：少于 2 个真选项时题不成题，交回调用方用普通干扰项
-        return pool.length >= 2 ? pool : null;
+        // 候选不足（短词/生僻词）：如实返回（可能为空或不足 count），
+        // 由调用方用普通干扰项补齐剩余名额——仅「基础词典读不到」才返回 null
+        return pool;
     }
 
     // 把一条释义拆成用于「释义近似度」比对的词元：按标点/空格切分，去掉词性前缀，
@@ -8996,7 +9075,7 @@ ${example ? `- 例句：${example}` : ''}
                 poem: ['po', 'em'], poet: ['po', 'et'], chaos: ['cha', 'os'], museum: ['mu', 'se', 'um'],
                 marriage: ['mar', 'riage'], period: ['pe', 'ri', 'od'], theory: ['the', 'o', 'ry'],
                 various: ['var', 'i', 'ous'], idiot: ['id', 'i', 'ot'], triangle: ['tri', 'an', 'gle'],
-                iron: ['i', 'ron'], onion: ['on', 'ion'], million: ['mil', 'lion'],
+                iron: ['i', 'ron'], onion: ['on', 'ion'], million: ['mil', 'lion'],mischief: ['mis', 'chief'],
                 experience: ['ex', 'pe', 'ri', 'ence'], material: ['ma', 'te', 'ri', 'al'], cereal: ['ce', 're', 'al']
             };
         }
@@ -9715,7 +9794,8 @@ ${example ? `- 例句：${example}` : ''}
                 // 以「首次作出判断」的时刻为终点（不再用 Date.now()，否则会把判断之后的
                 // 自动切换等待、释义阅读时间也算进来，导致平均答题速度普遍偏大）
                 const endT = this._wordAnswerT || this._wordTimerPausedAt || Date.now();
-                const sec = (endT - this._wordStartT) / 1000;
+                // 兜底夹紧为非负：正常情况下起点早于终点，异常时序（如暂停/恢复）也绝不产生负数耗时
+                const sec = Math.max(0, (endT - this._wordStartT) / 1000);
                 this._answerDurations.push(sec);
                 // 同步记录「词 + 耗时」供结算页散点图使用（与耗时数组同源同序，重练同样不计入）
                 const recorded = this.sessionWords[this.currentWordIndex];
@@ -9807,6 +9887,10 @@ ${example ? `- 例句：${example}` : ''}
     _stampAnswerTime() {
         if (this._wordStartT && this._wordAnswerT === null) {
             this._wordAnswerT = Date.now();
+            // 记下作答瞬间的练习模式（select/spell/remember），供错误次数按模式细分。
+            // 统计落盘经 _deferStatsAfterAnswer 延迟执行，彼时 currentMode 可能已变，
+            // 故以作答时刻为准。
+            this._wordAnswerMode = this.currentMode;
         }
         // 作答同时冻结答题进度读条：保留「答题时间到此为止」的填充状态（仍呼吸）
         this._freezeAnswerFill();
@@ -9884,7 +9968,12 @@ ${example ? `- 例句：${example}` : ''}
     // 恢复当前单词答题计时
     resumeWordTiming() {
         if (this._wordTimerPausedAt) {
-            this._wordStartT += Date.now() - this._wordTimerPausedAt;
+            // 仅在「尚未作答」时把暂停区间补偿回起始时间：
+            // 已作答后计时终点已由 _wordAnswerT 定格（在作答那一刻），若此时再平移 _wordStartT，
+            // 会把起点推到终点之后，算出负数平均耗时（如 -0.4s）。作答后的暂停/恢复不应再影响本题耗时。
+            if (this._wordAnswerT === null) {
+                this._wordStartT += Date.now() - this._wordTimerPausedAt;
+            }
             this._wordTimerPausedAt = null;
         }
     }
@@ -9928,8 +10017,8 @@ ${example ? `- 例句：${example}` : ''}
         document.getElementById('currentIndex').textContent = Math.min(current, total);
         document.getElementById('totalWords').textContent = total;
 
-        // 计算正确率
-        const attempted = this.sessionResults.correct + this.sessionResults.wrong;
+        // 计算正确率（「不记得/不知道」等警告结果按错误计入，与结算/历史统计口径一致）
+        const attempted = this.sessionResults.correct + this.sessionResults.wrong + this.sessionResults.unknown;
         const accuracy = attempted > 0 ? Math.round((this.sessionResults.correct / attempted) * 100) : 0;
         document.getElementById('accuracy').textContent = `${accuracy}%`;
 
@@ -10125,6 +10214,11 @@ ${example ? `- 例句：${example}` : ''}
         // 初始化统计字段
         if (!wordInBook.totalAttempts) wordInBook.totalAttempts = 0;
         if (!wordInBook.wrongTimes) wordInBook.wrongTimes = 0;
+        // 错误次数按练习模式细分：选错 select / 拼错 spell / 忘记 remember
+        // （存量数据由 Storage.migrateWrongByMode 一次性归类）
+        if (!wordInBook.wrongByMode || typeof wordInBook.wrongByMode !== 'object') {
+            wordInBook.wrongByMode = { select: 0, spell: 0, remember: 0 };
+        }
         
         // 更新总练习次数
         wordInBook.totalAttempts += 1;
@@ -10133,6 +10227,10 @@ ${example ? `- 例句：${example}` : ''}
         if (!isCorrect) {
             wordInBook.wrongTimes += 1;
             wordInBook.lastWrongDate = Date.now();
+            // 按作答瞬间的练习模式累加到对应桶（未捕获到时回退当前模式）
+            const modeKey = this._wordAnswerMode || this.currentMode || 'select';
+            const bucketKey = (modeKey === 'spell' || modeKey === 'remember') ? modeKey : 'select';
+            wordInBook.wrongByMode[bucketKey] = (wordInBook.wrongByMode[bucketKey] || 0) + 1;
         }
         
         // 记录更新后的状态
@@ -10152,6 +10250,7 @@ ${example ? `- 例句：${example}` : ''}
         word.totalAttempts = wordInBook.totalAttempts;
         word.wrongTimes = wordInBook.wrongTimes;
         word.lastWrongDate = wordInBook.lastWrongDate;
+        word.wrongByMode = { ...wordInBook.wrongByMode };
         
         // 实时更新显示
         this.updateWordStatsDisplay(word);
@@ -10161,6 +10260,27 @@ ${example ? `- 例句：${example}` : ''}
         
         const mode = this.isReviewMode ? '复习' : '学习';
         console.log(`📊 [${mode}] "${word.word}" ${isCorrect ? '✓答对' : '✗答错'} | 练习 ${beforeAttempts}→${afterAttempts}次 | 错误 ${beforeWrong}→${afterWrong}次 | 正确率${accuracyRate}%`);
+    }
+
+    // 读取单词的「按模式细分错误次数」，归一为 {select, spell, remember}
+    // 选错=select（看单词选释义）/ 拼错=spell（看释义拼单词）/ 忘记=remember（记得么）
+    getWrongByMode(word) {
+        const m = (word && typeof word.wrongByMode === 'object' && word.wrongByMode) || {};
+        return {
+            select: m.select || 0,
+            spell: m.spell || 0,
+            remember: m.remember || 0
+        };
+    }
+
+    // 细分错误次数的展示文案：形如「选错 5 · 拼错 2 · 忘记 1」，全为 0 返回空串
+    wrongByModeText(word) {
+        const m = this.getWrongByMode(word);
+        const parts = [];
+        if (m.select) parts.push(`选错 ${m.select}`);
+        if (m.spell) parts.push(`拼错 ${m.spell}`);
+        if (m.remember) parts.push(`忘记 ${m.remember}`);
+        return parts.join(' · ');
     }
 
     // 累积单词的平均练习时间（按模式系数折算为「联想时间」）
@@ -10784,7 +10904,8 @@ ${example ? `- 例句：${example}` : ''}
             // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
             // 故当前只剩 189。这里同时给出「本轮 N · 剩余 M」，两者都明确。
-            const remaining = Storage.getDueWords().length;
+            // 剩余同样按每日上限口径（顺延部分不计入今日剩余）
+            const remaining = Storage.getDueWords({ cap: Storage.getSm2DailyCap() }).length;
             continueBtn.textContent = remaining > 0
                 ? `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${remaining})`
                 : '今日到期已复习完';
@@ -11324,6 +11445,31 @@ ${example ? `- 例句：${example}` : ''}
         }, 1000);
     }
 
+    // 复用单一 <audio> 元素做发音播放：避免长会话（尤其边学边练数小时）中
+    // 每个单词都 new Audio() 累积解码缓冲/挂起请求，最终把渲染进程内存顶爆而灰屏
+    _ttsAudio() {
+        if (!this._ttsAudioEl) {
+            this._ttsAudioEl = new Audio();
+            this._ttsAudioEl.preload = 'auto';
+        }
+        return this._ttsAudioEl;
+    }
+
+    // 停止并释放当前发音音频：清空 src 促使底层缓冲与未完成请求被回收
+    // （不调用 load()，避免以空 src 触发一次会误伤新回调的 error 事件）
+    _stopCurrentAudio() {
+        [this.currentLocalAudio, this.currentEdgeAudio].forEach((a) => {
+            if (!a) return;
+            try {
+                a.oncanplay = a.onerror = a.onended = null;
+                a.pause();
+                a.removeAttribute('src');
+            } catch (e) { /* 忽略 */ }
+        });
+        this.currentLocalAudio = null;
+        this.currentEdgeAudio = null;
+    }
+
     // 播放发音（用于学习模式）
     playSound() {
         const word = this.sessionWords[this.currentWordIndex];
@@ -11427,18 +11573,11 @@ ${example ? `- 例句：${example}` : ''}
         return new Promise((resolve) => {
             const w = String(wordText || '').trim().toLowerCase();
             if (!w) { resolve(false); return; }
-            if (this.currentLocalAudio) {
-                this.currentLocalAudio.pause();
-                this.currentLocalAudio = null;
-            }
-            if (this.currentEdgeAudio) {
-                this.currentEdgeAudio.pause();
-                this.currentEdgeAudio = null;
-            }
+            this._stopCurrentAudio();
             const c = /[a-z]/.test(w[0]) ? w[0] : 'misc';
             const name = w.replace(/[\\/:*?"<>|]/g, '_');
             const url = 'static/audio/' + c + '/' + name + '.mp3';
-            const audio = new Audio();
+            const audio = this._ttsAudio();
             let settled = false;
             const timer = setTimeout(() => {   // 加载超时视为文件不存在，回退
                 if (!settled) { settled = true; cleanup(); resolve(false); }
@@ -11538,10 +11677,7 @@ ${example ? `- 例句：${example}` : ''}
     // Edge 在线神经语音（本地网关 http://127.0.0.1:8890，由 tools/edge-tts-server.py 提供）
     edgeSpeak(wordText, callbacks) {
         try {
-            if (this.currentEdgeAudio) {
-                this.currentEdgeAudio.pause();
-                this.currentEdgeAudio = null;
-            }
+            this._stopCurrentAudio();
             if (!wordText) return;
             const accent = this.settings.voiceAccent || 'en-US';
             // 当前口音对应的 Edge 语音池（用于自动选择与随机）
@@ -11566,14 +11702,15 @@ ${example ? `- 例句：${example}` : ''}
             const url = EDGE_TTS_GATEWAY + '/tts?voice=' + encodeURIComponent(v) +
                 '&text=' + encodeURIComponent(wordText) +
                 '&rate=' + encodeURIComponent((ratePct >= 0 ? '+' : '') + ratePct + '%');
-            const audio = new Audio(url);
+            const audio = this._ttsAudio();
             this.currentEdgeAudio = audio;
             let failed = false; // 防抖：onerror 与 play().catch 可能同时触发，避免重复回退/重复朗读
             const fail = () => {
                 if (failed) return;
                 failed = true;
+                try { audio.removeAttribute('src'); } catch (e) { /* 忽略 */ }
                 if (callbacks && callbacks.onError) callbacks.onError();
-                this.currentEdgeAudio = null;
+                if (this.currentEdgeAudio === audio) this.currentEdgeAudio = null;
                 console.warn('❌ Edge 在线发音失败，回退系统语音:', wordText);
                 this._systemSpeak(wordText);
             };
@@ -11582,6 +11719,7 @@ ${example ? `- 例句：${example}` : ''}
                 if (this.currentEdgeAudio === audio) this.currentEdgeAudio = null;
                 if (callbacks && callbacks.onEnd) callbacks.onEnd();
             };
+            audio.src = url;
             audio.play().then(() => {
                 // 音频加载完成并开始播放：通知"即将播放"，可切回发音图标
                 if (callbacks && callbacks.onReady) callbacks.onReady();
@@ -13440,9 +13578,49 @@ ${example ? `- 例句：${example}` : ''}
 
     // ===== SM-2 艾宾浩斯复习面板 =====
 
+    /** 按当前复习顺序整理到期单词列表（面板展示与实际复习同源，保证「下拉更改后立即重排」）
+     *  book＝按词书分组（组内逾期最久优先）；overdue＝全局逾期最久优先；ef＝EF 由低到高 */
+    orderSm2DueWords(words) {
+        const mode = (typeof Storage.getSm2Order === 'function') ? Storage.getSm2Order() : 'book';
+        const arr = (words || []).slice();
+        if (mode === 'ef') {
+            arr.sort((a, b) => {
+                const ea = (a.memory && a.memory.ef) || 2.5;
+                const eb = (b.memory && b.memory.ef) || 2.5;
+                if (ea !== eb) return ea - eb; // EF 低的在前
+                return new Date(a.memory.nextReviewDate) - new Date(b.memory.nextReviewDate); // 同 EF 再比逾期
+            });
+        } else if (mode === 'book') {
+            // 先取到期顺序，再按词书首次出现顺序分组，使同词书的词相邻
+            const byBook = new Map();
+            arr.forEach(it => {
+                if (!byBook.has(it.bookId)) byBook.set(it.bookId, []);
+                byBook.get(it.bookId).push(it);
+            });
+            return { mode, words: Array.from(byBook.values()).flat() };
+        }
+        // overdue：沿用 getDueWords 的到期时间升序＝逾期最久优先
+        return { mode, words: arr };
+    }
+
     /** 更新 SM-2 复习面板（学习数据页 + 侧边栏） */
     updateSm2Panel() {
         try {
+            // 复习顺序下拉：回填当前设定（自绘触发器文字需手动同步）
+            const orderSel = document.getElementById('sm2OrderSelect');
+            if (orderSel) {
+                const cur = (typeof Storage.getSm2Order === 'function') ? Storage.getSm2Order() : 'book';
+                if (orderSel.value !== cur) {
+                    orderSel.value = cur;
+                    this.refreshSettingPicker(orderSel);
+                }
+            }
+            // 每日到期上限：回填当前设定
+            const capInput = document.getElementById('sm2DailyCapInput');
+            if (capInput) {
+                const cap = (typeof Storage.getSm2DailyCap === 'function') ? Storage.getSm2DailyCap() : 200;
+                if (String(capInput.value) !== String(cap)) capInput.value = cap;
+            }
             const overview = Storage.getMemoryOverview();
             // 学习数据页
             document.getElementById('sm2DueToday').textContent = overview.dueToday;
@@ -13463,27 +13641,77 @@ ${example ? `- 例句：${example}` : ''}
             if (sidebarEls.totalWords) sidebarEls.totalWords.textContent = overview.totalWords;
             if (sidebarEls.avgEF) sidebarEls.avgEF.textContent = overview.avgEF;
 
-            // 渲染到期单词列表
-            const allDueWords = Storage.getDueWords(); // 全部到期单词：按钮显示真实待复习数量
+            // 渲染到期单词列表（按当前复习顺序重排展示，与「开始复习」实际顺序一致）
+            // 平摊：每日到期上限（sm2DailyCap，默认 200），超出部分顺延、次日优先复习
+            const dailyCap = Storage.getSm2DailyCap();
+            const allDueOrdered = this.orderSm2DueWords(Storage.getDueWords()).words; // 全部到期单词（真实积压）
+            const overCap = Math.max(0, allDueOrdered.length - dailyCap);
+            const allDueWords = allDueOrdered.slice(0, dailyCap);
             const list = document.getElementById('sm2DueList');
             const reviewBtn = document.getElementById('sm2StartReviewBtn');
 
+            // 「今日到期」数字：今日未完成复习→显示今日到期（上限内）；
+            // 今日已完成（无到期词）→切换为「明日预计」，显示明日到期真实量
+            const dueTodayLabel = document.getElementById('sm2DueTodayLabel');
+            const sidebarDueTodayLabel = document.getElementById('sidebarSm2DueTodayLabel');
+            const aheadOrdered = this.orderSm2DueWords(Storage.getDueWords({ ahead: true })).words;
+            if (allDueWords.length === 0 && aheadOrdered.length > 0) {
+                document.getElementById('sm2DueToday').textContent = aheadOrdered.length;
+                document.getElementById('sm2DueToday').title = `明日预计到期 ${aheadOrdered.length} 个`;
+                if (dueTodayLabel) dueTodayLabel.textContent = '明日预计';
+                if (sidebarEls.dueToday) {
+                    sidebarEls.dueToday.textContent = aheadOrdered.length;
+                    sidebarEls.dueToday.title = document.getElementById('sm2DueToday').title;
+                }
+                if (sidebarDueTodayLabel) sidebarDueTodayLabel.textContent = '明日预计';
+            } else {
+                document.getElementById('sm2DueToday').textContent = allDueWords.length;
+                document.getElementById('sm2DueToday').title = `每日上限 ${dailyCap} · 真实到期 ${allDueOrdered.length}${overCap > 0 ? ` · ${overCap} 个顺延次日` : ''}`;
+                if (dueTodayLabel) dueTodayLabel.textContent = '今日到期';
+                if (sidebarEls.dueToday) {
+                    sidebarEls.dueToday.textContent = allDueWords.length;
+                    sidebarEls.dueToday.title = document.getElementById('sm2DueToday').title;
+                }
+                if (sidebarDueTodayLabel) sidebarDueTodayLabel.textContent = '今日到期';
+            }
+
             if (allDueWords.length === 0) {
+                const pager = document.getElementById('sm2DuePager');
+                if (pager) pager.style.display = 'none';
+                // 超前练习：今日无到期词时，开放「明日到期」清单（最多 50 个）供提前复习
+                const aheadWords = aheadOrdered.slice(0, 50);
+                this._sm2AheadMode = aheadWords.length > 0;
+                this._sm2AllDue = aheadWords;
+                if (aheadWords.length > 0) {
+                    // 清单上方渲染提示（悬浮显示明日真实量，供有提前复习意愿的用户）
+                    const emptyHtml = `<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:0.75rem;" title="明日还有 ${aheadOrdered.length} 个单词到期，可提前练习（本轮最多 50 个）">🎉 暂无到期复习的单词</div>`;
+                    list.innerHTML = emptyHtml;
+                    reviewBtn.disabled = false;
+                    reviewBtn.textContent = `提前练习明日单词 (${aheadOrdered.length})`;
+                    reviewBtn.title = '今日暂无到期单词：提前复习明日到期的单词';
+                    // 侧边栏
+                    if (sidebarEls.dueList) sidebarEls.dueList.innerHTML = emptyHtml;
+                    if (sidebarEls.reviewBtn) { sidebarEls.reviewBtn.disabled = false; sidebarEls.reviewBtn.textContent = `提前练习明日 (${aheadOrdered.length})`; sidebarEls.reviewBtn.title = reviewBtn.title; }
+                    this.renderSm2DuePage();
+                    list.insertAdjacentHTML('afterbegin', emptyHtml);
+                    return;
+                }
                 const emptyHtml = '<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:0.75rem;">🎉 暂无到期复习的单词</div>';
                 list.innerHTML = emptyHtml;
                 reviewBtn.disabled = true;
                 reviewBtn.textContent = '暂无到期复习';
-                const pager = document.getElementById('sm2DuePager');
-                if (pager) pager.style.display = 'none';
+                reviewBtn.title = '';
                 // 侧边栏
                 if (sidebarEls.dueList) sidebarEls.dueList.innerHTML = emptyHtml;
-                if (sidebarEls.reviewBtn) { sidebarEls.reviewBtn.disabled = true; sidebarEls.reviewBtn.textContent = '暂无到期复习'; }
+                if (sidebarEls.reviewBtn) { sidebarEls.reviewBtn.disabled = true; sidebarEls.reviewBtn.textContent = '暂无到期复习'; sidebarEls.reviewBtn.title = ''; }
                 return;
             }
 
+            this._sm2AheadMode = false;
             reviewBtn.disabled = false;
             reviewBtn.textContent = `开始复习到期单词 (${allDueWords.length})`;
-            if (sidebarEls.reviewBtn) { sidebarEls.reviewBtn.disabled = false; sidebarEls.reviewBtn.textContent = `开始复习到期单词 (${allDueWords.length})`; }
+            reviewBtn.title = '';
+            if (sidebarEls.reviewBtn) { sidebarEls.reviewBtn.disabled = false; sidebarEls.reviewBtn.textContent = `开始复习到期单词 (${allDueWords.length})`; sidebarEls.reviewBtn.title = ''; }
 
             // 学习数据页：分页展示（每页 10 个完整显示），顶部页码切换
             this._sm2AllDue = allDueWords;
@@ -14201,17 +14429,25 @@ ${example ? `- 例句：${example}` : ''}
         }
     }
 
-    /** 开始 SM-2 艾宾浩斯复习 */
-    startSm2Review() {
+    /** 开始 SM-2 艾宾浩斯复习（ahead=true 为超前练习明日到期单词） */
+    startSm2Review(ahead = false) {
         // 本轮开始时全部到期单词：结算页按钮用它显示「本轮复习数/到期总数」，如 50/83
-        const allDueWords = Storage.getDueWords();
-        const dueWords = allDueWords.slice(0, 50); // 每轮上限 50 个
-        if (dueWords.length === 0) {
-            this.showToast('🎉 暂无到期需要复习的单词！', 'success');
+        // 平摊：正常复习按每日上限截取；超前练习取明日到期清单
+        let allDueWords = ahead
+            ? Storage.getDueWords({ ahead: true })
+            : Storage.getDueWords({ cap: Storage.getSm2DailyCap() });
+        if (allDueWords.length === 0) {
+            this.showToast(ahead ? '🎉 明日也没有可提前练习的单词！' : '🎉 暂无到期需要复习的单词！', 'success');
             return;
         }
+        // 复习顺序（学习数据页艾宾浩斯面板可切换，默认按词书分组）：
+        // book＝按词书分组（组内逾期最久优先）；overdue＝全局逾期最久优先；ef＝EF 由低到高（越易忘越先）
+        const ordered = this.orderSm2DueWords(allDueWords);
+        const orderMode = ordered.mode;
+        allDueWords = ordered.words; // 排序先于截断：不同顺序会挑出不同的本轮 50 个词
+        const dueWords = allDueWords.slice(0, 50); // 每轮上限 50 个
 
-        // 按词书分组，优先复习逾期最久的
+        // 按词书分组（仅 book 模式），优先复习逾期最久的
         const byBook = {};
         dueWords.forEach(item => {
             if (!byBook[item.bookId]) byBook[item.bookId] = [];
@@ -14221,7 +14457,8 @@ ${example ? `- 例句：${example}` : ''}
         // 构建复习单词列表
         const reviewWords = [];
         const seen = new Set();
-        for (const items of Object.values(byBook)) {
+        const groups = orderMode === 'book' ? Object.values(byBook) : [dueWords];
+        for (const items of groups) {
             for (const item of items) {
                 const key = `${item.bookId}:${item.word}`;
                 if (seen.has(key)) continue;
@@ -14464,6 +14701,11 @@ ${example ? `- 例句：${example}` : ''}
             const t = merged[at];
             t.totalAttempts = (t.totalAttempts || 0) + (w.totalAttempts || 0);
             t.wrongTimes = (t.wrongTimes || 0) + (w.wrongTimes || 0);
+            // 按模式细分的错误次数同样累加（三桶分别求和）
+            ['select', 'spell', 'remember'].forEach(k => {
+                t.wrongByMode = t.wrongByMode || { select: 0, spell: 0, remember: 0 };
+                t.wrongByMode[k] = (t.wrongByMode[k] || 0) + ((w.wrongByMode || {})[k] || 0);
+            });
             const tc1 = t.timeCount || 0, tc2 = w.timeCount || 0;
             if (tc1 + tc2 > 0) {
                 t.avgTime = ((t.avgTime || 0) * tc1 + (w.avgTime || 0) * tc2) / (tc1 + tc2);
@@ -16816,7 +17058,7 @@ ${example ? `- 例句：${example}` : ''}
                     book.answerTimeLimit = (isNaN(n) || n <= 0) ? undefined : n;
                 }
 
-                // 保存词书独有自动切换秒数（空字符串 = 未设置，使用全局；限定 0.1-10）
+                // 保存词书独有自动切换秒数（空字符串 = 未设置，使用全局；负值统一记为 -1 表示 -∞ 不自动切换，其余夹在 0.1-10）
                 const antInput = document.getElementById('bookSettingsAutoNextTime');
                 if (antInput) {
                     const antVal = antInput.value.trim();
@@ -16824,7 +17066,7 @@ ${example ? `- 例句：${example}` : ''}
                         delete book.autoNextTime;
                     } else {
                         const n = parseFloat(antVal);
-                        book.autoNextTime = isNaN(n) ? undefined : Math.min(10, Math.max(0.1, n));
+                        book.autoNextTime = isNaN(n) ? undefined : (n < 0 ? -1 : Math.min(10, Math.max(0.1, n)));
                     }
                 }
 
@@ -17304,9 +17546,12 @@ ${example ? `- 例句：${example}` : ''}
             if (totalAttempts > 0) {
                 const correctTimes = totalAttempts - (word.wrongTimes || 0);
                 const accuracy = Math.round((correctTimes / totalAttempts) * 100);
+                const modesText = this.wrongByModeText(word);
                 accuracyCell.innerHTML = `<span class="wl-accuracy">${accuracy}%</span>`
-                    + `<span class="wl-accuracy-detail">(${correctTimes}/${totalAttempts})</span>`;
-                accuracyCell.title = `正确 ${correctTimes} 次 / 共练 ${totalAttempts} 次`;
+                    + `<span class="wl-accuracy-detail">(${correctTimes}/${totalAttempts})</span>`
+                    + (modesText ? `<div class="wl-accuracy-modes">${modesText}</div>` : '');
+                accuracyCell.title = `正确 ${correctTimes} 次 / 共练 ${totalAttempts} 次`
+                    + (modesText ? `\n${modesText}` : '');
             } else {
                 accuracyCell.innerHTML = '<span class="word-list-sim-empty">-</span>';
             }
@@ -20951,6 +21196,13 @@ Each option must include an "impact" field. IMPORTANT for this FIRST round only:
         if (irregular) irregular.forEach(f => cands.add(f));
 
         return Array.from(cands);
+    }
+
+    // 返回单词的不规则变体（如 strike→struck），供词典引擎免于「同前缀」过滤而统一高亮
+    buildIrregularForms(word) {
+        if (!word) return [];
+        const w = String(word).trim().toLowerCase();
+        return IRREGULAR_WORD_FORMS[w] ? IRREGULAR_WORD_FORMS[w].slice() : [];
     }
 
     // 高亮文本中的关键词及其词形/词性变化形式（返回 HTML，使用 keyword-highlight 样式）
@@ -34221,9 +34473,9 @@ But little did she know, this was just the beginning of an extraordinary journey
         // 概要四卡与时间范围无关，打开时独立刷新一次
         this.updateStatsSummary();
 
-        // 默认显示最近7天数据（在艾宾浩斯面板渲染后绘制，确保折线图按最终容器高度最大化显示）
-        this.currentChartRange = 7;
-        this.updateCharts(7);
+        // 默认显示最近14天数据（在艾宾浩斯面板渲染后绘制，确保折线图按最终容器高度最大化显示）
+        this.currentChartRange = 14;
+        this.updateCharts(14);
 
         // 添加窗口大小变化监听器
         if (!this.chartResizeListener) {
@@ -34248,9 +34500,492 @@ But little did she know, this was just the beginning of an extraordinary journey
         console.log('✅ 关闭历史统计图表');
     }
 
-    // 更新图表数据（单卡 Sheet 模式：时长/单词/正确率共用一张图）
+    // ===== 艾宾浩斯合成图：掌握分布（堆叠柱）× 平均预测保持率（副轴） =====
+    // 阈值对齐 SM-2 基准 2.5：掌握 ≥2.5 / 模糊 2.0–2.5 / 薄弱 <2.0
+    _efBucketOf(ef) {
+        const v = (ef == null) ? 2.5 : ef;
+        if (v >= 2.5) return 'strong';
+        if (v >= 2.0) return 'fuzzy';
+        return 'weak';
+    }
+
+    // 预计算单个单词的「EF / 稳定性」时间线：由当前 EF 沿 history 反推每次复习后的状态。
+    // history 未存练习模式，反推时 EF 增量权重按 1.0 近似（选义 0.5 / 拼写 1.2 不可知）。
+    _prepareWordTimeline(mem) {
+        const hist = (mem && Array.isArray(mem.history)) ? mem.history.slice() : [];
+        hist.sort((a, b) => new Date(a.date) - new Date(b.date));
+        const n = hist.length;
+        const dates = hist.map(h => new Date(h.date).getTime());
+        // 反推：efsAfter[i] = 第 i 次复习后的 EF（由当前 EF 逆着扣掉质量增量）
+        const efsAfter = new Array(n);
+        let ef = (mem && mem.ef != null) ? mem.ef : 2.5;
+        for (let i = n - 1; i >= 0; i--) {
+            efsAfter[i] = ef;
+            const q = (hist[i].quality != null) ? hist[i].quality : 4;
+            const d = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02);
+            ef = Math.max(1.3, Math.min(3.0, ef - d));
+        }
+        // 稳定性 S 代理＝间隔：history[i].interval 记的其实是「本次复习前」的间隔，
+        // 故复习 i 之后的间隔 = history[i+1].interval，末次复习后用当前 mem.interval
+        const ivAfter = new Array(n);
+        for (let i = 0; i < n; i++) {
+            ivAfter[i] = (i + 1 < n) ? (hist[i + 1].interval || 0) : ((mem && mem.interval) || 0);
+        }
+        return {
+            dates, efsAfter, ivAfter,
+            efBeforeFirst: ef,
+            ivBeforeFirst: n ? (hist[0].interval || 0) : ((mem && mem.interval) || 0)
+        };
+    }
+
+    // 单词在某个「日结束」时刻的记忆状态（EF / 稳定性 S / 末次复习时刻）
+    // exists＝该日之前是否已首次复习：未出现的日子返回 false，供调用方跳过统计，
+    // 使历史总量随学习进度增长，而非把「今天才有的词」塞回过去造成柱高恒定
+    _wordStateAt(tl, dayEndTs) {
+        const { dates, efsAfter, ivAfter } = tl;
+        let idx = -1;
+        for (let i = 0; i < dates.length; i++) {
+            if (dates[i] <= dayEndTs) idx = i; else break;
+        }
+        if (idx < 0) return { exists: false, ef: tl.efBeforeFirst, S: tl.ivBeforeFirst, lastTs: null };
+        return { exists: true, ef: efsAfter[idx], S: ivAfter[idx], lastTs: dates[idx] };
+    }
+
+    /** 构建艾宾浩斯时间轴：左侧历史 + 今天居中 + 右侧未来预测（假设此后不再复习的纯遗忘衰减）。
+     *  历史优先采用每日三桶快照（精确），无快照的日子用 history 反推；保持率始终由记忆状态推算。 */
+    buildEbbinghausTimeline(rangeDays) {
+        const DAY = 86400000;
+        const N = Math.max(1, rangeDays | 0);
+        const left = Math.floor(N / 2);
+        const right = N - 1 - left; // 今天居中（取整导致右侧可能多 1 天）
+
+        const memMap = Storage.loadAllMemory();
+        const timelines = [];
+        for (const key of Object.keys(memMap)) {
+            const mem = memMap[key];
+            if (!mem || mem.blacklist) continue; // 「太简单」的词不再参与学习，排除
+            timelines.push(this._prepareWordTimeline(mem));
+        }
+        const snapByDate = {};
+        try {
+            (Storage.loadStatsHistory() || []).forEach(it => {
+                if (it && it.date && it.efBuckets) snapByDate[it.date] = it.efBuckets;
+            });
+        } catch (e) { /* 忽略 */ }
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const pts = [];
+        for (let off = -left; off <= right; off++) {
+            const dStart = new Date(todayStart.getTime() + off * DAY);
+            const dayEndTs = dStart.getTime() + DAY - 1;
+            let strong = 0, fuzzy = 0, weak = 0, rSum = 0, rCnt = 0;
+            for (const tl of timelines) {
+                const st = this._wordStateAt(tl, dayEndTs);
+                if (!st.exists) continue; // 该词此日尚未首次学习，不计入当日掌握分布
+                const b = this._efBucketOf(st.ef);
+                if (b === 'strong') strong++; else if (b === 'fuzzy') fuzzy++; else weak++;
+                if (st.lastTs != null) {
+                    const S = Math.max(1, st.S);
+                    const t = Math.max(0, (dayEndTs - st.lastTs) / DAY);
+                    rSum += 1 / (1 + t / (9 * S)); // FSRS 式保持率：t=S 时约 0.9
+                    rCnt++;
+                }
+            }
+            // 历史段（过去日子）命中每日快照则采用（精确）；未来段不用快照（本就不存在）
+            // 「今天」不采用快照：快照每日仅存一次，练习后不会刷新，
+            // 会让图表「已学」滞后于右侧面板（同步实时统计），故今天一律用实时计算
+            const snap = (off < 0) ? snapByDate[dStart.toDateString()] : null;
+            if (snap) {
+                strong = snap.strong || 0; fuzzy = snap.fuzzy || 0; weak = snap.weak || 0;
+            }
+            pts.push({
+                label: `${dStart.getMonth() + 1}/${dStart.getDate()}`,
+                off, strong, fuzzy, weak,
+                total: strong + fuzzy + weak,
+                retention: rCnt ? (rSum / rCnt) : null
+            });
+        }
+        return { pts, todayIdx: left };
+    }
+
+    /** 绘制艾宾浩斯合成图：堆叠柱（掌握/模糊/薄弱，绝对词数）+ 副轴（平均预测保持率）
+     *  今天居中并以竖线分隔：左侧实心＝历史，右侧虚线＝未来预测 */
+    drawEbbinghausChart(canvasId, tl, hoverIdx) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        // 折线图用 addEventListener 注册 mousemove/mouseleave，不会被本图的 canvas.onmousemove 覆盖；
+        // 从时长/单词/正确率切到本图后，残留的折线图监听会在悬浮时把折线图重绘盖掉本图，故先移除
+        const lk = `${canvasId}_mousemove`;
+        if (this.chartEventListeners && this.chartEventListeners[lk]) {
+            canvas.removeEventListener('mousemove', this.chartEventListeners[lk]);
+            canvas.removeEventListener('mouseleave', this.chartEventListeners[`${lk}_leave`]);
+            delete this.chartEventListeners[lk];
+            delete this.chartEventListeners[`${lk}_leave`];
+        }
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const W = rect.width, H = rect.height;
+        ctx.clearRect(0, 0, W, H);
+
+        const style = getComputedStyle(document.documentElement);
+        const cssVar = n => (style.getPropertyValue(n) || '').trim();
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const cText = cssVar('--text-secondary') || '#6B7280';
+        const cTextTertiary = cssVar('--text-tertiary') || '#9CA3AF';
+        const cGrid = cssVar('--border-color') || '#E5E7EB';
+        const cPrimary = cssVar('--primary-color') || '#4a9d9a';
+        // 配色统一走词忆主题色：掌握=primary / 模糊=primary-emphasis / 薄弱=primary-emphasis 50% / 保持率=primary-deep
+        const C_STRONG = cssVar('--primary-color') || '#4a9d9a';
+        const C_FUZZY = cssVar('--primary-emphasis') || '#19aca4';
+        const C_WEAK = cssVar('--primary-emphasis') || '#19aca4';
+        // 保持率＝深色模式用 primary-emphasis（深色底上更亮更清晰），浅色模式用 primary-deep；
+        // 该色同时用于保持率曲线、其数值标签与左轴坐标数值，实现颜色一致直观
+        const C_LINE = isDark
+            ? (cssVar('--primary-emphasis') || '#19aca4')
+            : (cssVar('--primary-deep') || '#005f5a');
+        const FONT = '-apple-system, "Segoe UI", "Microsoft YaHei", sans-serif';
+
+        const pts = tl.pts, todayIdx = tl.todayIdx, n = pts.length;
+        const hasAny = pts.some(p => p.total > 0);
+        if (!hasAny) {
+            ctx.fillStyle = cText;
+            ctx.font = '13px ' + FONT;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('开始练习后，这里将展示各日掌握分布与记忆保持率走势', W / 2, H / 2);
+            canvas.onmousemove = null;
+            canvas.onmouseleave = null;
+            this._ebState = null;
+            return;
+        }
+
+        // 左轴保留 % 符号（留出宽度）；右轴已隐藏故出血线收到 0。top 加大以拉开图例与主图距离
+        const padding = { top: 48, right: 0, bottom: 30, left: 52 };
+        const chartW = W - padding.left - padding.right;
+        const chartH = H - padding.top - padding.bottom;
+        const bottom = padding.top + chartH;
+
+        // 左右轴对调：左轴＝保持率（0–100%，唯一显示刻度的轴），词数仅决定条形高度
+        const maxTotal = Math.max(1, ...pts.map(p => p.total));
+        // 词数轴上限倍数依「今日保持率」动态决定：保持率越高倍数越小（柱可更高）；保持率低则放大倍数压低柱高，
+        // 使保持率曲线始终略高于最高柱、又不过分偏高，更不会下沉与堆叠图重叠。
+        // 锚点（今日保持率 → 倍数）：≥90%→1.2，80%→1.3，60%→1.9，≤60% 取 1.9 起并受兜底/上限约束。
+        const rToday = (pts[todayIdx] && pts[todayIdx].retention != null) ? pts[todayIdx].retention : 0.85;
+        const anchors = [[0.9, 1.2], [0.8, 1.3], [0.6, 1.9]];
+        let mult;
+        if (rToday >= anchors[0][0]) mult = anchors[0][1];
+        else if (rToday <= anchors[anchors.length - 1][0]) mult = anchors[anchors.length - 1][1];
+        else {
+            mult = anchors[anchors.length - 1][1];
+            for (let a = 0; a < anchors.length - 1; a++) {
+                const rHi = anchors[a][0], mHi = anchors[a][1];
+                const rLo = anchors[a + 1][0], mLo = anchors[a + 1][1];
+                if (rToday <= rHi && rToday >= rLo) {
+                    mult = mLo + (rToday - rLo) / (rHi - rLo) * (mHi - mLo);
+                    break;
+                }
+            }
+        }
+        mult = Math.max(mult, rToday > 0 ? 1 / rToday * 1.02 : mult); // 兜底：曲线点位必高于最高柱顶（1/mult < rToday）
+        mult = Math.min(2.5, Math.max(1.2, mult));
+        const axisMax = Math.max(1, maxTotal * mult);
+        const yRet = v => bottom - v * chartH;              // 保持率 0–1 → 左轴（词数则按 axisMax 折算柱高，见堆叠柱处）
+        const bandW = chartW / n;
+        // 加宽条形，容得下「今天」各堆叠段的数值标注
+        const barW = Math.max(4, Math.min(30, bandW * 0.72));
+        const xOf = i => padding.left + bandW * (i + 0.5);
+
+        // 堆叠段数值标注：纯白字体（不加背景/描边阴影）
+        const drawStackLabel = (text, cx, cy) => {
+            ctx.font = 'bold 10px ' + FONT;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(text, cx, cy);
+        };
+
+        // 未来区底色（今天之后）：直观区分「预测」
+        const futureX = padding.left + bandW * (todayIdx + 1);
+        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.03)';
+        ctx.fillRect(futureX, padding.top, padding.left + chartW - futureX, chartH);
+
+        // 左轴网格 + 保持率刻度（保留 % 符号；颜色与保持率曲线/标签一致）
+        ctx.font = '15px ' + FONT;
+        for (let i = 0; i <= 4; i++) {
+            const frac = i / 4;
+            const y = yRet(frac);
+            ctx.strokeStyle = cGrid;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(padding.left + chartW, y); ctx.stroke();
+            ctx.fillStyle = C_LINE;
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(Math.round(frac * 100) + '%', padding.left - 6, y);
+        }
+
+        // 悬浮列高亮
+        if (hoverIdx != null && pts[hoverIdx]) {
+            ctx.fillStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.045)';
+            ctx.fillRect(padding.left + bandW * hoverIdx, padding.top, bandW, chartH);
+        }
+
+        // 堆叠柱：底=掌握，中=模糊，顶=薄弱（薄弱为 primary-emphasis 50% 透明）；整条柱上下全圆角
+        pts.forEach((p, i) => {
+            const x = xOf(i) - barW / 2;
+            const isFuture = i > todayIdx;
+            // 自下而上收集各段矩形
+            const segs = [];
+            if (p.strong > 0) segs.push({ v: p.strong, c: C_STRONG, a: 1 });
+            if (p.fuzzy > 0) segs.push({ v: p.fuzzy, c: C_FUZZY, a: 1 });
+            if (p.weak > 0) segs.push({ v: p.weak, c: C_WEAK, a: 0.5 });
+            if (!segs.length) return;
+            let yBase = bottom;
+            segs.forEach(s => { s.h = (s.v / axisMax) * chartH; s.y = yBase - s.h; s.top = yBase; yBase = s.y; });
+            const barTop = yBase;
+            const barH = bottom - barTop;
+            // 全圆角半径：不超过半宽，也不超过首/末段高度的一半
+            const rad = Math.max(0, Math.min(barW / 2, segs[0].h / 2, segs[segs.length - 1].h / 2));
+            const segPath = (s, si) => {
+                const isTop = si === segs.length - 1, isBot = si === 0;
+                ctx.beginPath();
+                ctx.roundRect(
+                    x, s.y, barW, s.h,
+                    [isTop ? rad : 0, isTop ? rad : 0, isBot ? rad : 0, isBot ? rad : 0]
+                );
+            };
+            if (isFuture) {
+                segs.forEach((s, si) => {
+                    ctx.save();
+                    ctx.setLineDash([3, 3]);
+                    ctx.globalAlpha = 0.6 * s.a;
+                    ctx.strokeStyle = s.c;
+                    ctx.lineWidth = 1;
+                    segPath(s, si);
+                    ctx.stroke();
+                    ctx.restore();
+                });
+            } else {
+                // 用整条圆角矩形裁剪后逐段填充：外角圆润、内部接缝平齐
+                ctx.save();
+                ctx.beginPath();
+                ctx.roundRect(
+                    x, barTop, barW, barH,
+                    [rad, rad, rad, rad]
+                );
+                ctx.clip();
+                segs.forEach(s => {
+                    ctx.globalAlpha = s.a;
+                    ctx.fillStyle = s.c;
+                    ctx.fillRect(x, s.y, barW, s.h + 0.5);
+                });
+                ctx.restore();
+            }
+            // 「今天」各段中心标注数值（段太矮放不下则跳过，避免叠字）
+            if (i === todayIdx) {
+                segs.forEach(s => { if (s.h >= 11) drawStackLabel(String(s.v), xOf(i), s.y + s.h / 2); });
+            }
+        });
+
+        // 今天分隔线
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = cPrimary;
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(xOf(todayIdx), padding.top);
+        ctx.lineTo(xOf(todayIdx), bottom);
+        ctx.stroke();
+        ctx.restore();
+
+        // 折线：平均预测保持率（历史实线 → 今天；未来虚线），沿用「时长」等 sheet 的单调三次 Hermite 平滑
+        const traceSmooth = (seg) => {
+            const m = seg.length;
+            if (!m) return;
+            ctx.moveTo(seg[0].x, seg[0].y);
+            if (m === 1) return;
+            const d = [];
+            for (let i = 0; i < m - 1; i++) {
+                const dx = (seg[i + 1].x - seg[i].x) || 1;
+                d.push((seg[i + 1].y - seg[i].y) / dx);
+            }
+            const s = new Array(m);
+            s[0] = d[0]; s[m - 1] = d[m - 2];
+            for (let i = 1; i < m - 1; i++) {
+                s[i] = (d[i - 1] * d[i] <= 0) ? 0 : (d[i - 1] + d[i]) / 2;
+            }
+            // 限幅，保证每个单调段不过冲（局部极值点斜率为 0）
+            for (let i = 0; i < m - 1; i++) {
+                if (d[i] === 0) { s[i] = 0; s[i + 1] = 0; continue; }
+                const a = s[i] / d[i], b = s[i + 1] / d[i];
+                const ss = a * a + b * b;
+                if (ss > 9) { const k = 3 / Math.sqrt(ss); s[i] = k * a * d[i]; s[i + 1] = k * b * d[i]; }
+            }
+            for (let i = 0; i < m - 1; i++) {
+                const p1 = seg[i], p2 = seg[i + 1];
+                const dx = p2.x - p1.x;
+                ctx.bezierCurveTo(
+                    p1.x + dx / 3, p1.y + s[i] * dx / 3,
+                    p2.x - dx / 3, p2.y - s[i + 1] * dx / 3,
+                    p2.x, p2.y
+                );
+            }
+        };
+        const strokeSeg = (seg, dashed) => {
+            if (!seg.length) return;
+            ctx.save();
+            ctx.strokeStyle = C_LINE;
+            ctx.lineWidth = 4;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            if (dashed) ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            traceSmooth(seg);
+            ctx.stroke();
+            ctx.restore();
+        };
+        const drawRetention = (from, to, dashed) => {
+            let seg = [];
+            for (let i = from; i <= to; i++) {
+                const r = pts[i].retention;
+                if (r == null) { strokeSeg(seg, dashed); seg = []; continue; }
+                seg.push({ x: xOf(i), y: yRet(r) });
+            }
+            strokeSeg(seg, dashed);
+        };
+        drawRetention(0, todayIdx, false);
+        drawRetention(todayIdx, n - 1, true);
+
+        // 「今天」保持率百分比标注：水平居中于今日列、置于保持率点正上方（无背景、无框线）
+        {
+            const p = pts[todayIdx];
+            if (p && p.retention != null) {
+                ctx.font = 'bold 16px ' + FONT;
+                ctx.fillStyle = C_LINE;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(Math.round(p.retention * 100) + '%', xOf(todayIdx), yRet(p.retention) - 8);
+            }
+        }
+
+        // X 轴日期标签（稀疏；今天高亮）——显式设字体，避免受上文标注字号影响
+        ctx.font = '15px ' + FONT;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const step = Math.max(1, Math.ceil(n / 8));
+        const todayX = xOf(todayIdx);
+        const lastX = xOf(n - 1);
+        pts.forEach((p, i) => {
+            if (i % step !== 0 && i !== todayIdx && i !== n - 1) return;
+            // 与「今天」标签水平距离过近的日期标签跳过（30 天视图下即「今天」次日，避免叠字）
+            if (i !== todayIdx && Math.abs(xOf(i) - todayX) < 36) return;
+            // 与最右侧标签（n-1）过近者跳过：保留 max（最右），隐藏其左侧一个（30 天视图下的 n-2）
+            if (i !== n - 1 && Math.abs(xOf(i) - lastX) < 36) return;
+            ctx.fillStyle = (i === todayIdx) ? cPrimary : cTextTertiary;
+            ctx.fillText(i === todayIdx ? '今天' : p.label, xOf(i), bottom + 6);
+        });
+
+        // 画布内图例
+        ctx.font = '15px ' + FONT;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        let lx = padding.left;
+        const ly = 11;
+        const legend = [
+            { label: '掌握', color: C_STRONG, alpha: 1, fill: true },
+            { label: '模糊', color: C_FUZZY, alpha: 1, fill: true },
+            { label: '薄弱', color: C_WEAK, alpha: 0.5, fill: true },
+            { label: '保持率', color: C_LINE, alpha: 1, fill: false }
+        ];
+        legend.forEach(g => {
+            ctx.save();
+            ctx.globalAlpha = g.alpha;
+            if (g.fill) { ctx.fillStyle = g.color; ctx.fillRect(lx, ly - 4, 9, 9); lx += 13; }
+            else { ctx.strokeStyle = g.color; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 15, ly); ctx.stroke(); lx += 19; }
+            ctx.restore();
+            ctx.fillStyle = cText;
+            ctx.fillText(g.label, lx, ly + 1);
+            lx += ctx.measureText(g.label).width + 12;
+        });
+
+        // 悬浮提示
+        if (hoverIdx != null && pts[hoverIdx]) {
+            const p = pts[hoverIdx];
+            const lines = [
+                p.label + (hoverIdx === todayIdx ? ' · 今天' : (hoverIdx > todayIdx ? ' · 预测' : '')),
+                `掌握 ${p.strong} · 模糊 ${p.fuzzy} · 薄弱 ${p.weak}`,
+                `已学 ${p.total} · 保持率 ${p.retention != null ? Math.round(p.retention * 100) + '%' : '—'}`
+            ];
+            ctx.font = '14px ' + FONT;
+            let tw = 0;
+            lines.forEach(l => { tw = Math.max(tw, ctx.measureText(l).width); });
+            const pad = 7, lh = 16;
+            const bw = tw + pad * 2, bh = lines.length * lh + pad * 2 - 4;
+            let bx = xOf(hoverIdx) + 10;
+            if (bx + bw > W - 2) bx = xOf(hoverIdx) - 10 - bw;
+            const by = padding.top + 2;
+            ctx.fillStyle = isDark ? 'rgba(30,33,40,0.96)' : 'rgba(255,255,255,0.98)';
+            ctx.strokeStyle = cGrid; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(bx + 6, by);
+            ctx.arcTo(bx + bw, by, bx + bw, by + bh, 6);
+            ctx.arcTo(bx + bw, by + bh, bx, by + bh, 6);
+            ctx.arcTo(bx, by + bh, bx, by, 6);
+            ctx.arcTo(bx, by, bx + bw, by, 6);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+            ctx.fillStyle = cText; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            lines.forEach((l, i) => ctx.fillText(l, bx + pad, by + pad + i * lh));
+        }
+
+        // 记录几何信息 + 绑定悬浮交互（供下次 hit-test）
+        const self = this;
+        this._ebState = { canvasId, tl, geom: { padding, bandW, n } };
+        canvas.onmousemove = (e) => {
+            const r = canvas.getBoundingClientRect();
+            let idx = Math.floor((e.clientX - r.left - padding.left) / bandW);
+            idx = Math.max(0, Math.min(n - 1, idx));
+            if (self._ebHoverIdx === idx) return;
+            self._ebHoverIdx = idx;
+            canvas.style.cursor = 'pointer';
+            self.drawEbbinghausChart(canvasId, tl, idx);
+        };
+        canvas.onmouseleave = () => {
+            if (self._ebHoverIdx == null) return;
+            self._ebHoverIdx = null;
+            canvas.style.cursor = 'default';
+            self.drawEbbinghausChart(canvasId, tl);
+        };
+    }
+
+    // 更新图表数据（单卡 Sheet 模式：艾宾浩斯/时长/单词/正确率共用一张图）
     updateCharts(days) {
         this.currentChartRange = days;
+        // 读取上次选择的 sheet（Storage 缓存，跨会话保留）；默认「艾宾浩斯」
+        const chartSettings = Storage.loadSettings();
+        let sheet = chartSettings.chartSheet;
+        // 一次性迁移：旧版默认图表为「时长」，本版把默认改为「艾宾浩斯」。
+        // 未迁移且值仍是旧默认（无值或 time）时切到新默认并标记；迁移后尊重用户自选
+        if (!chartSettings.chartSheetMigrated) {
+            if (!sheet || sheet === 'time') sheet = 'ebbinghaus';
+            Storage.saveSettings({ chartSheet: sheet, chartSheetMigrated: true });
+        }
+        this.currentChartSheet = sheet || 'ebbinghaus';
+
+        // 艾宾浩斯合成图：堆叠柱（掌握分布）+ 副轴（平均预测保持率），今天居中、右侧为未来预测
+        if (this.currentChartSheet === 'ebbinghaus') {
+            document.querySelectorAll('#chartSheetTabs .chart-sheet-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sheet === 'ebbinghaus');
+            });
+            const unitEl = document.getElementById('chartSheetUnit');
+            if (unitEl) unitEl.style.display = 'none'; // 双轴，无单一单位
+            this._ebHoverIdx = null;
+            this.drawEbbinghausChart('statsSheetChart', this.buildEbbinghausTimeline(days));
+            return;
+        }
+
         const history = Storage.getRecentStats(days);
 
         if (history.length === 0) {
@@ -34285,8 +35020,7 @@ But little did she know, this was just the beginning of an extraordinary journey
                     }), color: '#10b981', unit: '%' }
         };
 
-        // 读取上次选择的 sheet（Storage 缓存，跨会话保留）
-        this.currentChartSheet = Storage.loadSettings().chartSheet || 'time';
+        // 兼容：数值型 sheet（时长/单词/正确率）无对应配置时回落时长
         if (!sheetData[this.currentChartSheet]) this.currentChartSheet = 'time';
         this.drawSheet(dates, sheetData);
     }
@@ -34339,7 +35073,13 @@ But little did she know, this was just the beginning of an extraordinary journey
     // 绘制折线图
     drawLineChart(canvasId, labels, data, color, unit) {
         const canvas = document.getElementById(canvasId);
+        // 艾宾浩斯图用 canvas.onmousemove/onmouseleave 绑定交互，切回折线图时需清掉，
+        // 否则悬浮会被残留的艾宾浩斯处理器重绘盖掉
+        canvas.onmousemove = null;
+        canvas.onmouseleave = null;
         const ctx = canvas.getContext('2d');
+        // 坐标值标签字体统一为与艾宾浩斯图一致（15px）
+        const FONT = '-apple-system, "Segoe UI", "Microsoft YaHei", sans-serif';
         
         // 设置高DPI显示
         const dpr = window.devicePixelRatio || 1;
@@ -34372,7 +35112,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         // 绘制网格线和Y轴标签
         ctx.strokeStyle = gridColor;
         ctx.lineWidth = 1;
-        ctx.font = '11px Inter';
+        ctx.font = '15px ' + FONT;
         ctx.fillStyle = textColor;
         ctx.textAlign = 'right';
 
@@ -34526,7 +35266,7 @@ But little did she know, this was just the beginning of an extraordinary journey
             // 绘制网格线和Y轴标签
             ctx.strokeStyle = gridColor;
             ctx.lineWidth = 1;
-            ctx.font = '11px Inter';
+            ctx.font = '15px ' + FONT;
             ctx.fillStyle = textColor;
             ctx.textAlign = 'right';
 
@@ -34723,6 +35463,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 一次性迁移：把词书/复习/收藏里的旧场景类别标签升级到当前分类树。
     // 必须早于应用实例读取词书，否则内存与存储会不一致
     try { Storage.migrateLegacyCategories(); } catch (e) { console.warn('场景类别迁移失败:', e); }
+    // 一次性迁移：把存量错误次数按词书归类到「选错/拼错/忘记」三桶
+    try { Storage.migrateWrongByMode(); } catch (e) { console.warn('错误次数细分迁移失败:', e); }
     app = new WordMemoryApp();
     // 原生 alert 统一改为顶部中心静默提示（不打断操作）；confirm 防误点弹窗保持原生
     app.installSilentAlerts();
