@@ -20242,13 +20242,22 @@ i.dropdown-item-icon {
     grid-template-columns: 3fr 2fr;
     gap: var(--spacing-xl);
     align-items: stretch;
-    /* 限制整块及其内部两个艾宾浩斯图表/窗口的最高高度 500px，
+    /* 限制整块及其内部两个艾宾浩斯图表/窗口的最高高度 600px，
        内容过多时各自内部滚动，避免把页面整体撑高 */
-    max-height: 500px;
+    max-height: 600px;
     overflow: auto;
 }
 @media (max-width: 960px) {
     .ld-grid { grid-template-columns: 1fr; }
+}
+
+/* 学习数据页双栏内的两个面板（历史趋势 / 艾宾浩斯复习）：
+   与 ld-grid 同高上限 600px，内部内容过多时各自滚动，
+   不再只靠外层 ld-grid 统一滚动 */
+.ld-grid > #historySection,
+.ld-grid > #sm2Panel {
+    max-height: 600px;
+    overflow-y: auto;
 }
 
 /* 学习数据页：板块容器（历史趋势 / 艾宾浩斯 / 记忆星图） */
