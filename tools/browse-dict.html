@@ -115,12 +115,14 @@
   .detail-head .collapse-icon svg { width: 26px; height: 26px; display: block; }
   .detail-head:hover .collapse-icon { opacity: 1; }
   /* 收藏星标按钮：常态化显示，在 h2 和 collapse-icon 之间 */
-  .detail-fav-star { margin-left: 8px; font-size: 18px; cursor: pointer; user-select: none; display: inline-flex; vertical-align: middle; line-height: 1; transition: transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease; }
+  .detail-fav-star { margin: 0 8px; font-size: 18px; cursor: pointer; user-select: none; display: inline-flex; vertical-align: middle; line-height: 1; transition: transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease; }
   .detail-fav-star:hover { transform: scale(1.2) rotate(15deg); }
-  /* 未收藏：复用主页 favorite-gray 的灰度+半透明效果；已收藏：原色金色 */
-  .detail-fav-star .favorite-icon { filter: grayscale(100%); opacity: 0.35; transition: all 0.2s ease; }
-  .detail-fav-star:hover .favorite-icon { opacity: 0.6; }
-  .detail-fav-star.favorited .favorite-icon { filter: grayscale(0%); opacity: 1; }
+  /* 未收藏：基础灰（与主页 favorite-gray 一致）；已收藏：金色实心 */
+  .detail-fav-star .favorite-icon { color: #8a8f98; transition: color 0.2s ease; }
+  .detail-fav-star:hover .favorite-icon { color: #666; }
+  .detail-fav-star.favorited .favorite-icon { color: #FFC83D; }
+  body.dark-mode .detail-fav-star .favorite-icon { color: #a0a0a0; }
+  body.dark-mode .detail-fav-star:hover .favorite-icon { color: #c8c8c8; }
   .raw { font-size: 13px; color: #444; white-space: pre-wrap; word-break: break-word; }
   #pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin: 14px 0; }
   #pager button { padding: 6px 16px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; background: #fff; }
@@ -493,6 +495,7 @@
   .word-note-resize.dragging::after { opacity: 1; background: var(--primary-color, #4a9d9a); }
 </style>
 <link rel="stylesheet" href="../static/flaticon-uicons-main/src/uicons/css/regular/rounded.css">
+<link rel="stylesheet" href="../static/flaticon-uicons-main/src/uicons/css/solid/rounded.css">
 </head>
 <body>
 <header>
@@ -1113,7 +1116,7 @@ if (typeof window.define !== 'function') {
   }
   // 主词高亮：把容器文本节点中整词匹配的查询词及其词形变体包成 .collins-hl（不动标签与属性）
   // words 可为单词或候选数组（含词形/不规则变体，来自主页 app.buildKeywordCandidates）
-  function highlightHeadword(root, words) {
+  function highlightHeadword(root, words, trusted) {
     if (!root) return;
     const list = (Array.isArray(words) ? words : [words])
       .map(x => String(x || '').trim().toLowerCase())
@@ -1123,10 +1126,15 @@ if (typeof window.define !== 'function') {
     // 避免把功能词/无关短词整篇点亮
     const head = list[0];
     const minShared = Math.min(4, Math.max(2, head.length - 1));
+    // 不规则变体（如 strike→struck、be→was）与主词前缀差异大，由调用方标记为「可信」，
+    // 不受同前缀过滤限制，直接纳入高亮集合
+    const trustSet = new Set((Array.isArray(trusted) ? trusted : [])
+      .map(x => String(x || '').trim().toLowerCase())
+      .filter(x => x && /^[a-z][a-z'-]*$/.test(x)));
     const uniq = [];
     list.forEach(x => {
       if (uniq.indexOf(x) >= 0) return;
-      if (x === head || (x.length >= 4 && sharedPrefixLen(x, head) >= minShared)) uniq.push(x);
+      if (x === head || trustSet.has(x) || (x.length >= 4 && sharedPrefixLen(x, head) >= minShared)) uniq.push(x);
     });
     uniq.sort((a, b) => b.length - a.length); // 长词优先，避免短词抢先匹配
     const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1233,15 +1241,24 @@ if (typeof window.define !== 'function') {
     caption.insertBefore(wrap, caption.firstChild);
   }
   // 美化 Collins 词条：排列调整 + 缩写 .st 词性 + 高亮主词及其词形变体（仅作用于含 .tab_content/dict_tab_* 的词条）
-  function beautifyCollins(box, headword, cands) {
+  function beautifyCollins(box, headword, cands, irr) {
     if (!box) return;
     const tabs = [];
     box.querySelectorAll('.tab_content, [id^="dict_tab_"]').forEach(el => {
       if (tabs.indexOf(el) < 0) tabs.push(el);
     });
     if (!tabs.length) return;
-    // 高亮候选：主词 + 主页传入的词形/不规则变体（如 forbid → forbidden）
-    const hlWords = [headword].concat(Array.isArray(cands) ? cands : []);
+    // 派生词（Collins 用 <b class="text_blue">vulgarity</b> 之类标注词族）也纳入高亮候选，
+    // 使例句中被拆成 vulgar</span>ity 的派生形能经后缀合并整体点亮
+    const derived = [];
+    tabs.forEach(tab => {
+      tab.querySelectorAll('b.text_blue, .vExplain_r b').forEach(b => {
+        const t = (b.textContent || '').trim().toLowerCase();
+        if (/^[a-z][a-z'-]*$/.test(t) && derived.indexOf(t) < 0) derived.push(t);
+      });
+    });
+    // 高亮候选：主词 + 主页传入的词形/不规则变体（如 forbid → forbidden）+ 词族派生词
+    const hlWords = [headword].concat(Array.isArray(cands) ? cands : [], derived);
     tabs.forEach(tab => {
       tab.querySelectorAll('.caption').forEach(reorderCollinsCaption);
       tab.querySelectorAll('.st').forEach(el => {
@@ -1253,7 +1270,12 @@ if (typeof window.define !== 'function') {
           el.textContent = abbr;
         }
       });
-      highlightHeadword(tab, hlWords);
+      // 固定搭配 / 主词在柯林斯原 HTML 中以 <b> 加粗标记（如 provision of、snaps at）：
+      // 统一按主词高亮样式（primary-color + 下划线）渲染，无需逐条识别搭配
+      tab.querySelectorAll('b').forEach(b => {
+        if (!b.classList.contains('collins-hl')) b.classList.add('collins-hl');
+      });
+      highlightHeadword(tab, hlWords, irr);
     });
   }
 
@@ -2128,7 +2150,7 @@ if (typeof window.define !== 'function') {
     });
   }
 
-  function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly) {
+  function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly, irr) {
     const d = DICTS[cur];
     // 重定向：@@@LINK=xxx → 展示目标词条
     const target = d ? resolveRedirect(cur, w) : w;
@@ -2184,10 +2206,10 @@ if (typeof window.define !== 'function') {
         if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">← 你可能要查的是</span>';
       }
     } catch (e) { /* 忽略 */ }
-    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><span class="favorite-icon">⭐</span></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
+    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
     box.style.display = 'flex';
     // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮
-    beautifyCollins(box, target, cands);
+    beautifyCollins(box, target, cands, irr);
     // 底部固定「我的笔记」区：即时编辑、自动保存（防抖后回传宿主落盘）
     renderWordNote(box, target, note, noteTs);
     // 滚动到词条顶部：查询模式下滚动内层滚动容器（整页已禁止滚动），
@@ -2232,6 +2254,8 @@ if (typeof window.define !== 'function') {
         e.preventDefault();
         const isFav = favStar.classList.toggle('favorited');
         favStar.title = isFav ? '取消收藏' : '收藏';
+        const favIcon = favStar.querySelector('.favorite-icon');
+        if (favIcon) favIcon.className = 'favorite-icon ' + (isFav ? 'fi-sr-star' : 'fi-rr-star');
         // 向父页面发送收藏/取消收藏请求
         if (LOOKUP) {
           post({
@@ -3309,7 +3333,7 @@ if (typeof window.define !== 'function') {
       if (d.__dictLookup !== 1) return;
       if (d.cmd === 'search') lookupSearch(d.q);
       else if (d.cmd === 'recent') lookupRecent();
-      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp, d.note, d.noteTs, d.baseOnly);
+      else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp, d.note, d.noteTs, d.baseOnly, d.irr);
       else if (d.cmd === 'set-note') {
         // 宿主「添加笔记」等外部写入：仅当详情正展示同一单词时刷新编辑区（含日期）
         const ta = document.querySelector('.word-note-input');

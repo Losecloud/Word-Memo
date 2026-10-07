@@ -343,6 +343,8 @@ const Storage = {
                 },
                 learningData: {
                     autoSaveStats: true,
+                    sm2Order: 'book',
+                    sm2DailyCap: 200, // 艾宾浩斯每日到期上限（平摊复习量，超出顺延次日）
                     todayStats: {
                         date: new Date().toDateString(),
                         time: 0,
@@ -969,11 +971,14 @@ const Storage = {
         const existingIndex = history.findIndex(item => item.date === date);
         const totalAttempts = (stats.correct || 0) + (stats.wrong || 0);
         const mastery = totalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((stats.correct / totalAttempts) * 100))) : 0;
-        
+        const prev = existingIndex >= 0 ? history[existingIndex] : null;
+
         const historyItem = {
             date: date, time: stats.time || 0, words: stats.words || 0,
             correct: stats.correct || 0, wrong: stats.wrong || 0,
-            mastery: mastery, timestamp: new Date().toISOString()
+            mastery: mastery, timestamp: new Date().toISOString(),
+            // 每日掌握分布快照（三桶计数，增量极小）；同日已有则沿用，避免每次答题都重算
+            efBuckets: (prev && prev.efBuckets) ? prev.efBuckets : this.computeEfBuckets()
         };
         
         if (existingIndex >= 0) history[existingIndex] = historyItem;
@@ -1098,6 +1103,61 @@ const Storage = {
             }
         }
         if (changedUsers) console.log(`✅ 场景类别迁移完成：已更新 ${changedUsers} 个用户配置`);
+        return changedUsers;
+    },
+
+    // 一次性迁移：把存量错误次数按词书归类到 wrongByMode 三桶
+    // （选错 select / 拼错 spell / 忘记 remember），后续错误按作答时的实际模式累加，
+    // 总错误数仍以 wrongTimes 为准、三桶加总等于它。归类规则（用户指定）：
+    // 扇贝考研→选错，百词斩→拼错，不背单词→忘记；其余词书按其 learningMode 首项。
+    // 幂等：已带 wrongByMode 或已迁移标记的词书跳过。
+    migrateWrongByMode() {
+        const currentKey = this.getUserConfigKey();
+        const prefix = 'wordMemory_user_json_';
+        // 词书名 → 错误模式桶
+        const nameMap = { '扇贝考研': 'select', '百词斩': 'spell', '不背单词': 'remember' };
+        let changedUsers = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key || key.indexOf(prefix) !== 0) continue;
+            let config = null;
+            try { config = JSON.parse(localStorage.getItem(key)); } catch (e) { continue; }
+            if (!config || typeof config !== 'object' || !config.bookList || !Array.isArray(config.bookList.books)) continue;
+            if (config.learningData && config.learningData.wrongModeMigrated) continue;
+            let changed = false;
+            config.bookList.books.forEach(book => {
+                // 先按词书名命中三桶；未命中则按词书背诵模式首项
+                let bucket = nameMap[book.name];
+                if (!bucket) {
+                    let m = book.learningMode;
+                    if (!Array.isArray(m)) m = String(m || '').split(',');
+                    const first = String(m[0] || '').trim();
+                    bucket = first === 'spellOnly' ? 'spell' : (first === 'rememberOnly' ? 'remember' : 'select');
+                }
+                (book.words || []).forEach(w => {
+                    if (!w || !(w.wrongTimes > 0) || w.wrongByMode) return;
+                    w.wrongByMode = { select: 0, spell: 0, remember: 0 };
+                    w.wrongByMode[bucket] = w.wrongTimes;
+                    changed = true;
+                });
+            });
+            if (!changed) {
+                // 无存量错误也要写入标记，避免下次再全量扫描
+                config.learningData = config.learningData || {};
+                config.learningData.wrongModeMigrated = true;
+                try { localStorage.setItem(key, JSON.stringify(config)); } catch (e) { continue; }
+                continue;
+            }
+            config.learningData = config.learningData || {};
+            config.learningData.wrongModeMigrated = true;
+            try { localStorage.setItem(key, JSON.stringify(config)); } catch (e) { continue; }
+            changedUsers++;
+            // 当前登录用户同步写入 user/ 目录镜像
+            if (key === currentKey) {
+                this.writeConfigToFile(config).catch(() => { /* 文件镜像失败不影响主流程 */ });
+            }
+        }
+        if (changedUsers) console.log(`✅ 错误次数细分迁移完成：已更新 ${changedUsers} 个用户配置`);
         return changedUsers;
     },
 
@@ -1369,6 +1429,44 @@ const Storage = {
         return set;
     },
 
+    // 艾宾浩斯复习顺序：'book'＝按词书分组(默认) / 'overdue'＝全局逾期最久优先 / 'ef'＝EF 由低到高（越易忘越先）
+    SM2_ORDERS: ['book', 'overdue', 'ef'],
+
+    /** 读取艾宾浩斯复习顺序（异常值回落默认 'book'） */
+    getSm2Order() {
+        const config = this.getUserConfig();
+        const order = config && config.learningData ? config.learningData.sm2Order : null;
+        return this.SM2_ORDERS.indexOf(order) >= 0 ? order : 'book';
+    },
+
+    /** 保存艾宾浩斯复习顺序 */
+    saveSm2Order(order) {
+        const config = this.getUserConfig();
+        if (!config) return false;
+        if (this.SM2_ORDERS.indexOf(order) < 0) order = 'book';
+        if (!config.learningData) config.learningData = {};
+        config.learningData.sm2Order = order;
+        return this.saveUserConfig(config);
+    },
+
+    /** 艾宾浩斯每日到期上限（50-500，默认 200）：超出部分顺延、次日优先复习 */
+    getSm2DailyCap() {
+        const config = this.getUserConfig();
+        const cap = config && config.learningData ? config.learningData.sm2DailyCap : null;
+        const n = parseInt(cap, 10);
+        return (n >= 50 && n <= 500) ? n : 200;
+    },
+
+    /** 保存艾宾浩斯每日到期上限 */
+    saveSm2DailyCap(cap) {
+        const config = this.getUserConfig();
+        if (!config) return false;
+        const n = parseInt(cap, 10);
+        if (!config.learningData) config.learningData = {};
+        config.learningData.sm2DailyCap = (n >= 50 && n <= 500) ? n : 200;
+        return this.saveUserConfig(config);
+    },
+
     /**
      * SM-2 算法核心
      * @param {number} quality - 记忆质量 0-5
@@ -1443,12 +1541,15 @@ const Storage = {
         return 0;
     },
 
-    /** 获取今日到期复习的单词列表 */
+    /** 获取今日到期复习的单词列表
+     *  options.ahead=true：取「明日到期」（超前练习用，排除今日已到期）
+     *  options.cap：每日到期上限（平摊复习量，超出部分顺延次日优先） */
     getDueWords(options = {}) {
-        const { bookId, limit } = options;
+        const { bookId, limit, ahead, cap } = options;
         const map = this.loadAllMemory();
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const tomorrow = new Date(today.getTime() + 86400000);
         const results = [];
 
         for (const [key, mem] of Object.entries(map)) {
@@ -1458,15 +1559,35 @@ const Storage = {
             if (bookId && keyBookId !== bookId) continue;
 
             const due = new Date(mem.nextReviewDate);
-            if (due <= today) {
-                results.push({ bookId: keyBookId, word, memory: mem });
-            }
+            // ahead：仅取明日到期；否则取今日及以前到期
+            const inScope = ahead ? (due > today && due <= tomorrow) : (due <= today);
+            if (!inScope) continue;
+            results.push({ bookId: keyBookId, word, memory: mem });
         }
 
         // 按到期时间排序（最急的先）
         results.sort((a, b) => new Date(a.memory.nextReviewDate) - new Date(b.memory.nextReviewDate));
 
-        return limit ? results.slice(0, limit) : results;
+        // 每日上限：超出部分顺延（次日仍到期，按逾期最久优先自然排在前列）
+        let list = results;
+        if (cap && cap > 0 && list.length > cap) list = list.slice(0, cap);
+        return limit ? list.slice(0, limit) : list;
+    },
+
+    /** 每日掌握分布快照：按当前 EF 三桶统计已记忆单词数（排除「太简单」黑名单）
+     *  阈值对齐 SM-2 基准 2.5：掌握 ≥2.5 / 模糊 2.0–2.5 / 薄弱 <2.0 */
+    computeEfBuckets() {
+        const map = this.loadAllMemory();
+        const b = { strong: 0, fuzzy: 0, weak: 0 };
+        for (const key of Object.keys(map)) {
+            const mem = map[key];
+            if (!mem || mem.blacklist) continue;
+            const ef = (mem.ef != null) ? mem.ef : 2.5;
+            if (ef >= 2.5) b.strong++;
+            else if (ef >= 2.0) b.fuzzy++;
+            else b.weak++;
+        }
+        return b;
     },
 
     /** 获取所有单词的复习统计概览 */
@@ -1479,6 +1600,9 @@ const Storage = {
         let avgEF = 0, avgInterval = 0;
 
         for (const mem of Object.values(map)) {
+            // 「太简单」黑名单词不再参与学习，按全局口径排除出统计（与图表/日报快照/到期队列一致），
+            // 否则「已记忆」会大于图表「已学」，虚高
+            if (!mem || mem.blacklist) continue;
             totalWords++;
             avgEF += mem.ef || 2.5;
             avgInterval += mem.interval || 0;
