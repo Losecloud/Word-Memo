@@ -1326,12 +1326,6 @@ i[class^="fi-"], i[class*=" fi-"] {
 .sm2-due-item .sm2-due-badge.overdue { background: var(--error); }
 .sm2-due-item .sm2-due-badge.today { background: var(--primary-color); }
 
-/* 艾宾浩斯每日到期上限输入框（复用 setting-select 外观，收窄宽度） */
-.sm2-cap-input {
-    width: 64px;
-    padding: 4px 6px;
-}
-
 .sm2-review-btn {
     width: 100%;
     padding: 6px;
@@ -20248,6 +20242,10 @@ i.dropdown-item-icon {
     grid-template-columns: 3fr 2fr;
     gap: var(--spacing-xl);
     align-items: stretch;
+    /* 限制整块及其内部两个艾宾浩斯图表/窗口的最高高度 500px，
+       内容过多时各自内部滚动，避免把页面整体撑高 */
+    max-height: 500px;
+    overflow: auto;
 }
 @media (max-width: 960px) {
     .ld-grid { grid-template-columns: 1fr; }
