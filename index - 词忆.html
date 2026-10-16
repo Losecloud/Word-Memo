@@ -4268,6 +4268,10 @@
                     </svg>
                     <span>页面设置</span>
                 </button>
+                <button class="settings-tab" data-tab="ob">
+                    <i class="fi-rr-settings"></i>
+                    <span>Obsidian设置</span>
+                </button>
             </div>
             
             <div class="modal-body">
@@ -4366,7 +4370,7 @@
                         <option value="system" selected>本地语音（离线优先）</option>
                         <option value="edge">Edge 在线神经语音（随机声优）</option>
                     </select>
-                    <div class="setting-hint">本地语音：优先播放本地离线音频（static/audio，Edge 声线），缺失时回退浏览器语音；Edge 在线：随机声优、音色多样，需先启动本地网关：python tools/edge-tts-server.py（端口 8890）</div>
+                    <div class="setting-hint">本地语音：本地离线音频包 → 在线真人录音（静态 mp3，手机/iOS 端即靠这一层，下载即播、无需合成）→ 浏览器语音；Edge 在线：随机声优、音色多样，需先启动本地网关 python tools/edge-tts-server.py（端口 8890），网关不可用时同样先试在线真人录音再退浏览器语音</div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">发音口音</label>
@@ -4774,6 +4778,20 @@
                     </div>
                 </div>
                 <!-- 页面设置选项卡结束 -->
+                <!-- Obsidian 设置选项卡：切到即唤起宿主插件自己的设置页（仅 Obsidian 端可见） -->
+                <div class="settings-tab-content" id="obHostSettings">
+                <div class="settings-section-list">
+                <section class="ld-section">
+                <div class="ld-section-header">
+                    <h3><i class="fi-rr-settings"></i>Obsidian 设置</h3>
+                    
+                </div>
+                <div class="setting-group">
+                    <div class="setting-hint">已唤起 Obsidian 设置</div>
+                </div>
+                </section>
+                </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="resetSettingsBtn">恢复默认</button>
@@ -5881,6 +5899,16 @@
             // 仅在引擎已就绪的时机（ready / opened）调用，故直接用本闭包的 post 发送
             if (!(hostNoteHeight > 0) || !window.__dictLookupReady) return;
             post({ cmd: 'set-note-height', h: hostNoteHeight });
+        }
+        // 下发「以文件为准」的用户配置：主页内存在登录时已由 vault 的 user/<用户>.json 覆盖，
+        // 故比引擎同源 localStorage 缓存可信（跨设备同步 / 清缓存后依然正确）
+        function pushUserConfig() {
+            if (!window.__dictLookupReady) return;
+            try {
+                const cfg = window.app && typeof window.app.getUserConfigForEngine === 'function'
+                    ? window.app.getUserConfigForEngine() : null;
+                if (cfg) post({ cmd: 'user-config', config: cfg });
+            } catch (e) { /* 忽略 */ }
         }
         // Obsidian 右侧栏模式（?wmView=dict）：仅保留查词引擎，下拉常驻展开并铺满侧栏。
         // 布局覆盖见上方 html.wm-sidebar-mode 系列样式，此处仅切换行为
@@ -7297,6 +7325,7 @@
                 });
                 syncTheme(); // 就绪后同步当前主题（深色/浅色）到引擎
                 pushNoteHeight(); // 就绪后下发已保存的详情笔记高度，避免重开时回落到默认高度
+                pushUserConfig(); // 就绪后下发「以文件为准」的用户配置（引擎据此读发音等基本设置）
                 if (lastQuery) post({ cmd: 'search', q: lastQuery });
                 else if (SIDEBAR) showRecent(); // 侧栏：直接展示最近查词，保持常驻展开
                 else if (document.activeElement === input && !input.value.trim()) post({ cmd: 'recent' });

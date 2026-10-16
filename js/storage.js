@@ -19,17 +19,33 @@ const Storage = {
     // 改由插件内置本地服务的 /__wm__/ 接口读写同一批 user_*.json，行为与浏览器一致。
     _httpReady: false,
     _httpProbe: null,
+    _httpProbeSettled: false, // 探测是否已出结果：用于区分「探测中」与「确实没有桥接」
 
     // 探测内置服务是否可用（幂等，只探测一次）
     // 两条通道：fetch（桌面同源） + postMessage（移动端 iframe 内 fetch 被同源/CORS 拦截）
     initHttpBridge() {
         if (this._httpProbe) return this._httpProbe;
         // file:// 直开：不存在内置服务（该接口仅 Obsidian 插件端提供），跳过探测避免 CORS 报错
-        if (location.protocol === 'file:') { this._httpProbe = Promise.resolve(false); return this._httpProbe; }
+        if (location.protocol === 'file:') {
+            this._httpProbe = Promise.resolve(false);
+            this._httpProbeSettled = true;
+            return this._httpProbe;
+        }
         this._httpProbe = Promise.race([
             fetch('/__wm__/ping', { cache: 'no-store' }).then((res) => res.ok).catch(() => false),
             this._postMessageBridge('ping', 'GET', null).then((r) => !!r && r.ok).catch(() => false)
-        ]).then((ok) => { this._httpReady = ok; return ok; });
+        ]).then((ok) => {
+            this._httpReady = ok;
+            this._httpProbeSettled = true;
+            // 探测结束：通知界面重新评估「是否具备读写 user/ 目录的通道」。
+            // 否则启动瞬间「探测还没结果」会被误当成「没有通道」，提示会一直挂着（Obsidian 端曾误报）
+            try {
+                if (typeof window !== 'undefined' && typeof window.__wmDirChannelChanged === 'function') {
+                    window.__wmDirChannelChanged();
+                }
+            } catch (e) { /* 忽略 */ }
+            return ok;
+        });
         return this._httpProbe;
     },
 
@@ -339,8 +355,14 @@ const Storage = {
         // 切换账号：清理旧账号残留的镜像键（授权码 / 收藏词单 / 欧路链接等）并回填本账号配置
         const config = this.getUserConfig();
         if (config) this._applyExtras(config);
-        // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签
-        if (config && this._migrateCategoryInConfig(config)) this.saveUserConfig(config);
+        // 全新账号可能刚从目录文件或旧格式数据恢复，此处再迁移一次，确保不残留旧分类标签。
+        // 注意：只写本机缓存、不落盘文件，也不刷新 updatedAt——updatedAt 是「与 user/ 文件比谁更新」
+        // 的唯一依据，登录时把它推到现在会把陈旧缓存误判为“更新”，进而在写回时覆盖掉另一端
+        // 刚保存的配置（曾造成真实丢数据）
+        if (config && this._migrateCategoryInConfig(config)) {
+            try { localStorage.setItem(`wordMemory_user_json_${username}`, JSON.stringify(config)); }
+            catch (e) { /* 忽略：容量不足等 */ }
+        }
     },
 
     // 安全解析 JSON（失败返回 null）
@@ -590,12 +612,16 @@ const Storage = {
 
     // 弹出目录选择器，让用户选中 reciting/user/ 目录（需在用户手势中调用）
     async chooseUserDirectory() {
-        // 无 File System Access API 的环境（如 Obsidian）：改用内置服务桥接 user/ 目录
+        // 优先走内置服务桥接（Obsidian 插件端）：Obsidian 的 Electron 虽然暴露了
+        // showDirectoryPicker 这个名字，但其目录选择器实际弹不出来、也拿不到授权，
+        // 会误报「未完成绑定，配置仍保存在浏览器本地缓存」；桥接就绪即视为绑定成功，
+        // user/ 目录由插件直接读写，桌面端与移动端行为一致。
+        // 浏览器端（serve.js / GitHub Pages）没有该桥接，探测失败后仍走下面的原生选择器
+        if (await this.initHttpBridge()) {
+            console.log('✅ 已启用内置服务目录桥接');
+            return true;
+        }
         if (!window.showDirectoryPicker) {
-            if (await this.initHttpBridge()) {
-                console.log('✅ 已启用内置服务目录桥接');
-                return true;
-            }
             console.warn('当前浏览器不支持 File System Access API');
             return false;
         }
@@ -829,13 +855,73 @@ const Storage = {
         return null;
     },
 
+    // 只读读取 user/ 目录下的配置文件（不采纳、不写回任何地方）；返回 { config, lastModified }
+    // 目录句柄模式能拿到文件真实修改时间（lastModified）；桥接模式只有内容
+    async readConfigFileReadonly(username) {
+        const name = username || this.getCurrentUser();
+        if (!name || !this.isFileSystemReady()) return null;
+        if (!this._hasDirAccess()) {
+            try {
+                const r = await this._bridgeRequest('user', 'GET', { name: name });
+                if (!r.ok || !r.json) return null;
+                return { config: r.json, lastModified: 0 };
+            } catch (e) { return null; }
+        }
+        try {
+            const fh = await this._dirHandle.getFileHandle(this._userFile(name));
+            const file = await fh.getFile();
+            const text = await file.text();
+            if (!text) return null;
+            return { config: JSON.parse(text), lastModified: file.lastModified || 0 };
+        } catch (e) { return null; }
+    },
+
+    // 绑定目录后的只读比较：把「本机缓存」与「user/ 目录文件」的更新时间都摆出来，供用户选择。
+    // 注意：这里绝不写任何文件——绑定后直接覆盖是本功能最危险的一步
+    async compareUserDirConfig(username) {
+        const name = username || this.getCurrentUser();
+        const cache = this._parseJson(localStorage.getItem(`wordMemory_user_json_${name}`));
+        const read = await this.readConfigFileReadonly(name);
+        const file = read && read.config ? read.config : null;
+        return {
+            hasCache: !!(cache && !this._isConfigEmpty(cache)),
+            hasFile: !!(file && !this._isConfigEmpty(file)),
+            cacheTime: (cache && cache.updatedAt) || '',
+            fileTime: (file && file.updatedAt) || '',
+            fileModified: read ? read.lastModified : 0,
+            // 文件是否不早于缓存（口径与 _shouldFileWin 一致，供默认建议的「较新那份」使用）
+            fileNewer: this._shouldFileWin(cache, file)
+        };
+    },
+
+    // 采纳文件配置到本机缓存（只读文件 → 写缓存，绝不反写文件）
+    async adoptFileConfigToCache(username) {
+        const name = username || this.getCurrentUser();
+        const read = await this.readConfigFileReadonly(name);
+        if (!read || !read.config) return false;
+        return this._adoptFileConfig(name, read.config);
+    },
+
     // 初始化文件系统：恢复目录授权；用文件夹配置覆盖缓存，补齐新增字段并写回文件
     async initUserFileSystem(username) {
         await this.restoreUserDirectory();
         this._installMirrorHook(); // 保证刷新后继续镜像独立键（登录时 setCurrentUser 已安装，此处兜底）
         this._adoptFailed = false;
         const user = username || this.getCurrentUser();
+        let skipWriteBack = false; // 无从判断谁更新时，本次不写回文件（宁可提示手动保存）
         if (user && user !== '游客') {
+            // 写回文件前的安全闸：先记下「缓存 vs 文件」的时间戳是否足以判断谁更新。
+            // 文件有内容、而双方都没有 updatedAt（历史配置）时无从判断——
+            // 此时一律不写回，否则可能用本机可能陈旧的缓存覆盖掉另一端更新的配置
+            const cacheBefore = this._parseJson(localStorage.getItem(`wordMemory_user_json_${user}`));
+            const cacheTime = Date.parse((cacheBefore && cacheBefore.updatedAt) || '') || 0;
+            let fileTime = 0, fileHasData = false;
+            if (this.isFileSystemReady()) {
+                const fr = await this.readConfigFileReadonly(user);
+                const fc = fr && fr.config;
+                fileHasData = !!(fc && !this._isConfigEmpty(fc));
+                fileTime = Date.parse((fc && fc.updatedAt) || '') || 0;
+            }
             // 有目录/桥接时按「文件与缓存谁更新」取舍，再补齐新增字段
             if (this.isFileSystemReady()) await this.loadConfigFromFile(user);
             this.initUserConfig(user);
@@ -843,19 +929,21 @@ const Storage = {
             try {
                 const config = JSON.parse(localStorage.getItem(key));
                 if (config) {
-                    // 回填独立键（收藏词单 / 欧路授权码 / AI 模型选择 / 练习配置等），
+                    // 回填独立键（收藏词单 / 欧陆授权码 / AI 模型选择 / 练习配置等），
                     // 否则换端加载配置后这些数据仍停留在旧端缓存里
                     this._applyExtras(config);
                     // 反向：本机已有但配置里缺的独立键（老账号首次升级）也要收进 extras
                     this._syncExtrasToConfig(config);
                     // 缓存未能承载文件数据时跳过反写，否则会用旧缓存覆盖掉更大的新文件
-                    if (!this._adoptFailed) this.saveUserConfig(config);
+                    const stampsUsable = !fileHasData || !!cacheTime || !!fileTime;
+                    if (!this._adoptFailed && stampsUsable) this.saveUserConfig(config);
+                    if (!this._adoptFailed && !stampsUsable) skipWriteBack = true; // 无法判断 → 不动文件
                 }
             } catch (e) { /* 忽略 */ }
         }
         // 本次会话无法写盘时标记「未落盘」，界面据此在昵称末尾提示手动保存
         // （游客为临时账号，文件本就不持久化，不提示）
-        this._setConfigDirty(!!user && user !== '游客' && !this.isFileSystemReady());
+        this._setConfigDirty(!!user && user !== '游客' && (!this.isFileSystemReady() || skipWriteBack));
         return this.isFileSystemReady();
     },
 

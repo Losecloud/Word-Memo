@@ -1365,9 +1365,16 @@ if (typeof window.define !== 'function') {
     }
     speechFallback(text);
   }
+  // 宿主（主页）下发的用户配置：主页在登录时已用 vault 的 user/<用户>.json 覆盖过内存配置，
+  // 故它比本页同源 localStorage 缓存更可信（跨设备同步 / 清缓存后依然正确）。
+  // 引擎就绪时主页推送一次，之后每次保存设置再推，保持与「设定的仓库目录」一致
+  let hostUserConfig = null;
   // 回退：优先 Edge 在线神经语音（读取主页基本设置 voiceEngine/voiceModel/voiceRate），失败再本地/系统
   function readBasicSetting(key) {
     try {
+      // 宿主下发值优先（其来源是 vault 里的用户配置文件，而非浏览器缓存）
+      const host = hostUserConfig && hostUserConfig.basicSettings ? hostUserConfig.basicSettings : null;
+      if (host && host[key] !== undefined) return host[key];
       const username = localStorage.getItem('wordMemory_currentUser');
       if (!username) return undefined;
       const config = JSON.parse(localStorage.getItem('wordMemory_user_json_' + username) || 'null');
@@ -3333,6 +3340,7 @@ if (typeof window.define !== 'function') {
       if (d.__dictLookup !== 1) return;
       if (d.cmd === 'search') lookupSearch(d.q);
       else if (d.cmd === 'recent') lookupRecent();
+      else if (d.cmd === 'user-config') hostUserConfig = d.config || null;
       else if (d.cmd === 'open') lookupOpen(d.w, d.q || '', d.dict, d.base, d.favorited, d.cands, d.disp, d.note, d.noteTs, d.baseOnly, d.irr);
       else if (d.cmd === 'set-note') {
         // 宿主「添加笔记」等外部写入：仅当详情正展示同一单词时刷新编辑区（含日期）

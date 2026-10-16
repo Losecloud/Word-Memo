@@ -8611,6 +8611,17 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     stroke-width: 2px;
 }
 
+/* 用 uicon 的页签（如「Obsidian设置」）：尺寸与相邻 SVG 页签对齐，保证图标大小一致 */
+.settings-tab i {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .settings-tab:hover {
     color: var(--text-primary);
     background: var(--background);

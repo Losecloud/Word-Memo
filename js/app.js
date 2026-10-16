@@ -964,6 +964,7 @@ class WordMemoryApp {
 
     // 初始化登录逻辑
     initLogin() {
+        this.applyHostOnlyUi(); // 非 Obsidian 宿主：隐藏「Obsidian设置」页签
         // Obsidian 右侧栏模式（?wmView=dict）：只做查词引擎所需的最小初始化。
         // 整页 UI 均被隐藏（见 wm-sidebar-mode 样式），主题由查词引擎跟随宿主，
         // 故不进入登录/整页初始化流程，避免封面动画与后台任务在隐藏容器中空转。
@@ -1132,7 +1133,83 @@ class WordMemoryApp {
     // 恢复文件系统授权并从 user/ 目录加载配置后完成初始化
     async initUserFileSystemAndFinish(username) {
         await Storage.initUserFileSystem(username);
+        // 既无插件桥接、也无浏览器目录授权（纯浏览器/静态站点打开）：配置只存在于本机浏览器缓存，
+        // 可能与 vault 里的 user/ 文件不一致，故登录后明确告警并指引一键绑定
+        if (username && username !== '游客' && this.hasNoUserDirChannel()) {
+            this.showToast('未读取 user/ 目录，当前显示的是本机浏览器缓存；点右上角昵称旁的感叹号可绑定文件夹', 'info');
+        }
         this.finishInit();
+    }
+
+    // 是否完全没有「读写 user/ 目录」的通道：既无插件桥接、也无浏览器目录授权。
+    // 纯浏览器 / 静态站点打开时如此——此时配置只存在于本机浏览器缓存
+    hasNoUserDirChannel() {
+        try {
+            if (typeof Storage.isFileSystemReady !== 'function') return false;
+            if (Storage.isFileSystemReady()) return false;
+            // 桥接探测尚未出结果时不下结论：Obsidian 端启动瞬间 _httpReady 仍是 false，
+            // 若据此报警就是误报（探测一完成就会纠正），故探测中一律保持沉默
+            if (Storage._httpProbe && !Storage._httpProbeSettled) return false;
+            return true;
+        } catch (e) { return false; }
+    }
+
+    // 一键绑定本地文件夹：必须在用户手势（点击）里调用，浏览器才允许弹出目录选择器。
+    // 绑定后**绝不直接覆盖**：先只读比较「本机缓存」与「user/ 目录文件」的更新时间，
+    // 两份都有内容时交给用户选择保留哪一份（此前直接调 initUserFileSystem 会把较旧的
+    // 浏览器缓存写进目录，覆盖掉另一端刚更新的配置）
+    async bindLocalUserDir() {
+        const user = Storage.getCurrentUser();
+        const ok = await Storage.chooseUserDirectory();
+        if (!ok) {
+            this.refreshConfigDirtyHint();
+            this.showToast('未选择文件夹：仍使用浏览器缓存。请选中 vault 里的 user/ 目录，才能与 Obsidian 读写同一份配置', 'info');
+            return;
+        }
+        if (user && user !== '游客') {
+            let cmp = null;
+            try { cmp = await Storage.compareUserDirConfig(user); } catch (e) { cmp = null; }
+            if (cmp && cmp.hasCache && cmp.hasFile) {
+                await this.pickUserConfigSide(cmp); // 两份都有：由用户决定
+            } else if (cmp && cmp.hasFile) {
+                await Storage.adoptFileConfigToCache(user); // 仅目录有：采纳文件
+                this.showToast('已读取 user/ 目录中的配置', 'success');
+            } else if (cmp && cmp.hasCache) {
+                Storage.saveUserConfig(Storage.getUserConfig()); // 仅本机有：写入目录
+                this.showToast('已把本机配置写入 user/ 目录', 'success');
+            } else {
+                this.showToast('未发现可用的用户配置', 'info');
+            }
+        }
+        if (user) await Storage.initUserFileSystem(user);
+        this.refreshConfigDirtyHint();
+    }
+
+    // 两份配置都有内容时：把两侧更新时间摆出来让用户选，选择前不写任何文件
+    async pickUserConfigSide(cmp) {
+        const fmt = (iso, modified) => {
+            const t = Date.parse(iso || '') || (modified || 0);
+            return t ? new Date(t).toLocaleString() : '未知';
+        };
+        const newer = cmp.fileNewer ? 'file' : 'cache';
+        const cacheLabel = '本机浏览器缓存（' + fmt(cmp.cacheTime) + '）';
+        const fileLabel = 'user/ 目录文件（记录时间 ' + fmt(cmp.fileTime) + '，文件写入 '
+            + fmt('', cmp.fileModified) + '）';
+        const msg = '检测到两份用户配置不一致，请选择保留哪一份：\n\n'
+            + '· ' + cacheLabel + '\n'
+            + '· ' + fileLabel + '\n\n'
+            + '按「确定」= 使用【' + (newer === 'file' ? 'user/ 目录文件' : '本机浏览器缓存') + '】（按时间戳算较新的一份）\n'
+            + '按「取消」= 使用【' + (newer === 'file' ? '本机浏览器缓存' : 'user/ 目录文件') + '】（另一份，会覆盖前者）\n\n'
+            + '在你做出选择之前，不会写入任何文件。';
+        const useNewer = confirm(msg);
+        const side = useNewer ? newer : (newer === 'file' ? 'cache' : 'file');
+        if (side === 'file') {
+            await Storage.adoptFileConfigToCache(Storage.getCurrentUser());
+            this.showToast('已采用 user/ 目录中的配置', 'success');
+        } else {
+            Storage.saveUserConfig(Storage.getUserConfig());
+            this.showToast('已采用本机缓存配置，并写入 user/ 目录', 'success');
+        }
     }
 
     // 初始化顶部用户区域（登录按钮 / 用户昵称 + 下拉菜单）
@@ -1162,6 +1239,16 @@ class WordMemoryApp {
                 dropdown.classList.add('hidden');
             }
         });
+
+        // 昵称后的状态感叹号：点击直接走「绑定本地文件夹」（点按手势里才能弹目录选择器）
+        const dirtyHint = document.getElementById('configDirtyHint');
+        if (dirtyHint) {
+            dirtyHint.style.cursor = 'pointer';
+            dirtyHint.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.bindLocalUserDir();
+            });
+        }
 
         // 下拉菜单：个人信息
         document.getElementById('dropdownProfile').addEventListener('click', () => {
@@ -1197,16 +1284,9 @@ class WordMemoryApp {
         }
 
         // 下拉菜单：绑定/重新绑定本地文件夹
-        document.getElementById('dropdownSyncDir').addEventListener('click', async () => {
+        document.getElementById('dropdownSyncDir').addEventListener('click', () => {
             dropdown.classList.add('hidden');
-            const ok = await Storage.chooseUserDirectory();
-            if (ok) {
-                // 绑定成功后将当前配置同步写入新目录
-                await Storage.initUserFileSystem(Storage.getCurrentUser());
-                this.showToast('已将用户配置保存到本地文件夹', 'success');
-            } else {
-                this.showToast('未完成绑定，配置仍保存在浏览器本地缓存', 'info');
-            }
+            this.bindLocalUserDir();
         });
 
         // 下拉菜单：立即保存用户配置（取消防抖窗口，强制写入缓存与 user/ 文件夹）
@@ -1270,6 +1350,8 @@ class WordMemoryApp {
 
         // 落盘状态变化时（自动保存成功/失败）刷新昵称旁的感叹号提示
         window.__wmConfigDirtyChanged = () => this.refreshConfigDirtyHint();
+        // 桥接探测结束时回调：探测前不能断言「没有通道」，出结果后需重新评估一次，避免一直误报
+        window.__wmDirChannelChanged = () => this.refreshConfigDirtyHint();
         this.refreshConfigDirtyHint();
 
         // 下拉菜单：退出登录 / 游客切换登录
@@ -1354,12 +1436,25 @@ class WordMemoryApp {
         this.refreshConfigDirtyHint();
     }
 
-    // 刷新「配置未落盘」提示：最新配置没能写入 user/ 文件时，在昵称末尾显示感叹号
+    // 刷新昵称后的状态提示（点击感叹号可直接去绑定文件夹）：
+    //  1) 配置未落盘（dirty）：最新配置只存在于本机缓存；
+    //  2) 没有读写 user/ 目录的通道：读到的是本机浏览器缓存，与 vault 里的文件不一定一致
     refreshConfigDirtyHint() {
         const hint = document.getElementById('configDirtyHint');
-        if (!hint) return;
-        const dirty = typeof Storage.isConfigDirty === 'function' && Storage.isConfigDirty();
-        hint.classList.toggle('hidden', !dirty);
+        const noChannel = this.hasNoUserDirChannel();
+        if (hint) {
+            const dirty = typeof Storage.isConfigDirty === 'function' && Storage.isConfigDirty();
+            hint.classList.toggle('hidden', !dirty && !noChannel);
+            hint.title = noChannel
+                ? '未读取 user/ 目录：当前显示的可能是本机浏览器缓存，与 vault 里的配置文件不一定一致。点此处选择本地文件夹（授权后即读写同一份配置）。'
+                : '最新配置尚未保存到本地 user/ 文件，仅存在于浏览器缓存（自动保存未能落盘）。请点开本菜单，选择「保存用户配置」。';
+        }
+        // 下拉项文案随状态变化，避免用户不知道「绑定文件夹」到底在解决什么问题
+        const syncItem = document.getElementById('dropdownSyncDir');
+        if (syncItem) {
+            const label = syncItem.querySelector('span');
+            if (label) label.textContent = noChannel ? '绑定本地文件夹（未读取 user/ 目录）' : '绑定本地文件夹';
+        }
     }
 
     // 打开个人信息弹窗
@@ -11521,9 +11616,14 @@ ${example ? `- 例句：${example}` : ''}
             this._speakFallback(wordText, callbacks);
             return;
         }
-        // 本地语音引擎（system）：本地离线音频（static/audio，由 Edge 语音生成）优先，缺失再回退浏览器语音
+        // 本地语音引擎（system）：本地离线音频（static/audio，由 Edge 语音生成）→ 在线真人录音（静态 mp3）→ 浏览器语音。
+        // 中间这层是为移动端补的：手机上既没有本地音频包、也没有 Edge 网关，
+        // 旧链路会直接落到系统 TTS（iOS 上就是苹果系统语音，音质差），故插入一层预生成真人音频
         this.playLocalAudio(wordText, callbacks).then((used) => {
-            if (!used) this._speakFallback(wordText, callbacks);
+            if (used) return;
+            this.playRemoteAudio(wordText, callbacks).then((played) => {
+                if (!played) this._speakFallback(wordText, callbacks);
+            });
         });
     }
 
@@ -11601,18 +11701,47 @@ ${example ? `- 例句：${example}` : ''}
     // 本地离线音频优先：尝试播放 static/audio/<首字母>/<word>.mp3（用 Audio 探测，兼容 file:// 下 fetch 被 CORS 阻挡的情况）
     // 返回 Promise<boolean>：true=本地文件存在并已接管播放；false=不存在，应回退在线/系统
     playLocalAudio(wordText, callbacks) {
+        const w = String(wordText || '').trim().toLowerCase();
+        if (!w) return Promise.resolve(false);
+        const c = /[a-z]/.test(w[0]) ? w[0] : 'misc';
+        const name = w.replace(/[\\/:*?"<>|]/g, '_');
+        return this._playAudioUrl('static/audio/' + c + '/' + name + '.mp3', 2000, callbacks);
+    }
+
+    // 在线真人发音：播放源站预生成的静态 mp3（下载即播，无需服务端实时合成），
+    // 因此远快于 Edge 在线合成（后者每次都要等 500–2000ms 合成）。
+    // 用 <audio src> 直接引用跨域 URL 即可播放，不受 CORS 限制（也正因无 CORS 头，不做 fetch 缓存）
+    playRemoteAudio(wordText, callbacks, accent) {
+        const w = this.remoteVoiceWord(wordText);
+        if (!w) return Promise.resolve(false);
+        return this._playAudioUrl(this.remoteVoiceUrl(w, accent), 4000, callbacks);
+    }
+
+    // 发音取词：只对「单个词」使用源站录音——多词短语 / 例句若取首词会把整句读成另一个词，
+    // 这类文本交回系统 TTS 或 Edge 合成整句。源站没有录音的词会返回 HTTP 500 + JSON，
+    // <audio> 自然触发 onerror，回退到下一层
+    remoteVoiceWord(wordText) {
+        const t = String(wordText || '').trim();
+        if (!/[A-Za-z]/.test(t) || /\s/.test(t)) return '';
+        const m = t.match(/[A-Za-z][A-Za-z'’-]*/);
+        return m ? m[0] : '';
+    }
+
+    // 源站发音直链：有道词典发音接口，type=1 英音 / type=2 美音（实测真词 200 + audio/mpeg）
+    remoteVoiceUrl(word, accent) {
+        const type = (accent || this.settings.voiceAccent) === 'en-GB' ? 1 : 2;
+        return 'https://dict.youdao.com/dictvoice?type=' + type + '&audio=' + encodeURIComponent(word);
+    }
+
+    // 播放指定音频 URL：探测成功（可播放）即接管播放并 resolve(true)；加载失败 / 超时 resolve(false)
+    _playAudioUrl(url, timeoutMs, callbacks) {
         return new Promise((resolve) => {
-            const w = String(wordText || '').trim().toLowerCase();
-            if (!w) { resolve(false); return; }
             this._stopCurrentAudio();
-            const c = /[a-z]/.test(w[0]) ? w[0] : 'misc';
-            const name = w.replace(/[\\/:*?"<>|]/g, '_');
-            const url = 'static/audio/' + c + '/' + name + '.mp3';
             const audio = this._ttsAudio();
             let settled = false;
-            const timer = setTimeout(() => {   // 加载超时视为文件不存在，回退
+            const timer = setTimeout(() => {   // 加载超时视为不可用，回退
                 if (!settled) { settled = true; cleanup(); resolve(false); }
-            }, 2000);
+            }, timeoutMs);
             const cleanup = () => {
                 clearTimeout(timer);
                 audio.oncanplay = audio.onerror = null;
@@ -11742,8 +11871,11 @@ ${example ? `- 例句：${example}` : ''}
                 try { audio.removeAttribute('src'); } catch (e) { /* 忽略 */ }
                 if (callbacks && callbacks.onError) callbacks.onError();
                 if (this.currentEdgeAudio === audio) this.currentEdgeAudio = null;
-                console.warn('❌ Edge 在线发音失败，回退系统语音:', wordText);
-                this._systemSpeak(wordText);
+                console.warn('❌ Edge 在线发音失败，回退在线真人录音/系统语音:', wordText);
+                // 移动端拿不到 Edge 网关：先补一层在线真人录音（静态 mp3），再退系统语音
+                this.playRemoteAudio(wordText, callbacks).then((played) => {
+                    if (!played) this._systemSpeak(wordText);
+                });
             };
             audio.onerror = fail;
             audio.onended = () => {
@@ -12806,12 +12938,36 @@ ${example ? `- 例句：${example}` : ''}
                 // 加载页面设置数据
                 this.loadPageSettings();
                 break;
+            case 'ob':
+                contentId = 'obHostSettings';
+                // 切到该页签即唤起宿主（插件）自己的设置页；仅 Obsidian 端有效
+                this.requestObsidianSettings();
+                break;
         }
         
         const activeContent = document.getElementById(contentId);
         if (activeContent) {
             activeContent.classList.add('active');
         }
+    }
+
+    // 「Obsidian设置」页签：请宿主（插件）打开自己的设置页。浏览器 / file:// 直开时
+    // 该页签已被 applyHostOnlyUi 隐藏，此处再做一次宿主判断兜底
+    requestObsidianSettings() {
+        const host = new URLSearchParams(location.search).get('wmHost') || '';
+        if (['1', 'obsidian'].indexOf(host) < 0) return;
+        try { window.parent.postMessage({ type: 'wm-open-ob-settings' }, '*'); }
+        catch (e) { /* 忽略：非 iframe 环境 */ }
+    }
+
+    // 隐藏仅 Obsidian 宿主可用的界面（当前为设置弹窗的「Obsidian设置」页签）
+    applyHostOnlyUi() {
+        const host = new URLSearchParams(location.search).get('wmHost') || '';
+        if (['1', 'obsidian'].indexOf(host) >= 0) return;
+        const tab = document.querySelector('.settings-tab[data-tab="ob"]');
+        if (tab) tab.classList.add('hidden');
+        const panel = document.getElementById('obHostSettings');
+        if (panel) panel.classList.add('hidden');
     }
 
     // 保存设置
@@ -12891,6 +13047,8 @@ ${example ? `- 例句：${example}` : ''}
         };
 
         Storage.saveSettings(this.settings);
+        // 设置变更后把最新配置推给查词引擎：引擎的发音等基础设置以它为准（而非同源 localStorage 缓存）
+        this.notifyDictEngine('user-config', { config: this.getUserConfigForEngine() });
         this.applyThemePreference(); // 跟随系统开关可能变化，立即生效
         this.closeSettings();
         this.applyCoverMode(); // 封面模式可能变化，立即刷新
@@ -20486,15 +20644,39 @@ ${example ? `- 例句：${example}` : ''}
         return new TextDecoder('utf-8').decode(buf);
     }
 
+    // 是否处于「插件 iframe 内、但没有 http 服务」的场景（Obsidian 移动端 app://）：
+    // 此场景下 /save-dict、/delete-dict 等接口只能经 postMessage 桥交给插件执行
+    isBridgeOnlyHost() {
+        return window.parent !== window && !/^https?:$/.test(location.protocol);
+    }
+
+    // 解析 postMessage 桥的响应（{ok,status,body}；body 可能是 JSON 文本或对象）
+    parseBridgeReply(r) {
+        let data = null;
+        try {
+            data = r && typeof r.body === 'string' && r.body ? JSON.parse(r.body) : (r && r.body);
+        } catch (e) { data = null; }
+        return data && typeof data === 'object' ? data : {};
+    }
+
     // 词典数据落盘：与查词引擎 tools/browse-dict.html 走同一接口，写入服务根 data/ 并重建清单
     // file：目标文件名（如 英语词根词缀词频-dict.json）；缺省时服务端按变量名推导为 -dict.js
     async saveDictToData(jsText, varName, file) {
+        const payload = JSON.stringify({ varName: varName, content: jsText, file: file || '' });
+        // Obsidian 移动端：先走 postMessage 桥（不先试 fetch——app:// 下不存在的路径会返回 404
+        // 而非抛错，不会触发 _bridgeRequest 的兜底通道）
+        if (this.isBridgeOnlyHost()) {
+            const r = await Storage._postMessageBridge('save-dict', 'POST', { body: payload });
+            const data = this.parseBridgeReply(r);
+            if (!data.ok) throw new Error(data.error || ('写入失败（桥接 HTTP ' + (r && r.status) + '）'));
+            return data;
+        }
         // served 模式（插件内置服务 / tools/serve.js）同源写入；file:// 下回退默认端口 8377
         const base = /^https?:$/.test(location.protocol) ? location.origin : 'http://localhost:8377';
         const resp = await fetch(base + '/save-dict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ varName: varName, content: jsText, file: file || '' })
+            body: payload
         });
         const data = await resp.json().catch(() => ({ ok: false, error: '响应解析失败' }));
         if (!data.ok) throw new Error(data.error || ('HTTP ' + resp.status));
@@ -20516,6 +20698,13 @@ ${example ? `- 例句：${example}` : ''}
 
     // 卸载词典数据：删除服务根 data/ 下的词典文件，并移除查词引擎清单中的条目
     async deleteDictData(file) {
+        // Obsidian 移动端：同 saveDictToData，经 postMessage 桥交给插件删除
+        if (this.isBridgeOnlyHost()) {
+            const r = await Storage._postMessageBridge('delete-dict', 'POST', { file: file });
+            const data = this.parseBridgeReply(r);
+            if (!data.ok) throw new Error(data.error || ('删除失败（桥接 HTTP ' + (r && r.status) + '）'));
+            return data;
+        }
         const base = /^https?:$/.test(location.protocol) ? location.origin : 'http://localhost:8377';
         const resp = await fetch(base + '/delete-dict', {
             method: 'POST',
@@ -20607,6 +20796,12 @@ ${example ? `- 例句：${example}` : ''}
         } else {
             (window.__dictLookupPending = window.__dictLookupPending || []).push(msg);
         }
+    }
+
+    // 供页面内联脚本 / 查词引擎取「以文件为准」的用户配置：
+    // 登录时 Storage 已用 vault 的 user/<用户>.json 覆盖过内存配置，故这里拿到的与仓库目录一致
+    getUserConfigForEngine() {
+        try { return Storage.getUserConfig() || null; } catch (e) { return null; }
     }
 
     // header 搜索插件：输入即筛选并按匹配度降序排列
@@ -33554,7 +33749,11 @@ But little did she know, this was just the beginning of an extraordinary journey
     speakWithAccent(word, accent) {
         if (!word) return;
         this.playLocalAudio(word).then((used) => {
-            if (!used) this._speakWithAccentFallback(word, accent);
+            if (used) return;
+            // 与 speak() 同一条链：本地音频包 → 在线真人录音（带上指定的口音）→ 系统 TTS
+            this.playRemoteAudio(word, null, accent).then((played) => {
+                if (!played) this._speakWithAccentFallback(word, accent);
+            });
         });
     }
 
