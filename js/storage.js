@@ -682,6 +682,10 @@ const Storage = {
         if (!user || user === '游客' || !this.isFileSystemReady() || !config) return false;
         // 先快照内容，避免后续串行写入时读到被再次修改的对象
         const snapshot = JSON.stringify(config, null, 2);
+        // 覆盖写之前先给「现有文件」留一份带时间戳的备份：一旦这次回写用的是较旧配置，
+        // 旧数据仍能从 user/.backup/ 找回，避免再次出现「误覆盖 → 彻底丢失」。
+        // 备份失败绝不阻塞主写入（内部全部吞掉异常），失败时静默跳过即可
+        await this._backupConfigFileBeforeWrite(user);
         // 桥接模式：走内置服务写入（同样串行化，避免并发写导致文件停留在旧内容）
         if (!this._hasDirAccess()) {
             if (!this._bridgeChain) this._bridgeChain = Promise.resolve();
@@ -704,6 +708,75 @@ const Storage = {
             })
             .catch((e) => { console.warn('写入本地配置文件失败:', e); return false; });
         return this._writeChain;
+    },
+
+    // ----------------------------------------
+    // 写盘前自动备份（防止误覆盖导致配置不可逆丢失）
+    // ----------------------------------------
+    // 每次真正写 user_<name>.json 之前，把「现有文件」另存为 user/.backup/ 下带时间戳的副本。
+    // 节流：同一用户 10 分钟内最多备份一份，避免高频保存把备份目录刷爆；
+    // 保留：每用户最多 5 份，超出按时间删最旧。任何失败只告警、绝不阻塞主写入。
+    async _backupConfigFileBeforeWrite(user) {
+        try {
+            const throttleKey = 'wordMemory_lastConfigBackupAt';
+            const lastAt = parseInt(localStorage.getItem(throttleKey) || '0', 10) || 0;
+            const now = Date.now();
+            if (now - lastAt < 10 * 60 * 1000) return false; // 节流窗口内：跳过，不产生 IO
+            // 备份文件名的时间戳：ISO 里的 ':' '.' 在 Windows/移动端文件名中非法，统一换成 '-'
+            const ts = new Date(now).toISOString().replace(/[:.]/g, '-');
+            let ok = false;
+            if (this._hasDirAccess()) {
+                ok = await this._backupConfigViaDirHandle(user, ts);
+            } else {
+                // 桥接通道：只把用户名与时间戳交给插件端，文件名由插件按同一规则拼接
+                const r = await this._bridgeRequest('backup-user', 'POST', {
+                    name: user,
+                    body: JSON.stringify({ name: user, ts: ts })
+                });
+                ok = !!(r && r.ok);
+            }
+            // 只有备份真正成功才记录时间戳，否则下次仍会重试
+            if (ok) localStorage.setItem(throttleKey, String(now));
+            return ok;
+        } catch (e) {
+            console.warn('配置备份失败（不影响主写入）:', e);
+            return false;
+        }
+    },
+
+    // 目录句柄分支：读现有文件 → 写入 .backup/<同名.时间戳.json> → 剪枝到 5 份
+    async _backupConfigViaDirHandle(user, ts) {
+        const name = this._userFile(user);
+        let content = null;
+        try {
+            const fh = await this._dirHandle.getFileHandle(name);
+            content = await (await fh.getFile()).text();
+        } catch (e) {
+            return false; // 现有文件不存在（首次写入）：无需备份
+        }
+        const bakDir = await this._dirHandle.getDirectoryHandle('.backup', { create: true });
+        const base = name.replace(/\.json$/i, '');
+        const bh = await bakDir.getFileHandle(base + '.' + ts + '.json', { create: true });
+        const writable = await bh.createWritable();
+        await writable.write(content);
+        await writable.close();
+        await this._pruneDirBackups(bakDir, base);
+        return true;
+    },
+
+    // 剪枝：备份名形如 <base>.<ISO时间戳>.json，字典序即时间序，保留最新 5 份
+    async _pruneDirBackups(bakDir, base) {
+        try {
+            const prefix = base + '.';
+            const list = [];
+            for await (const entryName of bakDir.keys()) {
+                if (entryName.startsWith(prefix) && /\.json$/i.test(entryName)) list.push(entryName);
+            }
+            list.sort();
+            for (let i = 0; i < list.length - 5; i++) {
+                try { await bakDir.removeEntry(list[i]); } catch (e) { /* 忽略单个删除失败 */ }
+            }
+        } catch (e) { /* 剪枝失败不影响备份结果 */ }
     },
 
     // ============================================
