@@ -2203,7 +2203,7 @@ if (typeof window.define !== 'function') {
       const q = $('search').value.trim().toLowerCase();
       if (q) {
         const hasExact = DICTS[cur].data[q] != null || DICTS[cur].data[resolveRedirect(cur, q)] != null;
-        if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">← 你可能要查的是</span>';
+        if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">你可能要查的是 ↓ </span>';
       }
     } catch (e) { /* 忽略 */ }
     box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';

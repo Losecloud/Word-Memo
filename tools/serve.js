@@ -161,9 +161,15 @@ http.createServer((req, res) => {
   // 官方网关 https://i.weread.qq.com/api/agent/gateway 的 CORS 仅放行 weread.qq.com，
   // 浏览器无法直连，故由本服务代填 Authorization 后转发。
   if (url === '/weread') {
-    let body = '';
-    req.on('data', c => { body += c; if (body.length > 1024 * 1024) req.destroy(); });
+    const chunks = [];
+    let size = 0;
+    req.on('data', c => {
+      size += c.length;
+      if (size > 1024 * 1024) { req.destroy(); return; }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
       const key = String(req.headers['x-weread-key'] || '').trim();
       if (key.indexOf('wrk-') !== 0) {
         res.writeHead(400, { 'Content-Type': MIME['.json'] });
@@ -234,9 +240,15 @@ http.createServer((req, res) => {
       });
       return;
     }
-    let body = '';
-    req.on('data', c => { body += c; if (body.length > 500 * 1024 * 1024) req.destroy(); });
+    const chunks = [];
+    let size = 0;
+    req.on('data', c => {
+      size += c.length;
+      if (size > 500 * 1024 * 1024) { req.destroy(); return; }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
       try {
         const { varName, content, file } = JSON.parse(body);
         if (!varName || typeof content !== 'string') throw new Error('参数缺失');
@@ -258,9 +270,15 @@ http.createServer((req, res) => {
 
   // 卸载词典：删除 data/<fname> 并移除 dict-manifest.js 中的条目
   if (req.method === 'POST' && url === '/delete-dict') {
-    let body = '';
-    req.on('data', c => { body += c; if (body.length > 64 * 1024) req.destroy(); });
+    const chunks = [];
+    let size = 0;
+    req.on('data', c => {
+      size += c.length;
+      if (size > 64 * 1024) { req.destroy(); return; }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
       try {
         const { file } = JSON.parse(body);
         // 只接受 data/ 直属的词典文件名，杜绝路径穿越

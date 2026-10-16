@@ -351,6 +351,8 @@
         .dl-cefr-b2 { color: var(--cefr-b2); }
         .dl-cefr-c1 { color: var(--cefr-c1); }
         .dl-cefr-c2 { color: var(--cefr-c2); }
+        /* 笔记预览中的命中词高亮：随主题取主色，深浅模式各自可读 */
+        .dl-note-hl { background: var(--primary-light); color: var(--primary-color); font-weight: 700; border-radius: 2px; padding: 0 1px; }
         /* 最近查词删除按钮：样式复用 dict-lookup-clear（圆形 × 按钮），绝对定位整个项右侧正中，仅悬浮该项时显示 */
         .dl-del {
             position: absolute;
@@ -1818,9 +1820,12 @@
                                     <button class="btn-word-option" id="tooEasyBtn1" title="太简单，不再复习该词">
                                         <i class="fi-rr-ban"></i><span>不再学习</span>
                                     </button>
-                                    <button class="btn-word-option" id="favoriteBtn1" title="收藏该词">
-                                        <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
-                                    </button>
+                                    <div class="fav-target-wrap">
+                                        <button class="btn-word-option fav-target-btn" id="favoriteBtn1" title="收藏该词">
+                                            <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
+                                        </button>
+                                        <div class="fav-target-menu"></div>
+                                    </div>
                                 </div>
                             </div>
                             <!-- 答错时显示的例句 -->
@@ -1910,9 +1915,12 @@
                                     <button class="btn-word-option" id="tooEasyBtn3" title="太简单，不再复习该词">
                                         <i class="fi-rr-ban"></i><span>不再学习</span>
                                     </button>
-                                    <button class="btn-word-option" id="favoriteBtn3" title="收藏该词">
-                                        <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
-                                    </button>
+                                    <div class="fav-target-wrap">
+                                        <button class="btn-word-option fav-target-btn" id="favoriteBtn3" title="收藏该词">
+                                            <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
+                                        </button>
+                                        <div class="fav-target-menu"></div>
+                                    </div>
                                 </div>
                             </div>
                             <!-- 记得么模式专用的释义显示区（默认隐藏，点不记得后显示） -->
@@ -6570,6 +6578,85 @@
             if (divider) results.insertBefore(entry, divider);
             else results.appendChild(entry);
         }
+        // 「我的笔记」检索：把「笔记全文」包含查询词的笔记，作为独立结果项插入清单。
+        // 位置：所有词典「完整词形命中」（__data.preferred=true）之后、前缀候选/近似/兜底/AI 之前；
+        // 无任何完整命中时置顶，保证相关笔记优先可见。
+        function appendNoteMatches(q) {
+            const kw = String(q == null ? '' : q).trim();
+            if (!kw) return;
+            const kwl = kw.toLowerCase();
+            const notes = readWordNotes();
+            const hits = [];
+            for (const k in notes) {
+                if (!Object.prototype.hasOwnProperty.call(notes, k)) continue;
+                const nk = String(k || '').toLowerCase().trim();
+                if (!nk || nk === kwl) continue; // 词本身即查询词：其词条已展示，笔记在详情底部可见，不重复
+                const v = notes[k];
+                const text = typeof v === 'string' ? v : String((v && v.text) || '');
+                if (!text) continue;
+                const idx = text.toLowerCase().indexOf(kwl);
+                if (idx < 0) continue;
+                hits.push({ word: nk, disp: String(k || '').trim(), text: text, idx: idx });
+            }
+            if (!hits.length) return;
+            // 就近优先：命中位置越靠前越靠前展示，同位置按时长升序
+            hits.sort(function (a, b) { return (a.idx - b.idx) || (a.text.length - b.text.length); });
+            const frag = document.createDocumentFragment();
+            hits.forEach(function (h) { frag.appendChild(buildNoteItem(h.word, h.disp, h.text, kw)); });
+            // 锚点：最后一个「完整词形命中」项；无则置顶
+            let anchor = null;
+            results.querySelectorAll('.dl-item').forEach(function (el) {
+                if (el.__data && el.__data.preferred) anchor = el;
+            });
+            if (anchor) results.insertBefore(frag, anchor.nextSibling);
+            else results.insertBefore(frag, results.firstChild);
+        }
+        function escDl(s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        // 笔记预览：截取命中词附近的上下文片段（前留 24 字、后留 80 字），命中词高亮
+        function notePreviewHtml(text, kw) {
+            const src = String(text || '');
+            const kwl = kw.toLowerCase();
+            const first = src.toLowerCase().indexOf(kwl);
+            if (first < 0) return escDl(src.slice(0, 160));
+            const start = Math.max(0, first - 24);
+            const end = Math.min(src.length, first + kw.length + 80);
+            const snippet = src.slice(start, end);
+            const re = new RegExp(String(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+            let out = '', last = 0, m;
+            while ((m = re.exec(snippet)) !== null) {
+                out += escDl(snippet.slice(last, m.index));
+                out += '<mark class="dl-note-hl">' + escDl(m[0]) + '</mark>';
+                last = m.index + m[0].length;
+                if (m.index === re.lastIndex) re.lastIndex++; // 防零长匹配死循环
+            }
+            out += escDl(snippet.slice(last));
+            return (start > 0 ? '…' : '') + out + (end < src.length ? '…' : '');
+        }
+        // 构建「我的笔记」结果项：dl-w=笔记主题单词，dl-dict=我的笔记，dl-preview-more=命中笔记文本及上下文
+        function buildNoteItem(word, disp, text, kw) {
+            const div = document.createElement('div');
+            div.className = 'dl-item dl-note-item';
+            div.__data = { w: word, disp: disp, dict: '', dictName: '我的笔记' };
+            const wEl = document.createElement('span');
+            wEl.className = 'dl-w';
+            wEl.textContent = disp || word;
+            div.appendChild(wEl);
+            const dictEl = document.createElement('span');
+            dictEl.className = 'dl-dict dl-dict-sim';
+            dictEl.textContent = '我的笔记';
+            div.appendChild(dictEl);
+            const prevEl = document.createElement('div');
+            prevEl.className = 'dl-preview dl-preview-more';
+            prevEl.innerHTML = notePreviewHtml(text, kw);
+            div.appendChild(prevEl);
+            div.addEventListener('mousedown', function (e) {
+                e.preventDefault(); // 阻止输入框失焦触发关闭
+                openWord(div.__data);
+            });
+            return div;
+        }
         // 是否已配置 AI 的 API 密钥（未配置时不做在线翻译，避免抛出"请先配置"的警示）
         function hasAiApiKey() {
             try {
@@ -7218,6 +7305,8 @@
             if (d.type === 'search-res') {
                 if (d.q !== lastQuery) return; // 丢弃过期结果
                 renderDropdown(d.words, !!d.recent);
+                // 「我的笔记」全文检索：插在词典完整命中之后、候选/兜底/AI 之前（最近查词视图不追加）
+                if (!d.recent) appendNoteMatches(d.q);
                 if (d.hasDicts !== false) {
                     // 有词典：词典词（精准/近似）优先展示后，再在清单末尾追加形近词
                     appendSimilarWords(d.words, d.q);

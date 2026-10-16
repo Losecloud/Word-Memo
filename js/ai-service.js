@@ -319,10 +319,10 @@ const AIService = {
     async callModel(modelName, prompt, options) {
         // 用户配置的 API 格式（openai 默认 / anthropic）
         const format = this.getApiFormat();
-        
+
         // 支持 AbortController 终止请求
         const signal = options && options.signal;
-        
+
         try {
             if (format === this.API_FORMATS.ANTHROPIC) {
                 return await this.callAnthropicAPI(modelName, prompt, options);
@@ -330,14 +330,23 @@ const AIService = {
             return await this.callOpenAIAPI(modelName, prompt, options);
         } catch (error) {
             console.error(`${format} API调用失败:`, error);
-            
+
             // 用户主动取消，直接抛出（不重试、不降级）
             if (signal && error.name === 'AbortError') {
                 throw error;
             }
-            
+
             throw error;
         }
+    },
+
+    // 按指定厂商配置调用（provider 为空时用当前激活厂商）；供「测试连接」等直连某厂商的场景
+    async callProviderModel(provider, modelName, prompt, options) {
+        const format = (provider && provider.apiFormat) || this.getApiFormat();
+        const opts = Object.assign({}, options || {}, { provider });
+        return format === this.API_FORMATS.ANTHROPIC
+            ? this.callAnthropicAPI(modelName, prompt, opts)
+            : this.callOpenAIAPI(modelName, prompt, opts);
     },
     
     // 获取最终的消息数组：优先使用 options.messages（支持 system 等多轮），否则构造单条 user 消息
@@ -366,14 +375,16 @@ const AIService = {
      * 调用 OpenAI Chat Completions 格式 API（兼容 OpenAI / DeepSeek / 硅基流动 等绝大多数平台）
      */
     async callOpenAIAPI(modelName, prompt, options) {
-        const apiKey = this.getApiKey();
+        // options.provider：直连指定厂商（如测试连接）；缺省仍用当前激活厂商
+        const provider = (options && options.provider) || this._getActiveProvider();
+        const apiKey = (provider && provider.apiKey) || this.getApiKey();
         if (!apiKey) {
             throw new Error('请先在设置中配置 API 密钥！\n\n请在「AI工坊设置」中填写 API 密钥（如 sk-xxxx）后重试。');
         }
         
         console.log('🤖 使用 OpenAI Chat Completions 格式调用模型:', modelName);
         
-        const baseUrl = (this.getApiBaseUrl() || this.DEFAULT_BASE_URLS.openai).replace(/\/+$/, '');
+        const baseUrl = ((provider && provider.baseUrl) || this.getApiBaseUrl() || this.DEFAULT_BASE_URLS.openai).replace(/\/+$/, '');
         const requestData = {
             model: modelName,
             stream: false,
@@ -421,14 +432,16 @@ const AIService = {
      * 调用 Anthropic Messages 格式 API（Claude 等）
      */
     async callAnthropicAPI(modelName, prompt, options) {
-        const apiKey = this.getApiKey();
+        // options.provider：直连指定厂商（如测试连接）；缺省仍用当前激活厂商
+        const provider = (options && options.provider) || this._getActiveProvider();
+        const apiKey = (provider && provider.apiKey) || this.getApiKey();
         if (!apiKey) {
             throw new Error('请先在设置中配置 API 密钥！\n\n请在「AI工坊设置」中填写 API 密钥（如 sk-ant-xxxx）后重试。');
         }
         
         console.log('🤖 使用 Anthropic Messages 格式调用模型:', modelName);
         
-        const baseUrl = (this.getApiBaseUrl() || this.DEFAULT_BASE_URLS.anthropic).replace(/\/+$/, '');
+        const baseUrl = ((provider && provider.baseUrl) || this.getApiBaseUrl() || this.DEFAULT_BASE_URLS.anthropic).replace(/\/+$/, '');
         const requestData = {
             model: modelName,
             max_tokens: (options && options.max_tokens) || 2000,

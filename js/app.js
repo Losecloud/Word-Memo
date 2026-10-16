@@ -2256,7 +2256,7 @@ class WordMemoryApp {
 
         // 学习模式中的收藏按钮
         document.getElementById('favoriteBtn1').addEventListener('click', () => {
-            this.toggleFavorite();
+            this.toggleFavorite(this._favHoverShownId());
         });
 
         document.getElementById('favoriteBtn2').addEventListener('click', () => {
@@ -2264,8 +2264,11 @@ class WordMemoryApp {
         });
 
         document.getElementById('favoriteBtn3').addEventListener('click', () => {
-            this.toggleFavorite();
+            this.toggleFavorite(this._favHoverShownId());
         });
+
+        // 收藏按钮悬浮切换收藏词单（滚轮循环切换，不缓存）
+        this.initFavoriteTargetHover();
 
         // 学习模式中的「太简单」按钮（标记后不再复习）
         document.getElementById('tooEasyBtn1').addEventListener('click', () => {
@@ -3181,7 +3184,7 @@ class WordMemoryApp {
         const sidebarReviewBtn = document.getElementById('sidebarSm2StartReviewBtn');
         if (sidebarReviewBtn) {
             sidebarReviewBtn.addEventListener('click', () => {
-                this.startSm2Review();
+                this.startSm2Review(this._sm2AheadMode);
             });
         }
         const sidebarSm2Header = document.getElementById('sidebarSm2Header');
@@ -6393,6 +6396,12 @@ class WordMemoryApp {
             }
             this.showCompletion();
             return;
+        }
+
+        // 长会话音频缓存清理：每练 50 词整块释放一次发音缓冲/语音队列，
+        // 避免 OB(Electron) 渲染进程内存随词数持续累积而崩溃灰屏
+        if (this.currentWordIndex > 0 && this.currentWordIndex % 50 === 0) {
+            this.clearAudioCache();
         }
 
         const word = this.sessionWords[this.currentWordIndex];
@@ -10832,6 +10841,9 @@ ${example ? `- 例句：${example}` : ''}
         // 之后的继续学习/开启新一轮/继续复习都回归词书独有或全局模式
         this.sessionModeOverride = null;
 
+        // 本轮（30-50 词等）结束：整块释放发音缓冲与语音队列，防止长会话累积占用内存
+        this.clearAudioCache();
+
         // 停止今日统计显示定时器
         this.stopStatsDisplayTimer();
         
@@ -10895,11 +10907,13 @@ ${example ? `- 例句：${example}` : ''}
             // 到期数一律取「当前仍到期」的实时值，与面板「今日到期」同源，避免两种口径
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
             // 故当前只剩 189。这里同时给出「本轮 N · 剩余 M」，两者都明确。
-            const remaining = Storage.getDueWords().length;
+            // 提前练习（ahead）模式下今日已无到期，剩余数取明日到期，避免误显"已复习完"
+            const ahead = !!this._sm2AheadMode;
+            const remaining = ahead ? Storage.getDueWords({ ahead: true }).length : Storage.getDueWords().length;
             continueBtn.textContent = remaining > 0
                 ? `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${remaining})`
-                : '今日到期已复习完';
-            continueBtn.onclick = () => this.startSm2Review();
+                : (ahead ? '明日到期已复习完' : '今日到期已复习完');
+            continueBtn.onclick = () => this.startSm2Review(ahead);
         } else if (bookCompleted) {
             completionIcon.textContent = '🎊';
             completionTitle.textContent = '词书已学完！';
@@ -11458,6 +11472,33 @@ ${example ? `- 例句：${example}` : ''}
         });
         this.currentLocalAudio = null;
         this.currentEdgeAudio = null;
+    }
+
+    // 长会话（数百词）激进释放发音相关资源：单靠切题的 _stopCurrentAudio 只清引用，
+    // Electron(OB) 下 <audio> 的解码缓冲与 speechSynthesis 队列仍会持续累积，
+    // 最终把渲染进程内存顶爆而灰屏。此处在每 50 词与结算画面整块释放。
+    clearAudioCache() {
+        // 1) 停播并彻底丢弃共享音频元素的解码缓冲（置空 src 后 load() 立即释放）
+        try {
+            const a = this._ttsAudioEl;
+            if (a) {
+                a.oncanplay = a.onerror = a.onended = a.onloadstart = a.onload = a.onprogress = null;
+                try { a.pause(); } catch (e) { /* 忽略 */ }
+                a.removeAttribute('src');
+                try { a.load(); } catch (e) { /* 忽略 */ }
+            }
+        } catch (e) { /* 忽略 */ }
+        // 元素本身一并丢弃：下次 _ttsAudio() 重建，确保底层旧解码器被释放
+        this._ttsAudioEl = null;
+        this.currentLocalAudio = null;
+        this.currentEdgeAudio = null;
+        // 2) 清空系统语音合成队列（Electron 下队列不排空会持续占用内存）
+        try {
+            if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+        } catch (e) { /* 忽略 */ }
+        // 3) 丢弃预取 utterance 与待播定时器
+        this.preparedUtterance = null;
+        if (this.speakTimeout) { clearTimeout(this.speakTimeout); this.speakTimeout = null; }
     }
 
     // 播放发音（用于学习模式）
@@ -14992,6 +15033,7 @@ ${example ? `- 例句：${example}` : ''}
                             phonetic: word.phonetic || '',
                             definitions: word.definitions ? JSON.parse(JSON.stringify(word.definitions)) : [{}],
                             favorite: true,
+                            favoriteAt: word.favoriteAt || word.createdAt || '',
                             _sourceBookId: book.id,
                             _sourceWordIndex: widx,
                             _originalWord: word.word
@@ -15014,6 +15056,7 @@ ${example ? `- 例句：${example}` : ''}
                             phonetic: item.phonetic || '',
                             definitions: item.definitions ? JSON.parse(JSON.stringify(item.definitions)) : [{ meaning: item.meaning || '', example: item.example || '' }],
                             favorite: true,
+                            favoriteAt: item.favoriteAt || item.createdAt || '',
                             _sourceBookId: 'global',
                             _sourceWordIndex: undefined,
                             _originalWord: item.word
@@ -15024,6 +15067,14 @@ ${example ? `- 例句：${example}` : ''}
         } catch (e) {
             console.warn('加载全局收藏项失败:', e);
         }
+
+        // 按加入收藏的时间由新到旧展示（无时间的旧数据排最后，保持原有先后）
+        favorites.forEach((f, i) => { f._sortIdx = i; });
+        favorites.sort((a, b) => {
+            const ta = a.favoriteAt ? Date.parse(a.favoriteAt) : 0;
+            const tb = b.favoriteAt ? Date.parse(b.favoriteAt) : 0;
+            return (tb - ta) || (a._sortIdx - b._sortIdx);
+        });
 
         return {
             id: 'favorites',
@@ -15157,13 +15208,15 @@ ${example ? `- 例句：${example}` : ''}
         const idx = meta.words.findIndex(w => String((w && w.word) || '').trim().toLowerCase() === key);
         if (on) {
             if (idx < 0) {
-                meta.words.push({
+                // 前置插入：新收藏的单词显示在词单第一位（按加单时间由新到旧）
+                meta.words.unshift({
                     word: wordObj.word,
                     phonetic: wordObj.phonetic || '',
                     definitions: (wordObj.definitions && wordObj.definitions.length)
                         ? JSON.parse(JSON.stringify(wordObj.definitions))
                         : [{ meaning: wordObj.meaning || '', example: wordObj.example || '' }],
                     favorite: true,
+                    favoriteAt: new Date().toISOString(),
                     createdAt: new Date().toISOString()
                 });
                 this.saveFavoriteLists(lists);
@@ -15186,6 +15239,191 @@ ${example ? `- 例句：${example}` : ''}
     // 取反：在首选自建词单中收藏/取消收藏
     toggleFavoriteInTarget(wordObj) {
         return this.setFavoriteInTarget(wordObj, !this.isFavoriteInTarget(wordObj && wordObj.word));
+    }
+
+    // ==================== 收藏按钮悬浮切换收藏词单 ====================
+    // 悬浮瞬间冻结环形清单（自首选起、按词单顺序回绕）：按钮=指针，邻近1=后第1个（满亮），
+    // 邻近2=后第2个（半透明）。下滚指针前进1位（内容上移，被滚出项回绕到邻近2即新一轮第1个），
+    // 上滚则后退1位（上一轮末项进入按钮位，原项下移）。滚动时按钮内旧名甩出、新名流入。
+    // 切换只存内存，移出即清空（不缓存，默认总是首选）。
+    initFavoriteTargetHover() {
+        if (this._favHoverInited) return;
+        this._favHoverInited = true;
+        // 冻结的环形清单与当前指针；menuSeq/labelSeq 用于快速滚动时取消过期动画
+        let ring = [];
+        let hoverIdx = 0;
+        let menuSeq = 0;
+        let labelSeq = 0;
+        const curId = () => (ring[hoverIdx] ? ring[hoverIdx].id : null);
+        const curName = () => (ring[hoverIdx] ? ring[hoverIdx].name : '');
+
+        // 当前学习单词是否已在指定词单中（星标前缀/按钮星标共用判定）
+        const wordInList = (listId) => {
+            const w = this.sessionWords && this.sessionWords[this.currentWordIndex];
+            if (!w || !w.word) return false;
+            const key = String(w.word).trim().toLowerCase();
+            return listId === 'favorites'
+                ? this.getFavoritesVirtualBook().words.some(x => String(x.word || '').trim().toLowerCase() === key)
+                : this.isFavoriteInList(listId, w.word);
+        };
+
+        // 展示项 HTML：邻近1 = 指针后第1个，邻近2 = 指针后第2个（单子数不足时自动跳过）。
+        // 前缀实心星标随词单名字体色：已收藏进该词单显示，未收藏全透明占位保齐
+        const othersHtml = () => {
+            const out = [];
+            for (let k = 1; k < ring.length && out.length < 2; k++) {
+                const it = ring[(hoverIdx + k) % ring.length];
+                if (it && it.id !== curId()) {
+                    const on = wordInList(it.id);
+                    out.push(
+                        `<div class="fav-target-opt" data-fid="${this.escapeHtml(it.id)}">` +
+                        `<i class="fi-sr-star fav-target-star${on ? '' : ' fav-target-star-off'}"></i>` +
+                        this.escapeHtml(it.name) +
+                        `</div>`
+                    );
+                }
+            }
+            return out.join('');
+        };
+
+        // 菜单滚动：阶段1保留旧条目朝滚动方向甩出 → 阶段2换新条目自反方向流入
+        const rollMenu = (menu, dir) => {
+            const newHtml = othersHtml();
+            const seq = ++menuSeq;
+            const prevHtml = menu.innerHTML;
+            menu.classList.remove('roll-up', 'roll-down', 'roll-up-in', 'roll-down-in');
+            if (!dir) { menu.innerHTML = newHtml; return; }
+            menu.innerHTML = prevHtml; // 先用旧条目做甩出动画
+            void menu.offsetWidth;
+            menu.classList.add(dir === 'up' ? 'roll-up' : 'roll-down');
+            setTimeout(() => {
+                if (seq !== menuSeq) return; // 已被新一轮滚动接管
+                menu.classList.remove('roll-up', 'roll-down');
+                menu.innerHTML = newHtml;
+                void menu.offsetWidth;
+                menu.classList.add(dir === 'up' ? 'roll-up-in' : 'roll-down-in');
+            }, 110);
+        };
+
+        // 按钮内文案滚动：旧名朝滚动方向甩出，新名自反方向流入（与滚轮同拍）
+        const rollLabel = (label, dir) => {
+            const newText = curName();
+            const inEl = label.querySelector('.fav-lbl-in');
+            const oldText = label.classList.contains('fav-lbl-anim') && inEl ? inEl.textContent : label.textContent;
+            if (oldText === newText) return;
+            const seq = ++labelSeq;
+            const d = dir === 'up' ? 'up' : 'down';
+            label.classList.add('fav-lbl-anim');
+            label.innerHTML =
+                `<span class="fav-lbl-out fav-lbl-out-${d}">${this.escapeHtml(oldText)}</span>` +
+                `<span class="fav-lbl-in fav-lbl-in-${d}">${this.escapeHtml(newText)}</span>`;
+            setTimeout(() => {
+                if (seq !== labelSeq) return; // 已被新一轮滚动/移出接管
+                label.classList.remove('fav-lbl-anim');
+                if (this._favHoverId === curId()) label.textContent = newText;
+            }, 260);
+        };
+
+        document.querySelectorAll('.fav-target-wrap').forEach(wrap => {
+            const btn = wrap.querySelector('.fav-target-btn');
+            const menu = wrap.querySelector('.fav-target-menu');
+            const label = btn && btn.querySelector('span');
+            if (!btn || !menu || !label) return;
+
+            // 当前单词是否在指定词单中（悬浮时星标随展示的词单联动，避免与实际收藏目标不一致）
+            const syncStar = (listId) => {
+                const w = this.sessionWords && this.sessionWords[this.currentWordIndex];
+                if (!w || !w.word) return;
+                const inList = wordInList(listId);
+                btn.classList.toggle('is-favorite', !!inList);
+                const star = btn.querySelector('.favorite-icon');
+                if (star) star.className = this.favoriteStarClass(inList);
+            };
+
+            // 悬浮进入：以首选词单为起点冻结环形清单（不缓存上次切换结果）。
+            // 换名/切星标会改变按钮宽度，居中布局下区域横移易把鼠标"抖"出 wrap 触发
+            // leave→enter 重建清单（表现为滚动后又恢复默认）：故锁定按钮宽度 +
+            // 延迟还原（leaveTimer），抖动重入时保留滚动位置不重置。
+            let leaveTimer = null;
+            const onEnter = () => {
+                if (leaveTimer) { clearTimeout(leaveTimer); leaveTimer = null; }
+                if (ring.length && this._favHoverId) return; // 抖动重入：保留滚动位置
+                const base = this.getFavoriteLists();
+                let s = base.findIndex(x => x.id === this.getPreferredFavoriteListId());
+                if (s < 0) s = 0;
+                ring = base.slice(s).concat(base.slice(0, s));
+                hoverIdx = 0;
+                labelSeq++;
+                menuSeq++;
+                this._favHoverId = curId();
+                label.classList.remove('fav-lbl-anim');
+                label.textContent = curName() || '收藏该词';
+                // 锁定按钮宽度为最宽词单名，滚动换名不再抖宽引发误移出
+                const meas = document.createElement('span');
+                meas.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;white-space:nowrap;';
+                btn.appendChild(meas); // 挂按钮内以继承字体，测量才准确
+                let maxW = 0;
+                ring.forEach(it => { meas.textContent = it.name || ''; maxW = Math.max(maxW, meas.offsetWidth); });
+                meas.remove();
+                label.style.minWidth = Math.ceil(maxW) + 'px';
+                label.style.textAlign = 'center';
+                rollMenu(menu, null);
+                syncStar(curId());
+            };
+            const onLeave = () => {
+                if (leaveTimer) clearTimeout(leaveTimer);
+                leaveTimer = setTimeout(() => {
+                    leaveTimer = null;
+                    labelSeq++;
+                    menuSeq++;
+                    ring = [];
+                    hoverIdx = 0;
+                    this._favHoverId = null;
+                    label.classList.remove('fav-lbl-anim');
+                    label.style.minWidth = '';
+                    label.style.textAlign = '';
+                    // 还原常态星标与文案（首选词单为自建词单时以其为准，否则按词书标记）
+                    const w = this.sessionWords && this.sessionWords[this.currentWordIndex];
+                    if (w) {
+                        this.updateFavoriteDisplay(this.getFavoriteTargetList()
+                            ? this.isFavoriteInTarget(w.word)
+                            : (w.favorite || false));
+                    }
+                }, 80);
+            };
+            wrap.addEventListener('mouseenter', onEnter);
+            wrap.addEventListener('mouseleave', onLeave);
+
+            // 滚轮循环切换：下滚沿环前进1位（按钮/邻近1整体上移，新项自邻近2进入），
+            // 上滚后退1位（上一轮末项进入按钮位，原项下移）。挂在整个 wrap 上，按钮上滚动也触发
+            wrap.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (ring.length < 2 || !this._favHoverId) return;
+                const step = e.deltaY > 0 ? 1 : -1;   // 下滚=前进1位，上滚=后退1位
+                const dir = step > 0 ? 'up' : 'down'; // 条目与文案的移动方向（下滚内容上移）
+                hoverIdx = (hoverIdx + step + ring.length) % ring.length;
+                this._favHoverId = curId();
+                rollMenu(menu, dir);
+                rollLabel(label, dir);
+                syncStar(curId());
+            }, { passive: false });
+
+            // 点击浮出的词单：收藏当前单词到该词单（不改变冻结清单的指针）
+            menu.addEventListener('click', (e) => {
+                const opt = e.target.closest('.fav-target-opt');
+                if (!opt) return;
+                const fid = opt.dataset.fid;
+                if (!fid || fid === curId()) return;
+                this.toggleFavorite(fid);
+                syncStar(fid);
+            });
+        });
+    }
+
+    // 当前悬浮展示的收藏词单 id（未悬浮时返回 null，走默认收藏逻辑）
+    _favHoverShownId() {
+        return this._favHoverId || null;
     }
 
     // ==================== 欧路词典（Eudic）OpenAPI 链接 ====================
@@ -15326,10 +15564,16 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 收藏词单的单词对象数组（默认词单聚合全部收藏，自定义词单取自身 words）
+    // 统一按加入时间由新到旧展示（word 顺序本身已由写入侧前置，此处再做展示排序兜底）
     getFavoriteListWords(id) {
-        if (id === 'favorites') return this.getFavoritesVirtualBook().words || [];
-        const d = this.getFavoriteLists().find(x => x.id === id);
-        return (d && Array.isArray(d.words)) ? d.words : [];
+        const arr = id === 'favorites'
+            ? (this.getFavoritesVirtualBook().words || [])
+            : ((this.getFavoriteLists().find(x => x.id === id) || {}).words || []);
+        return arr.slice().sort((a, b) => {
+            const ta = a && a.favoriteAt ? Date.parse(a.favoriteAt) : 0;
+            const tb = b && b.favoriteAt ? Date.parse(b.favoriteAt) : 0;
+            return (tb - ta) || 0;
+        });
     }
 
     // 当前浏览的是否为收藏词单（虚拟聚合，不存在于 Storage.books）
@@ -15488,6 +15732,7 @@ ${example ? `- 例句：${example}` : ''}
                         word: t,
                         phonetic: r.phon || '',
                         definitions: [{ meaning: this.eudicCleanExp(r.exp) }],
+                        favoriteAt: new Date().toISOString(),
                         createdAt: new Date().toISOString()
                     });
                     added++;
@@ -15508,6 +15753,7 @@ ${example ? `- 例句：${example}` : ''}
                             phonetic: r.phon || '',
                             definitions: [{ meaning: this.eudicCleanExp(r.exp) }],
                             favorite: true,
+                            favoriteAt: new Date().toISOString(),
                             createdAt: new Date().toISOString()
                         });
                     });
@@ -15579,6 +15825,7 @@ ${example ? `- 例句：${example}` : ''}
             phonetic: (r && r.phon) || '',
             definitions: [{ meaning: this.eudicCleanExp(r && r.exp) }],
             favorite: true,
+            favoriteAt: new Date().toISOString(),
             createdAt: new Date().toISOString()
         });
         let added = 0;
@@ -16414,7 +16661,14 @@ ${example ? `- 例句：${example}` : ''}
                 id: id,
                 name: meta.name,
                 icon: 'fi-sr-star favorite-icon',
-                words: (Array.isArray(meta.words) ? meta.words : []).map(w => Object.assign({ favorite: true }, w)),
+                // 按加入时间由新到旧展示（与默认词单一致）
+                words: (Array.isArray(meta.words) ? meta.words : [])
+                    .map(w => Object.assign({ favorite: true }, w))
+                    .sort((a, b) => {
+                        const ta = a.favoriteAt ? Date.parse(a.favoriteAt) : 0;
+                        const tb = b.favoriteAt ? Date.parse(b.favoriteAt) : 0;
+                        return (tb - ta) || 0;
+                    }),
                 createdAt: meta.createdAt || new Date().toISOString()
             };
         if (id === 'favorites' && virtual.words.length === 0) {
@@ -16745,6 +16999,7 @@ ${example ? `- 例句：${example}` : ''}
                 word: w,
                 phonetic: item.phonetic || '',
                 definitions: item.definitions && item.definitions.length ? item.definitions : [{ meaning: item.meaning || '', example: item.example || '' }],
+                favoriteAt: new Date().toISOString(),
                 createdAt: new Date().toISOString()
             };
             existing.push(newItem);
@@ -18691,6 +18946,7 @@ ${example ? `- 例句：${example}` : ''}
 
             const sourceWord = sourceBook.words[sourceWordIndex];
             sourceWord.favorite = !sourceWord.favorite;
+            if (sourceWord.favorite) sourceWord.favoriteAt = new Date().toISOString();
             Storage.updateBook(sourceBookId, sourceBook);
             this.scheduleEudicSync();
 
@@ -18719,7 +18975,8 @@ ${example ? `- 例句：${example}` : ''}
         
         // 切换收藏状态
         word.favorite = !word.favorite;
-        
+        if (word.favorite) word.favoriteAt = new Date().toISOString();
+
         // 保存到存储
         Storage.updateBook(this.currentWordListBookId, book);
 
@@ -19065,7 +19322,8 @@ ${example ? `- 例句：${example}` : ''}
     }
 
     // 切换当前学习单词的收藏状态
-    toggleFavorite() {
+    // targetListId：收藏到指定收藏词单（悬浮切换指定时传入）；缺省走首选收藏词单/默认收藏逻辑
+    toggleFavorite(targetListId) {
         if (this.currentWordIndex >= this.sessionWords.length) {
             console.warn('❌ 无法切换收藏：单词索引超出范围');
             return;
@@ -19099,8 +19357,41 @@ ${example ? `- 例句：${example}` : ''}
         // 按名回退命中时同步索引，保证后续（返回上一题等）定位一致
         if (index !== originalIndex) sessionWord.originalIndex = index;
         
-        // 首选为自建收藏词单时，收藏写入该词单（不再写入默认收藏/词书标记）
+        // 悬浮切换指定词单：收藏/取消收藏写入该词单（切换不缓存，不影响首选收藏）
+        if (targetListId) {
+            if (targetListId !== 'favorites') {
+                const on = !this.isFavoriteInList(targetListId, word.word);
+                this.setFavoriteInList(targetListId, {
+                    word: word.word,
+                    phonetic: word.phonetic || '',
+                    definitions: word.definitions,
+                    meaning: word.meaning || ''
+                }, on);
+                sessionWord.favorite = on;
+                this.updateFavoriteDisplay(on);
+                this.renderBookList();
+                this.clearFocus();
+                const tName = (this.getFavoriteLists().find(x => x.id === targetListId) || {}).name || '';
+                this.showToast(on ? `⭐ 已收藏到「${tName}」` : `已取消收藏（${tName}）`, on ? 'success' : 'info');
+                console.log(`⭐ ${on ? '已收藏' : '取消收藏'}单词: ${word.word}（词单：${tName}）`);
+                return;
+            }
+            // 显式选择默认词单：写词书 favorite 标记（默认词单的聚合来源），不走首选词单路由
+            word.favorite = !word.favorite;
+            if (word.favorite) word.favoriteAt = new Date().toISOString();
+            sessionWord.favorite = word.favorite;
+            Storage.updateBook(bookId, book);
+            this.scheduleEudicSync();
+            this.updateFavoriteDisplay(word.favorite);
+            this.renderBookList();
+            this.clearFocus();
+            const defName = (this.getFavoriteLists().find(x => x.id === 'favorites') || {}).name || '默认收藏';
+            this.showToast(word.favorite ? `⭐ 已收藏到「${defName}」` : `已取消收藏（${defName}）`, word.favorite ? 'success' : 'info');
+            console.log(`⭐ ${word.favorite ? '已收藏' : '取消收藏'}单词: ${word.word}（词单：${defName}）`);
+            return;
+        }
         if (this.getFavoriteTargetList()) {
+            // 首选为自建收藏词单时，收藏写入该词单（不再写入默认收藏/词书标记）
             const added = this.toggleFavoriteInTarget({
                 word: word.word,
                 phonetic: word.phonetic || '',
@@ -19117,7 +19408,8 @@ ${example ? `- 例句：${example}` : ''}
         
         // 切换收藏状态
         word.favorite = !word.favorite;
-        
+        if (word.favorite) word.favoriteAt = new Date().toISOString();
+
         // 同时更新 sessionWord 的收藏状态（保持同步）
         sessionWord.favorite = word.favorite;
         
@@ -19189,7 +19481,8 @@ ${example ? `- 例句：${example}` : ''}
         
         // 切换收藏状态
         word.favorite = !word.favorite;
-        
+        if (word.favorite) word.favoriteAt = new Date().toISOString();
+
         // 更新 lastWordInfo 的收藏状态
         this.lastWordInfo.favorite = word.favorite;
         
@@ -19290,7 +19583,8 @@ ${example ? `- 例句：${example}` : ''}
         // 切换收藏状态
         const wasFavorite = foundWord.favorite;
         foundWord.favorite = !foundWord.favorite;
-        
+        if (foundWord.favorite) foundWord.favoriteAt = new Date().toISOString();
+
         // 保存词书
         Storage.updateBook(foundBook.id, foundBook);
         // 收藏变化：触发欧路词典增量同步（防抖）
@@ -19336,10 +19630,10 @@ ${example ? `- 例句：${example}` : ''}
             if (!btn) return;
             const star = btn.querySelector('.favorite-icon');
             if (star) star.className = this.favoriteStarClass(isFavorite);
-            // 模式1/3 的按钮带文案，同步切换
-            const label = btn.querySelector('span');
-            if (label) label.textContent = isFavorite ? '取消收藏' : '收藏该词';
             btn.classList.toggle('is-favorite', !!isFavorite);
+            // 模式1/3 的按钮带文案，同步切换；悬浮切换词单时保留词单名
+            const label = btn.querySelector('span');
+            if (label && !this._favHoverId) label.textContent = isFavorite ? '取消收藏' : '收藏该词';
         });
     }
 
@@ -26933,6 +27227,7 @@ ${head}
                 word: word.word,
                 phonetic: word.phonetic || '',
                 definitions: [{ meaning: word.meaning || '', example: word.example || '' }],
+                favoriteAt: new Date().toISOString(),
                 createdAt: new Date().toISOString()
             });
             isFavorite = true;
@@ -29080,6 +29375,22 @@ ${head}
                 this.editCustomAiModel(model.value);
             });
 
+            // 测试结果简要信息：位于测试按钮左侧，仅报错/成功时显示
+            const testMsg = document.createElement('span');
+            testMsg.className = 'model-picker-item-testmsg';
+
+            // 测试连接按钮：默认 wrench，成功换 primary check-circle，失败换 error interrogation
+            const testBtn = document.createElement('button');
+            testBtn.type = 'button';
+            testBtn.className = 'model-picker-item-test';
+            testBtn.title = '测试此模型能否连接并返回内容（最小 token 请求）';
+            testBtn.innerHTML = '<i class="fi-rr-wrench-alt"></i>';
+            testBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+            testBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.testCustomAiModelConnection(model, row);
+            });
+
             // 删除按钮：仅图标、无边框，悬浮整行时浮出
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
@@ -29103,6 +29414,8 @@ ${head}
             else tag.textContent = '已启用';
 
             row.appendChild(info);
+            row.appendChild(testMsg);
+            row.appendChild(testBtn);
             row.appendChild(editBtn);
             row.appendChild(delBtn);
             row.appendChild(tag);
@@ -29121,6 +29434,57 @@ ${head}
 
             container.appendChild(row);
         });
+    }
+
+    // 测试自定义模型连接：向模型所属厂商发起最小 token 请求，校验是否返回内容
+    async testCustomAiModelConnection(model, row) {
+        const btn = row.querySelector('.model-picker-item-test');
+        const msg = row.querySelector('.model-picker-item-testmsg');
+        if (!btn || btn.classList.contains('is-loading')) return;
+        const setIcon = (icon, cls) => {
+            btn.innerHTML = `<i class="fi-${icon}"></i>`;
+            btn.className = 'model-picker-item-test' + (cls ? ' ' + cls : '');
+        };
+        const providers = this.getAiProviders();
+        const p = providers.find(x => Array.isArray(x.models) && x.models.some(m => m.value === model.value));
+        const say = (text, ok) => {
+            if (!msg) return;
+            msg.textContent = text;
+            msg.className = 'model-picker-item-testmsg' + (ok === true ? ' is-ok' : ok === false ? ' is-err' : '');
+            if (text) row.classList.add('has-testmsg');
+            else row.classList.remove('has-testmsg');
+        };
+        say('', null);
+        btn.classList.add('is-loading');
+        setIcon('rr-loading', 'is-loading');
+        try {
+            if (!p || !String(p.apiKey || '').trim()) {
+                throw new Error(p ? 'API 密钥未填写' : '未找到该模型所属厂商配置');
+            }
+            if (!String(p.baseUrl || '').trim()) {
+                throw new Error('请求地址未填写');
+            }
+            // 最小 token 消耗：1 字回复 + max_tokens=1，短 prompt；轮询/推理类模型超时也当失败
+            const ret = await AIService.callProviderModel(p, model.value, 'Reply with: OK', {
+                max_tokens: 1,
+                temperature: 0
+            });
+            if (ret && String(ret).trim()) {
+                setIcon('sr-check-circle', 'is-ok');
+                say('连接正常', true);
+                this.showToast(`「${model.label || model.value}」测试通过`, 'success');
+            } else {
+                throw new Error('返回内容为空');
+            }
+        } catch (e) {
+            setIcon('rr-interrogation', 'is-err');
+            let brief = (e && e.message) ? String(e.message).replace(/\s+/g, ' ').trim() : '未知错误';
+            if (brief.length > 60) brief = brief.slice(0, 60) + '…';
+            say(brief, false);
+            this.showToast(`「${model.label || model.value}」测试失败：${brief}`, 'error');
+        } finally {
+            btn.classList.remove('is-loading');
+        }
     }
 
     // 编辑自定义模型（标签 + ID）

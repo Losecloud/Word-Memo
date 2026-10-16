@@ -21,19 +21,84 @@ const Storage = {
     _httpProbe: null,
 
     // 探测内置服务是否可用（幂等，只探测一次）
+    // 两条通道：fetch（桌面同源） + postMessage（移动端 iframe 内 fetch 被同源/CORS 拦截）
     initHttpBridge() {
         if (this._httpProbe) return this._httpProbe;
         // file:// 直开：不存在内置服务（该接口仅 Obsidian 插件端提供），跳过探测避免 CORS 报错
         if (location.protocol === 'file:') { this._httpProbe = Promise.resolve(false); return this._httpProbe; }
-        this._httpProbe = fetch('/__wm__/ping', { cache: 'no-store' })
-            .then((res) => res.ok)
-            .catch(() => false)
-            .then((ok) => { this._httpReady = ok; return ok; });
+        this._httpProbe = Promise.race([
+            fetch('/__wm__/ping', { cache: 'no-store' }).then((res) => res.ok).catch(() => false),
+            this._postMessageBridge('ping', 'GET', null).then((r) => !!r && r.ok).catch(() => false)
+        ]).then((ok) => { this._httpReady = ok; return ok; });
         return this._httpProbe;
     },
 
     isHttpBridgeReady() {
         return this._httpReady;
+    },
+
+    // postMessage 桥（移动端 iframe 内 fetch 不可用时的兜底通道）
+    // 请求：{ type:'wm-bridge', id, action, method, params }
+    // 响应：{ type:'wm-bridge-reply', id, ok, status, body }
+    _postMessageBridge(action, method, params) {
+        return new Promise((resolve, reject) => {
+            if (!window.parent || window.parent === window) { reject(new Error('no parent window')); return; }
+            const id = 'wm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+            const onMsg = (ev) => {
+                const d = ev.data;
+                if (!d || d.type !== 'wm-bridge-reply' || d.id !== id) return;
+                window.removeEventListener('message', onMsg);
+                clearTimeout(timer);
+                resolve({ ok: !!d.ok, status: d.status || 0, body: d.body });
+            };
+            window.addEventListener('message', onMsg);
+            const timer = setTimeout(() => {
+                window.removeEventListener('message', onMsg);
+                reject(new Error('wm-bridge timeout'));
+            }, 30000);
+            window.parent.postMessage({
+                type: 'wm-bridge',
+                id: id,
+                action: action,
+                method: method || 'GET',
+                params: params || {}
+            }, '*');
+        });
+    },
+
+    // 统一桥接调用：先试 fetch（同源 / 内置服务），失败回退到 postMessage（移动端兜底）
+    // 返回 { ok, status, json, text }，由调用方按业务解析
+    async _bridgeRequest(action, method, params) {
+        method = method || 'GET';
+        params = params || null;
+        let fetchUrl = '/__wm__/' + action;
+        if (params && params.name) fetchUrl += '?name=' + encodeURIComponent(this._bridgeUserName(params.name));
+        const opts = { cache: 'no-store' };
+        if (method === 'POST') {
+            opts.method = 'POST';
+            opts.headers = { 'Content-Type': 'application/json; charset=utf-8' };
+            opts.body = params && params.body ? params.body : '';
+        } else if (method === 'DELETE') {
+            opts.method = 'DELETE';
+        }
+        // 通道 1：fetch
+        try {
+            const res = await fetch(fetchUrl, opts);
+            const text = await res.text();
+            let json = null;
+            try { json = text ? JSON.parse(text) : null; } catch (e) { /* 非 JSON 时保留 text */ }
+            return { ok: res.ok, status: res.status, json: json, text: text };
+        } catch (e) {
+            // 通道 2：postMessage（移动端 iframe 内 fetch 被拦截或跨域时兜底）
+            try {
+                const r = await this._postMessageBridge(action, method, params);
+                let json = null;
+                try { json = r.body && typeof r.body === 'string' ? JSON.parse(r.body) : r.body; } catch (e) { /* 非 JSON 时保留原样 */ }
+                return { ok: r.ok, status: r.status, json: json, text: typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '') };
+            } catch (e2) {
+                throw e2;
+            }
+        }
     },
 
     // 目录句柄是否可用（HTTP 桥接模式下视为可用）
@@ -78,10 +143,9 @@ const Storage = {
         const users = this.listUsers();
         if (!this._httpReady) return users;
         try {
-            const res = await fetch('/__wm__/users', { cache: 'no-store' });
-            if (res.ok) {
-                const disk = await res.json();
-                for (const name of disk) {
+            const r = await this._bridgeRequest('users', 'GET', null);
+            if (r.ok && Array.isArray(r.json)) {
+                for (const name of r.json) {
                     if (name && users.indexOf(name) === -1) users.push(name);
                 }
             }
@@ -110,10 +174,10 @@ const Storage = {
 
     // 删除 user/ 目录下指定用户的配置文件
     async _removeUserFile(username) {
-        // 桥接模式：走内置服务删除
+        // 桥接模式：走内置服务删除（fetch + postMessage 双通道，由 _bridgeRequest 内部尝试）
         if (this._httpReady && !this._hasDirAccess()) {
             try {
-                await fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(username)), { method: 'DELETE' });
+                await this._bridgeRequest('user', 'DELETE', { name: username });
                 console.log(`🗑️ 已删除用户配置文件: user_${this._bridgeUserName(username)}.json`);
             } catch (e) {
                 // 文件不存在或删除失败，忽略
@@ -596,12 +660,8 @@ const Storage = {
         if (!this._hasDirAccess()) {
             if (!this._bridgeChain) this._bridgeChain = Promise.resolve();
             this._bridgeChain = this._bridgeChain
-                .then(() => fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(user)), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: snapshot
-                }))
-                .then((res) => res.ok)
+                .then(() => this._bridgeRequest('user', 'POST', { name: user, body: snapshot }))
+                .then((r) => r.ok)
                 .catch((e) => { console.warn('写入 user/ 目录失败:', e); return false; });
             return this._bridgeChain;
         }
@@ -736,12 +796,12 @@ const Storage = {
         const name = username || this.getCurrentUser();
         if (!name || name === '游客' || !this.isFileSystemReady()) return null;
         const cache = this._parseJson(localStorage.getItem(`wordMemory_user_json_${name}`));
-        // 桥接模式：走内置服务读取
+        // 桥接模式：走内置服务读取（fetch + postMessage 双通道，由 _bridgeRequest 内部尝试）
         if (!this._hasDirAccess()) {
             try {
-                const res = await fetch('/__wm__/user?name=' + encodeURIComponent(this._bridgeUserName(name)), { cache: 'no-store' });
-                if (!res.ok) return null;
-                const config = await res.json();
+                const r = await this._bridgeRequest('user', 'GET', { name: name });
+                if (!r.ok) return null;
+                const config = r.json;
                 if (config && config.username) {
                     if (this._shouldFileWin(cache, config)) this._adoptFileConfig(name, config);
                     return config;

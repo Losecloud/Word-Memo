@@ -7320,6 +7320,158 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     color: #FFC83D;
 }
 
+/* 收藏目标切换：悬浮时按钮文案变为首选词单名，下方浮出其余词单（纯文本，滚轮循环切换） */
+.fav-target-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.fav-target-menu {
+    position: absolute;
+    top: 100%;
+    padding-top: 6px; /* 桥接按钮与菜单间隙，鼠标移向菜单不丢 hover */
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    flex-direction: column;
+    align-items: stretch; /* 各行等宽，星标前缀列对齐 */
+    gap: 2px;
+    min-width: 100%;
+    z-index: 30;
+    cursor: ns-resize;
+}
+
+.fav-target-wrap:hover .fav-target-menu,
+.fav-target-menu:hover {
+    display: flex;
+}
+
+.fav-target-opt {
+    display: grid;
+    grid-template-columns: 1em 1fr; /* 星标列固定宽，名称列左对齐，各行起始位置统一 */
+    align-items: center;
+    column-gap: 0.25rem;
+    padding: 2px 0.625rem;
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: nowrap;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+    animation: favTargetIn var(--transition-fast) ease-out;
+}
+
+/* 星标前缀：实心星随词单名字体色；未收藏时全透明占位保齐 */
+.fav-target-star {
+    font-size: 0.75rem;
+    line-height: 1;
+    color: inherit;
+}
+
+.fav-target-star-off {
+    opacity: 0;
+}
+
+.fav-target-opt:hover {
+    color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+/* 邻近2（第2个浮出词单）半透明，与邻近1 形成层次。
+   用 filter 叠加而非 opacity：条目入场/滚出动画驱动的是 opacity(0→1)，
+   静态 opacity 0.5 会在动画结束瞬间被覆盖跳变（闪烁卡顿），filter 独立叠加无此问题 */
+.fav-target-opt:last-child:not(:first-child) {
+    filter: opacity(0.5);
+}
+
+/* 按钮内词单名滚动动画：定位层承载旧名甩出 + 新名流入，布局层保持文案原位 */
+.btn-word-option .fav-lbl-anim {
+    position: relative;
+    display: inline-grid;
+    overflow: hidden;
+}
+
+.btn-word-option .fav-lbl-anim > span {
+    grid-area: 1 / 1;
+    white-space: nowrap;
+}
+
+.btn-word-option .fav-lbl-anim .fav-lbl-out {
+    animation: favLblOutUp 0.24s ease-in forwards;
+}
+
+.btn-word-option .fav-lbl-anim .fav-lbl-in {
+    animation: favLblInUp 0.24s ease-out;
+}
+
+.btn-word-option .fav-lbl-anim .fav-lbl-out-down {
+    animation-name: favLblOutDown;
+}
+
+.btn-word-option .fav-lbl-anim .fav-lbl-in-down {
+    animation-name: favLblInDown;
+}
+
+/* 浮动位移叠加 --spacing-sm：新旧词单名交错时上下留出 8px 间距，不显拥挤 */
+@keyframes favLblOutUp {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(calc(-70% - var(--spacing-sm))); }
+}
+
+@keyframes favLblInUp {
+    from { opacity: 0; transform: translateY(calc(70% + var(--spacing-sm))); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes favLblOutDown {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(calc(70% + var(--spacing-sm))); }
+}
+
+@keyframes favLblInDown {
+    from { opacity: 0; transform: translateY(calc(-70% - var(--spacing-sm))); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes favTargetIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 滚轮切换：旧条目朝滚动方向甩出淡去，新条目自反方向流入（菜单固定不动，仅条目流转） */
+.fav-target-menu.roll-up .fav-target-opt {
+    animation: favTargetOutUp 0.11s ease-in forwards;
+}
+
+.fav-target-menu.roll-down .fav-target-opt {
+    animation: favTargetOutDown 0.11s ease-in forwards;
+}
+
+.fav-target-menu.roll-up-in .fav-target-opt {
+    animation: favTargetInUp 0.14s ease-out;
+}
+
+.fav-target-menu.roll-down-in .fav-target-opt {
+    animation: favTargetIn 0.14s ease-out;
+}
+
+@keyframes favTargetOutUp {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes favTargetOutDown {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes favTargetInUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* ============================================
    AI工坊相关样式
    ============================================ */
@@ -11371,6 +11523,48 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     background: color-mix(in srgb, var(--error, #EF4444) 14%, transparent);
     color: var(--error, #EF4444);
 }
+/* 测试连接按钮：默认隐藏，仅悬浮整行时浮出，无文字无边框 */
+.model-picker-item .model-picker-item-test {
+    flex-shrink: 0;
+    display: none;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 0;
+    cursor: pointer;
+}
+.model-picker-item:hover .model-picker-item-test,
+.model-picker-item.has-testmsg .model-picker-item-test { display: inline-flex; }
+.model-picker-item .model-picker-item-test:hover {
+    background: var(--primary-light);
+    color: var(--primary-color);
+}
+.model-picker-item .model-picker-item-test.is-loading i { animation: modelTestSpin 1s linear infinite; }
+.model-picker-item .model-picker-item-test.is-ok { color: var(--primary-color); }
+.model-picker-item .model-picker-item-test.is-err { color: var(--error, #EF4444); }
+@keyframes modelTestSpin {
+    to { transform: rotate(360deg); }
+}
+/* 测试结果简要信息（测试按钮左侧）：报错/成功时显示，单行省略 */
+.model-picker-item-testmsg {
+    flex-shrink: 1;
+    min-width: 0;
+    display: none;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.model-picker-item.has-testmsg .model-picker-item-testmsg { display: inline-block; }
+.model-picker-item-testmsg.is-err { color: var(--error, #EF4444); }
+.model-picker-item-testmsg.is-ok { color: var(--primary-color); }
+
 /* 最右固定状态小字：首选（星标）/ 已启用 */
 .model-picker-item-tag {
     flex-shrink: 0;
