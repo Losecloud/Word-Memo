@@ -107,6 +107,21 @@ const Storage = {
     async _bridgeRequest(action, method, params) {
         method = method || 'GET';
         params = params || null;
+        // 桥接宿主（移动端 capacitor:/app:）：相对路径 fetch 会落到宿主自身页面并返回 200 的
+        // Obsidian 首页 HTML（而非失败），使下面的 fetch 通道"假成功"、永不回退到 postMessage，
+        // 真实数据（users/user 等）被 Obsidian 首页 HTML 顶替。表现为：登录历史为空、
+        // 用户配置写不进 user/。故此类宿主一律直接走 postMessage 通道。
+        if (window.parent && window.parent !== window && !/^https?:$/.test(location.protocol)) {
+            const r0 = await this._postMessageBridge(action, method, params);
+            let j0 = null;
+            try { j0 = (r0 && typeof r0.body === 'string') ? JSON.parse(r0.body) : (r0 ? r0.body : null); } catch (e) { /* 非 JSON 保留原样 */ }
+            return {
+                ok: !!(r0 && r0.ok),
+                status: (r0 && r0.status) || 0,
+                json: j0,
+                text: (r0 && typeof r0.body === 'string') ? r0.body : JSON.stringify((r0 && r0.body) || '')
+            };
+        }
         let fetchUrl = '/__wm__/' + action;
         if (params && params.name) fetchUrl += '?name=' + encodeURIComponent(this._bridgeUserName(params.name));
         const opts = { cache: 'no-store' };
