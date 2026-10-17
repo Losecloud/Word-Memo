@@ -2745,6 +2745,38 @@ class WordMemoryApp {
                 this._restoreCursorPos(writingEditor, this._savedCursorPos);
             });
         }
+
+        // 题目卡片：题目正文可直接编辑/粘贴（默认态文字视为占位提示，聚焦即清空以便覆盖或粘贴新题）
+        const topicTextEl = document.getElementById('writingTopicText');
+        if (topicTextEl) {
+            this._topicIsPlaceholder = true; // 初始为默认提示态，由 updateTopicCard 接管后续状态
+            topicTextEl.addEventListener('focus', () => {
+                if (this._topicIsPlaceholder) {
+                    topicTextEl.textContent = '';
+                    this._topicIsPlaceholder = false;
+                }
+            });
+            topicTextEl.addEventListener('input', () => {
+                this._topicIsPlaceholder = false;
+                const intro = document.getElementById('writingTopicIntro');
+                if (intro && topicTextEl.textContent.trim()) intro.classList.add('hidden');
+            });
+            // 粘贴仅保留纯文本（避免带入 HTML 结构），多余空白折叠为单空格
+            topicTextEl.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const raw = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+                const text = raw.replace(/\s+/g, ' ').trim();
+                if (!text) return;
+                if (!document.execCommand('insertText', false, text)) topicTextEl.textContent += text;
+                this._topicIsPlaceholder = false;
+                const intro = document.getElementById('writingTopicIntro');
+                if (intro) intro.classList.add('hidden');
+            });
+            // 失焦后仍为空：恢复默认提示（交由 updateTopicCard 统一设置文字与状态）
+            topicTextEl.addEventListener('blur', () => {
+                if (!topicTextEl.textContent.trim()) this.updateTopicCard();
+            });
+        }
         const generateWritingBtn = document.getElementById('generateWritingBtn');
         if (generateWritingBtn) {
             generateWritingBtn.addEventListener('click', () => this.generateWriting());
@@ -20600,9 +20632,18 @@ ${example ? `- 例句：${example}` : ''}
                     : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + '/' + this.formatDictSize(entry.size) + spd);
             };
             try {
-                const jsText = await this.downloadDictData(entry.url, entry.size, onProgress);
-                p.set(1, '正在写入本地…');
-                const saved = await this.saveDictToData(jsText, varName, entry.file);
+                let saved;
+                if (this.isBridgeOnlyHost()) {
+                    // 移动端（app:// iframe）：下载与落盘一并在插件侧完成（easy-sync 式），
+                    // 页面不再自己 fetch 拿字节再经桥回传，只等插件回传写入结果
+                    p.set(0, '正在下载到本地…');
+                    saved = await this.downloadDictToVault(entry.url, varName, entry.file, onProgress, entry.size);
+                } else {
+                    // 桌面/内置服务：保持原路径（页面流式 fetch + /save-dict 同源写入）
+                    const jsText = await this.downloadDictData(entry.url, entry.size, onProgress);
+                    p.set(1, '正在写入本地…');
+                    saved = await this.saveDictToData(jsText, varName, entry.file);
+                }
                 // 自动启用：写入引擎的持久化清单 + 启用记录，刷新后即被加载，无需用户再点「应用」
                 this.registerDictMeta({
                     name: entry.label || entry.file,
@@ -20621,6 +20662,22 @@ ${example ? `- 例句：${example}` : ''}
                 this.showToast('下载失败：' + ((err && err.message) || err), 'error');
             }
         });
+    }
+
+    // 移动端专用：把「下载 + 落盘 + 重建清单」合并为一次插件桥调用（easy-sync 式），
+    // 页面不再自己 fetch 拿字节再回传，避免 app:// 下跨域失败与整份内容的内存搬运。
+    // 返回插件回传的元信息 { file, path, count, mdd }，与桌面 saveDictToData 同构
+    async downloadDictToVault(url, varName, file, onProgress, totalBytes) {
+        const payload = JSON.stringify({ url: url, varName: varName, file: file || '' });
+        const r = await Storage._postMessageBridge('download-dict', 'POST', { body: payload });
+        const data = this.parseBridgeReply(r);
+        if (!data.ok) {
+            // 失败时把插件回传的实际落盘路径一并抛出（如有），便于定位
+            throw new Error((data.error || ('下载失败（桥接 HTTP ' + (r && r.status) + '）')) + (data.path ? '（' + data.path + '）' : ''));
+        }
+        // 插件是一次性下载完才返回，进度只能粗粒度：直接给到完成态
+        if (onProgress) onProgress(1, totalBytes || 0);
+        return data;
     }
 
     // 流式下载词典数据：进度按 catalog 记录的精确体积计算
@@ -29665,6 +29722,10 @@ ${head}
             btn.className = 'model-picker-item-test' + (cls ? ' ' + cls : '');
         };
         const providers = this.getAiProviders();
+        // 测试前先把设置表单的当前输入（密钥/地址/格式）同步进激活厂商：
+        // 用户刚填好密钥还没点「保存」就点测试时，getAiProviders() 里仍是已保存的旧值，
+        // 会误报「API 密钥未填写」。同步只改内存 settings，不改持久化结构
+        if (document.getElementById('aiApiKey')) this.collectAiProviderSettings();
         const p = providers.find(x => Array.isArray(x.models) && x.models.some(m => m.value === model.value));
         const say = (text, ok) => {
             if (!msg) return;
@@ -29683,9 +29744,11 @@ ${head}
             if (!String(p.baseUrl || '').trim()) {
                 throw new Error('请求地址未填写');
             }
-            // 最小 token 消耗：1 字回复 + max_tokens=1，短 prompt；轮询/推理类模型超时也当失败
+            // 推理类模型（如 tokendance 的 ling / deepseek 等）会先输出 reasoning_content，
+            // 且思考长度不稳定：max_tokens 卡得太紧（原用 1，后改 64）时思考会把预算占满，
+            // content 返回空 → 被误判为「返回内容为空」。此处不再设小上限，沿用与其它 AI 功能一致的
+            // 默认预算（模型遇到 "Reply with: OK" 会自然早停，实际消耗仍然很小）
             const ret = await AIService.callProviderModel(p, model.value, 'Reply with: OK', {
-                max_tokens: 1,
                 temperature: 0
             });
             if (ret && String(ret).trim()) {
@@ -30376,6 +30439,17 @@ ${head}
                     self.showAddModelDialog(select.id);
                     return;
                 }
+                // 降级备选：所选模型属于其它服务商时，先切换激活厂商到其归属（否则请求会发往错误地址）。
+                // 此处只写不回收设置表单，避免设置面板未打开时用空表单覆盖厂商配置
+                const owner = self.getAllCustomAiModels().find(m => m.value === val);
+                if (owner && owner.providerIndex !== self.getAiActiveIndex()) {
+                    self.settings.aiActiveProviderIndex = owner.providerIndex;
+                    self.persistAiProviders();
+                    self.renderAiProviderTabs();
+                    self.renderCustomModelList();
+                    self.loadAiProviderForm();
+                    self._syncSelectOptions(select); // 让隐藏 select 的 option 切到新厂商（含 val）
+                }
                 // 更新值载体并触发change（保持其它监听兼容）
                 select.value = val;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -30479,11 +30553,27 @@ ${head}
         customModels.forEach(model => {
             panel.appendChild(self._makeAiItem(model, 'true', select));
         });
+
+        // 降级备选：列出其他已保存服务商的模型（当前主模型不可用/限流时可一键切过去）。
+        // 模型 ID 全局唯一；选中后会同步切换激活厂商，保证请求发往正确地址
+        const activeIdx = this.getAiActiveIndex();
+        const others = this.getAllCustomAiModels().filter(m => m.providerIndex !== activeIdx);
+        if (others.length) {
+            const og = document.createElement('div');
+            og.className = 'ai-picker-group-title';
+            const ogLabel = document.createElement('span');
+            ogLabel.textContent = '其他服务商';
+            og.appendChild(ogLabel);
+            panel.appendChild(og);
+            others.forEach(model => {
+                panel.appendChild(self._makeAiItem(model, 'false', select, model.providerName));
+            });
+        }
     }
 
     // 生成单个面板项（双列：模型ID / 标签）；
     // select 带 data-picker-icon 时补充左侧图标方块与选中勾选（对齐参考项目格式）
-    _makeAiItem(model, isCustom, select) {
+    _makeAiItem(model, isCustom, select, providerName) {
         const item = document.createElement('div');
         item.className = 'ai-picker-item';
         item.dataset.aiValue = model.value;
@@ -30492,7 +30582,10 @@ ${head}
         first.textContent = model.value;
         const tag = document.createElement('span');
         tag.className = 'ai-picker-item-tag';
-        tag.textContent = model.shortLabel || model.label || '';
+        // 其它服务商的模型额外标注来源厂商，避免与当前厂商模型混淆
+        tag.textContent = providerName
+            ? ((model.shortLabel || model.label || '') + ' · ' + providerName)
+            : (model.shortLabel || model.label || '');
         const icon = select && select.dataset.pickerIcon;
         if (icon) {
             const lead = document.createElement('span');
@@ -30798,17 +30891,6 @@ ${head}
         else if (finalScore >= 78 && finalScore < 85) finalLevel = 'C1';
         else if (finalScore >= 85) finalLevel = 'C2';
 
-        console.log('📊 评级计算详情:', {
-            tokenCount,
-            totalWords,
-            levelCounts,
-            mlSentence,
-            slSentence,
-            finalScore: finalScore.toFixed(2),
-            finalLevel,
-            displayLevel: tokenCount >= 5 ? finalLevel : 'A1'
-        });
-
         return {
             html: coloredText,
             tokenCount,
@@ -31088,7 +31170,11 @@ ${head}
         // 更新 HTML（直接设置，不需要动画）
         editor.innerHTML = result.html;
 
-        // 恢复光标位置
+        // 立即同步恢复光标：innerHTML 重建后浏览器会把光标塌缩到文首，
+        // 若等到下一帧再恢复，期间用户继续输入会落到全文开头（如 advantage → tage + advan）
+        this._restoreCursorPos(editor, posToRestore);
+
+        // 再于下一帧兜底恢复一次，兼容个别浏览器重排后再次塌缩选区的情况
         requestAnimationFrame(() => {
             this._restoreCursorPos(editor, posToRestore);
         });
@@ -31726,6 +31812,7 @@ ${head}
         const intro = document.getElementById('writingTopicIntro');
         if (topicText) {
             el.textContent = topicText;
+            this._topicIsPlaceholder = false;
             if (intro) intro.classList.add('hidden');
             return;
         }
@@ -31741,6 +31828,7 @@ ${head}
         } else {
             el.textContent = `请就「${topic}」写一段${style}（CEFR ${level}），不少于200词。`;
         }
+        this._topicIsPlaceholder = true; // 默认提示态：聚焦后清空，便于直接覆盖/粘贴题目
         if (intro) intro.classList.remove('hidden');
     }
 
@@ -33087,7 +33175,7 @@ Important:
         try {
             const userPrompt = this.buildWritingPrompt(finalTopic, level, style, prompt);
             const content = await AIService.callModel(model, userPrompt, {
-                max_tokens: 500,
+                max_tokens: 1500, // 留出思考余量：推理模型先输出 reasoning_content，上限过小会导致正文为空
                 temperature: 0.5
             });
 
@@ -33102,6 +33190,7 @@ Important:
                 topicEl.classList.remove('topic-refreshing');
                 const textEl = document.getElementById('writingTopicText');
                 if (textEl) textEl.textContent = cleanContent;
+                this._topicIsPlaceholder = false; // 已生成真实命题，聚焦不再清空
                 const intro = document.getElementById('writingTopicIntro');
                 if (intro) intro.classList.add('hidden');
                 // 触发重排后添加渐变动画
@@ -33861,7 +33950,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         try {
             const translation = await AIService.callModel(translateModel, text, {
                 temperature: 0.3,
-                max_tokens: 500,
+                max_tokens: 1500, // 留出思考余量：推理模型先输出 reasoning_content，上限过小会导致正文为空
                 messages: [
                     {
                         role: 'system',
@@ -33932,7 +34021,7 @@ But little did she know, this was just the beginning of an extraordinary journey
         try {
             const response = await AIService.callModel(translateModel, text, {
                 temperature: 0.3,
-                max_tokens: 500,
+                max_tokens: 1500, // 留出思考余量：推理模型先输出 reasoning_content，上限过小会导致正文为空
                 messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }]
             });
             const raw = response.trim();

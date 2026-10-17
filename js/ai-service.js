@@ -417,14 +417,36 @@ const AIService = {
         }
         
         const data = await response.json();
-        
+
         // 解析OpenAI格式的响应
         if (data.choices && data.choices.length > 0) {
-            const message = data.choices[0].message || {};
-            // 优先取 content（最终回答）；部分推理模型把思考过程放在 reasoning_content，这里直接忽略
-            return this._stripThinking(message.content || '');
+            const choice = data.choices[0];
+            const message = choice.message || {};
+            // 优先取 content（最终回答）；部分推理模型把思考过程放在 reasoning_content，不作为回答使用
+            const text = this._stripThinking(message.content || '');
+            if (text) return text;
+            // 推理模型（如 tokendance 的 ling / deepseek 等）会先输出 reasoning_content：
+            // 当 max_tokens 被思考占满时正文（content）为空，仅有 reasoning_content。
+            // 这类网关本身正常，只是预算不足——自动放大预算重试一次，避免误报「返回内容为空」
+            if (message.reasoning_content && !(options && options._reasoningRetry)) {
+                const cur = (options && options.max_tokens) || 2000;
+                const bigger = Math.min(8192, Math.max(cur * 4, 2048));
+                console.warn(`[ai-service] "${modelName}" 正文为空、思考已占用预算，放大 max_tokens 至 ${bigger} 重试一次`);
+                return this.callOpenAIAPI(modelName, prompt, Object.assign({}, options, {
+                    max_tokens: bigger,
+                    _reasoningRetry: true
+                }));
+            }
+            // 重试后仍为空：打印关键字段，便于定位（content 是否 null、finish_reason、是否有思考内容）
+            console.warn('[ai-service] 模型返回正文为空:', {
+                model: modelName,
+                finish_reason: choice.finish_reason,
+                content: message.content,
+                reasoningLen: (message.reasoning_content || '').length
+            });
+            return '';
         }
-        
+
         throw new Error('无法解析API响应（OpenAI Chat Completions 格式）');
     },
     

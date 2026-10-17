@@ -599,12 +599,15 @@ if (typeof window.define !== 'function') {
     return bytes + ' B';
   }
 
-  // 动态加载脚本
-  function loadScript(src) {
+  // 动态加载脚本。bust=true 时用「每次唯一」的参数绕过缓存：
+  // 固定参数（如 v=2）在移动端 WebView 里仍会命中按 URL 的旧缓存，
+  // 使刚写入的 dict-manifest.js / 词典数据读不到新版
+  let _scriptSeq = 0;
+  function loadScript(src, bust) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      // 追加版本参数，避免浏览器缓存旧的词典数据（词典内容更新后递增 v）
-      s.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'v=2';
+      const token = bust ? 'v=' + Date.now() + '_' + (++_scriptSeq) : 'v=2';
+      s.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + token;
       s.onload = resolve;
       s.onerror = () => reject(new Error('加载失败: ' + src));
       document.head.appendChild(s);
@@ -1570,7 +1573,7 @@ if (typeof window.define !== 'function') {
       } catch (e) { /* 非服务器模式 */ }
     }
     try {
-      await loadScript('../data/dict-manifest.js');
+      await loadScript('../data/dict-manifest.js', true);
       if (Array.isArray(window.DICT_MANIFEST)) {
         return preferJson(window.DICT_MANIFEST.map(m => ({ name: m.name, varName: m.varName, url: '../data/' + m.file, mdd: m.mdd, file: m.file, format: m.format, size: m.size })));
       }
@@ -2372,7 +2375,12 @@ if (typeof window.define !== 'function') {
       // 先按磁盘清单清理失效缓存（旧 vault / 已删词典遗留的 localStorage 与 IndexedDB），
       // 再决定加载哪些词典——否则陈旧缓存会伪装成「已安装」而绕开按需下载
       const manifestList = await loadManifest();
-      if (manifestList) await pruneMissingDicts(manifestList);
+      // 移动端（app:// / capacitor: 宿主）里 dict-manifest.js 会被 WebView 按 URL 缓存，
+      // 且适配器刚写入的清单可能尚未对文件服务可见；此时读到的是安装前的空清单，
+      // 若照旧清理会把刚装好的词典从 dictMetas/enabledDicts 里误删（表现为装了却查不到释义）。
+      // 故移动端清单为空时跳过清理：残留的失效条目会在加载失败时由 loadDictSafe 自动移除
+      const bridgeHost = window.parent !== window && !/^https?:$/.test(location.protocol);
+      if (manifestList && (manifestList.length || !bridgeHost)) await pruneMissingDicts(manifestList);
 
       // 优先直接加载已保存的词典清单（跳过每次进入的清单扫描/目录弹窗）
       // 先同步加载最近用的词典（browseDictCur），其余已启用的后台静默加载

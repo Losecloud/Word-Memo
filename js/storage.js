@@ -20,6 +20,11 @@ const Storage = {
     _httpReady: false,
     _httpProbe: null,
     _httpProbeSettled: false, // 探测是否已出结果：用于区分「探测中」与「确实没有桥接」
+    // 登录加载闸：登录时若缓存为空壳，正在从 user/ 文件读取真实配置（_loginLoading），
+    // 或该次读取失败（_loginLoadFailed）——两种情况下都禁止回写文件，防止空壳覆盖真实配置
+    _loginLoading: false,
+    _loginLoadFailed: false,
+    _loginLoadPromise: null,
 
     // 探测内置服务是否可用（幂等，只探测一次）
     // 两条通道：fetch（桌面同源） + postMessage（移动端 iframe 内 fetch 被同源/CORS 拦截）
@@ -389,6 +394,20 @@ const Storage = {
     setCurrentUser(username) {
         this._installMirrorHook(); // 安装独立键镜像钩子（幂等）
         localStorage.setItem('wordMemory_currentUser', username);
+        // 登录加载闸（数据丢失防护）：本机缓存缺失或为空壳时，先异步从 user_<name>.json
+        // 读取真实配置并装入缓存；在读取完成前（以及读取失败时）禁止任何回写。
+        // 否则随后 initUserConfig 生成的 ~1KB 默认空壳，会在下一次自动保存时把
+        // 6MB 的真实配置整个覆盖掉——这正是「从历史账号登录后显示空账号并丢数据」的根因
+        this._loginLoadFailed = false;
+        const cachedBefore = this._parseJson(localStorage.getItem(`wordMemory_user_json_${username}`));
+        if (username && username !== '游客' && (!cachedBefore || this._isConfigEmpty(cachedBefore))) {
+            this._loginLoading = true;
+            this._loginLoadPromise = this._loadConfigForLogin(username);
+        } else {
+            // 缓存已有真实内容：交给既有「时间戳较新者胜、无法判断则由用户选择」流程处理
+            this._loginLoading = false;
+            this._loginLoadPromise = null;
+        }
         this.initUserConfig(username);
         // 切换账号：清理旧账号残留的镜像键（授权码 / 收藏词单 / 欧路链接等）并回填本账号配置
         const config = this.getUserConfig();
@@ -401,6 +420,39 @@ const Storage = {
             try { localStorage.setItem(`wordMemory_user_json_${username}`, JSON.stringify(config)); }
             catch (e) { /* 忽略：容量不足等 */ }
         }
+    },
+
+    // 登录专用：把 user/ 文件里的真实配置读入本机缓存（仅在缓存为空壳时由 setCurrentUser 调用）
+    // 与 loadConfigFromFile 的区别：这里区分「文件不存在(404，属新账号，非失败)」与「读取失败」——
+    // 读取失败时保持 _loginLoadFailed 闸门，宁可不写盘也绝不用空壳覆盖真实文件
+    async _loadConfigForLogin(name) {
+        try {
+            // 移动端：必须等桥接探测出结果，否则此刻 isFileSystemReady() 仍为 false 会跳过读取
+            try { await this.initHttpBridge(); } catch (e) { /* 探测失败：视为无通道 */ }
+            if (!this.isFileSystemReady()) return false; // 无读写 user/ 的通道：交由 UI 引导绑定目录
+            if (!this._hasDirAccess()) {
+                // 桥接通道（Obsidian 移动端/桌面端）
+                const r = await this._bridgeRequest('user', 'GET', { name: name });
+                const cfg = r && r.json;
+                if (r && r.ok && cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
+                    // 成功读到配置对象即采纳（即使缺少 username 字段也照收，避免把可读配置误判为失败而长期禁止落盘）
+                    this._adoptFileConfig(name, cfg);
+                } else if (r && r.status === 404) {
+                    // 该账号确实没有文件（新账号或本机缓存被清）：非失败，允许后续正常创建/写入
+                } else {
+                    this._loginLoadFailed = true; // 桥接可读但读取失败：保持闸门
+                }
+            } else {
+                // 目录句柄通道（桌面浏览器）：读不到文件即视为「无文件」，不设闸门以免误伤新账号
+                const read = await this.readConfigFileReadonly(name);
+                if (read && read.config && read.config.username) this._adoptFileConfig(name, read.config);
+            }
+        } catch (e) {
+            this._loginLoadFailed = true; // 读取异常：保持闸门
+        } finally {
+            this._loginLoading = false;
+        }
+        return true;
     },
 
     // 安全解析 JSON（失败返回 null）
@@ -718,6 +770,9 @@ const Storage = {
         const user = this.getCurrentUser();
         // 游客为临时体验账号，不落盘到 user/ 目录
         if (!user || user === '游客' || !this.isFileSystemReady() || !config) return false;
+        // 登录加载闸（硬闸）：登录后真实配置尚未从 user/ 文件读出（_loginLoading），
+        // 或该次读取失败（_loginLoadFailed）时，一律不回写——否则空壳默认配置会覆盖真实文件
+        if (this._loginLoading || this._loginLoadFailed) return false;
         // 先快照内容，避免后续串行写入时读到被再次修改的对象
         const snapshot = JSON.stringify(config, null, 2);
         // 覆盖写之前先给「现有文件」留一份带时间戳的备份：一旦这次回写用的是较旧配置，
@@ -920,6 +975,7 @@ const Storage = {
         try {
             localStorage.setItem(`wordMemory_user_json_${name}`, JSON.stringify(config));
             this._adoptFailed = false;
+            this._loginLoadFailed = false; // 已成功读到真实配置：解除登录加载闸
             return true;
         } catch (e) {
             this._adoptFailed = true;
@@ -1015,6 +1071,22 @@ const Storage = {
 
     // 初始化文件系统：恢复目录授权；用文件夹配置覆盖缓存，补齐新增字段并写回文件
     async initUserFileSystem(username) {
+        // 兜底：刷新后从 localStorage 直接恢复账号（不再经过 setCurrentUser）时也要加闸——
+        // 空壳缓存必须在文件读取完成前禁止回写，否则同样会用 ~1KB 空壳覆盖真实配置
+        const gateUser = username || this.getCurrentUser();
+        if (!this._loginLoadPromise && gateUser && gateUser !== '游客') {
+            const cachedNow = this._parseJson(localStorage.getItem(`wordMemory_user_json_${gateUser}`));
+            if (!cachedNow || this._isConfigEmpty(cachedNow)) {
+                this._loginLoading = true;
+                this._loginLoadPromise = this._loadConfigForLogin(gateUser);
+            }
+        }
+        // 登录加载闸：先等 setCurrentUser 发起的「从 user/ 文件读取空壳账号配置」完成，
+        // 保证在渲染/自动保存之前缓存里已是真实配置（否则随后任何保存都会用空壳覆盖文件）
+        if (this._loginLoadPromise) {
+            try { await this._loginLoadPromise; } catch (e) { /* 忽略：闸门状态已在内部处理 */ }
+            this._loginLoadPromise = null;
+        }
         await this.restoreUserDirectory();
         this._installMirrorHook(); // 保证刷新后继续镜像独立键（登录时 setCurrentUser 已安装，此处兜底）
         this._adoptFailed = false;

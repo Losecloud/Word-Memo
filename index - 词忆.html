@@ -2588,7 +2588,7 @@
                                     <div class="topic-head">
                                         <i class="fi-rr-question-square topic-icon"></i>
                                         <div class="topic-content" id="writingTopicContent">
-                                            <div class="topic-text" id="writingTopicText">点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。</div>
+                                            <div class="topic-text" id="writingTopicText" contenteditable="true" spellcheck="false" title="可直接点击编辑或粘贴题目">点击「AI生成」获取写作题目，或直接在下方输入你想表达的观点。</div>
                                             <!-- 默认态下的补充说明（灰字）：生成题目后自动隐藏 -->
                                             <div class="topic-intro" id="writingTopicIntro">
                                                 <p><b>使用教程</b>：在下方编辑区写下英文段落（或点「AI生成」取题），系统会实时按 CEFR 等级给每个单词着色。右侧显示各级占比和预估等级，点击对应等级可聚焦显示该级别；「AI设置」里可调目标等级、文体与实时纠正。</p>
@@ -5841,7 +5841,16 @@
     <script src="data/internal/词义分类-dict.js"></script>
     <script src="data/internal/word-roots-dict.js"></script>
     <!-- data/ 顶层为词典目录（*-dict.json，全部按需下载）；此处只引入清单与目录 -->
-    <script src="data/dict-manifest.js"></script>
+    <!-- 清单按「唯一参数」异步加载：移动端 WebView 会按 URL 缓存脚本，固定 URL 在安装词典后
+         仍读到旧空清单（AI 工坊卡片误判为未安装）；应用在 DOMContentLoaded 之后才读
+         window.DICT_MANIFEST，异步加载不影响可用性 -->
+    <script>
+    (function () {
+        var s = document.createElement('script');
+        s.src = 'data/dict-manifest.js?v=' + Date.now();
+        document.head.appendChild(s);
+    })();
+    </script>
     <script src="data/dict-catalog.js"></script>
     <script src="lib/uicons-icons.js"></script>
     <!-- CEFR 六级色库（与 CEFR Shadow_uni/utils/colorConfig.js 共有的 4 套同名色库保持一致）：

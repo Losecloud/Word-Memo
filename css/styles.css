@@ -16310,6 +16310,29 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     border-radius: 3px;
 }
 
+/* 题目正文可直接编辑（contenteditable）：给出「可编辑」视觉反馈；
+   颜色全部走主题变量/color-mix，深浅色库下均自适应 */
+.topic-text[contenteditable="true"] {
+    outline: none;
+    border-radius: 6px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    cursor: text;
+    transition: background-color 0.18s ease, box-shadow 0.18s ease;
+}
+.topic-text[contenteditable="true"]:hover {
+    background: color-mix(in srgb, var(--text-secondary) 8%, transparent);
+}
+.topic-text[contenteditable="true"]:focus {
+    background: color-mix(in srgb, var(--primary-color) 7%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 32%, transparent);
+}
+/* 聚焦清空后显示的占位提示（仅在编辑态为空白时出现） */
+.topic-text[contenteditable="true"]:empty::before {
+    content: '点击「AI生成」获取写作题目，或直接粘贴/输入你想表达的观点。';
+    color: var(--text-tertiary);
+}
+
 /* 默认态补充说明（灰字）：小字号、更淡的灰，与题目正文拉开层次 */
 .topic-intro {
     margin-top: 1rem;
