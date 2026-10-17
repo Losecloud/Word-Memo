@@ -20621,6 +20621,15 @@ ${example ? `- 例句：${example}` : ''}
     // 流式下载词典数据：进度按 catalog 记录的精确体积计算
     // （不能用响应头 content-length——GitHub raw 对文本自动 gzip，该头部是压缩后大小）
     async downloadDictData(url, totalBytes, onProgress) {
+        // Obsidian 移动端：页面 app:// 下 fetch 跨域会被 WKWebView 拦截（load failed），
+        // 改由插件经 requestUrl 代取后回传文本
+        if (this.isBridgeOnlyHost()) {
+            const r = await Storage._postMessageBridge('fetch-url', 'POST', { body: JSON.stringify({ url: url }) });
+            const data = this.parseBridgeReply(r);
+            if (!data.ok) throw new Error(data.error || ('下载失败（桥接 HTTP ' + (r && r.status) + '）'));
+            if (onProgress) onProgress(1, (data.text || '').length);
+            return data.text;
+        }
         const resp = await fetch(url, { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         if (!resp.body || !resp.body.getReader) {

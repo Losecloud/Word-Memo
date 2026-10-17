@@ -164,6 +164,9 @@ const Storage = {
                 for (const name of r.json) {
                     if (name && users.indexOf(name) === -1) users.push(name);
                 }
+            } else {
+                // 桥接已就绪但未返回账号数组：打印服务端实际响应，避免账号列表静默为空、无从排查
+                console.warn('listUsersAsync 桥接异常:', r.status, r.text);
             }
         } catch (e) { /* 桥接不可用时忽略，仅用本地缓存 */ }
         return users;
