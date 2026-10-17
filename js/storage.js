@@ -31,6 +31,26 @@ const Storage = {
             this._httpProbeSettled = true;
             return this._httpProbe;
         }
+        // 插件宿主内的 app:// iframe（移动端）：无内置 http 服务，且 fetch('/__wm__/ping') 在 app:// 下
+        // 会很快解析为 false 并"赢下"下面的 Promise.race，导致误判「无桥接」、_httpReady 恒为 false，
+        // 使 listUsersAsync / chooseUserDirectory / isFileSystemReady 等依赖桥接的功能全部失效
+        // （表现为：登录无历史用户、绑定文件夹无反应）。故此类宿主直接走 postMessage 探测。
+        if (window.parent && window.parent !== window && !/^https?:$/.test(location.protocol)) {
+            this._httpProbe = this._postMessageBridge('ping', 'GET', null)
+                .then((r) => !!r && r.ok)
+                .catch(() => false)
+                .then((ok) => {
+                    this._httpReady = ok;
+                    this._httpProbeSettled = true;
+                    try {
+                        if (typeof window !== 'undefined' && typeof window.__wmDirChannelChanged === 'function') {
+                            window.__wmDirChannelChanged();
+                        }
+                    } catch (e) { /* 忽略 */ }
+                    return ok;
+                });
+            return this._httpProbe;
+        }
         this._httpProbe = Promise.race([
             fetch('/__wm__/ping', { cache: 'no-store' }).then((res) => res.ok).catch(() => false),
             this._postMessageBridge('ping', 'GET', null).then((r) => !!r && r.ok).catch(() => false)

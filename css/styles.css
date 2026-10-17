@@ -7928,9 +7928,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     transition: opacity var(--transition-fast), transform var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
 
-/* 悬浮卡片时才露出未收藏的爱心 */
-.workshop-app-card:hover .workshop-card-fav {
-    opacity: 0.55;
+/* 悬浮卡片时才露出未收藏的爱心。
+   仅在支持 hover 的设备上生效：触屏（hover:none）不产生 hover 态，既避免 iOS 首次点按
+   被 hover 状态吞掉（表现为要点两次才打开工坊应用），又在下方 hover:none 分支让爱心常显，
+   保证触屏仍能收藏 */
+@media (hover: hover) {
+    .workshop-app-card:hover .workshop-card-fav {
+        opacity: 0.55;
+    }
+}
+@media (hover: none) {
+    .workshop-card-fav {
+        opacity: 0.55;
+    }
 }
 
 .workshop-card-fav:hover {
@@ -7999,10 +8009,14 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     text-align: center;
 }
 
-.workshop-app-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-xl);
-    border-color: var(--primary-color);
+/* 悬浮抬升仅在支持 hover 的设备上生效；触屏移除该 hover 位移，避免 iOS 首次点按只触发
+   hover 而不触发 click（需点两次才打开工坊应用）。桌面 hover 行为不变 */
+@media (hover: hover) {
+    .workshop-app-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-xl);
+        border-color: var(--primary-color);
+    }
 }
 
 .workshop-app-icon {
@@ -8133,10 +8147,19 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     transform: translateX(13px);
 }
 
-/* 悬浮卡片时才露出开关 */
-.workshop-app-card:hover .dict-switch,
+/* 悬浮卡片时才露出开关；触屏（hover:none）常显开关，保证移动端仍能启/停词典 */
+@media (hover: hover) {
+    .workshop-app-card:hover .dict-switch {
+        opacity: 1;
+    }
+}
 .dict-switch:focus-visible {
     opacity: 1;
+}
+@media (hover: none) {
+    .dict-switch {
+        opacity: 1;
+    }
 }
 
 /* 状态小字：常驻，弱化到不抢卡片主体信息 */

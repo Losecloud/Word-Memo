@@ -668,6 +668,11 @@ class WordMemoryApp {
                 touchStartX = e.touches[0].clientX;
             }, { passive: true });
             document.addEventListener('touchend', (e) => {
+                // 仅在「练习进行中」才响应下滑：以学习页（练习会话的宿主页面）当前是否可见
+                // 作为会话活跃判定。退出练习（切到 AI 工坊/主页等）后上一题 badge 的 display
+                // 可能残留，若不加此判定，下滑手势会在其它页面误弹出「上一题详情」面板
+                const learningScreen = document.getElementById('learningScreen');
+                if (!learningScreen || learningScreen.classList.contains('hidden')) return;
                 const dy = e.changedTouches[0].clientY - touchStartY;
                 const dx = e.changedTouches[0].clientX - touchStartX;
                 // 下滑 > 80px 且水平偏移 < 60px（避免误触横向滑动）
@@ -20621,15 +20626,25 @@ ${example ? `- 例句：${example}` : ''}
     // 流式下载词典数据：进度按 catalog 记录的精确体积计算
     // （不能用响应头 content-length——GitHub raw 对文本自动 gzip，该头部是压缩后大小）
     async downloadDictData(url, totalBytes, onProgress) {
-        // Obsidian 移动端：页面 app:// 下 fetch 跨域会被 WKWebView 拦截（load failed），
-        // 改由插件经 requestUrl 代取后回传文本
+        // 移动端（app:// iframe）：先试页面自身 fetch——iOS 上多数情况可用，且部分网络/设备下
+        // Obsidian requestUrl 的 TLS 栈反而不可用（曾报「TLS错误导致安全连接失败」），故不作首选；
+        // 页面 fetch 失败时再回退到插件经 requestUrl 代取
         if (this.isBridgeOnlyHost()) {
-            const r = await Storage._postMessageBridge('fetch-url', 'POST', { body: JSON.stringify({ url: url }) });
-            const data = this.parseBridgeReply(r);
-            if (!data.ok) throw new Error(data.error || ('下载失败（桥接 HTTP ' + (r && r.status) + '）'));
-            if (onProgress) onProgress(1, (data.text || '').length);
-            return data.text;
+            try {
+                return await this._downloadDictViaPage(url, totalBytes, onProgress);
+            } catch (e) {
+                const r = await Storage._postMessageBridge('fetch-url', 'POST', { body: JSON.stringify({ url: url }) });
+                const data = this.parseBridgeReply(r);
+                if (!data.ok) throw new Error(data.error || ('下载失败（桥接 HTTP ' + (r && r.status) + '）'));
+                if (onProgress) onProgress(1, (data.text || '').length);
+                return data.text;
+            }
         }
+        return await this._downloadDictViaPage(url, totalBytes, onProgress);
+    }
+
+    // 页面侧流式下载（原逻辑）：桌面同源 / 移动端首选路径
+    async _downloadDictViaPage(url, totalBytes, onProgress) {
         const resp = await fetch(url, { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         if (!resp.body || !resp.body.getReader) {
