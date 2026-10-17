@@ -20674,6 +20674,114 @@ ${example ? `- 例句：${example}` : ''}
         return window.parent !== window && !/^https?:$/.test(location.protocol);
     }
 
+    // ============================================================
+    // 【临时诊断】移动端桥接诊断面板（仅桥接宿主显示，桌面自动隐藏）
+    // 用途：iOS 无法查看控制台，把关键运行时值直接渲染到界面取证。
+    // 取证结束后可整段删除：本方法 + _runMobileDiagnostics + _showDiagnosticOverlay，
+    // 以及 DOMContentLoaded 里的 installMobileDiagnostics() 调用各一处。
+    // ============================================================
+    installMobileDiagnostics() {
+        try {
+            if (!this.isBridgeOnlyHost()) return; // 桌面/浏览器：不显示按钮
+            if (document.getElementById('wm-diag-btn')) return; // 避免重复注入
+            const btn = document.createElement('button');
+            btn.id = 'wm-diag-btn';
+            btn.type = 'button';
+            btn.textContent = '诊断';
+            // 固定在左下角、极高 z-index，浮于其它 UI 之上；沿用 :root 主题变量适配深浅色
+            btn.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483000;'
+                + 'padding:8px 12px;border-radius:9999px;border:1px solid var(--border-color,#ddd);'
+                + 'background:var(--surface,#fff);color:var(--text-primary,#222);font-size:13px;'
+                + 'box-shadow:var(--shadow-lg,0 10px 15px -3px rgba(0,0,0,.1));cursor:pointer;';
+            btn.addEventListener('click', () => { this._runMobileDiagnostics(); });
+            document.body.appendChild(btn);
+        } catch (e) { /* 忽略：诊断注入失败不应影响主流程 */ }
+    }
+
+    // 逐项执行探针（每项独立 try/catch，单项失败不阻断后续），汇总到一个可滚动浮层
+    async _runMobileDiagnostics() {
+        const lines = [];
+        const push = (label, value) => { lines.push('【' + label + '】\n' + value); };
+        const dump = (v) => {
+            try { return typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
+            catch (e) { return String(v); }
+        };
+        // a) 宿主环境：协议 / 是否在 iframe 内 / UA 前 120 字符
+        try {
+            push('a 宿主', 'protocol=' + location.protocol
+                + '  parent!==self=' + (window.parent !== window)
+                + '\nUA=' + String(navigator.userAgent || '').slice(0, 120));
+        } catch (e) { push('a 宿主 ERROR', dump(e && e.message || e)); }
+        // b) 桥接探测结果
+        try {
+            const r = await Storage.initHttpBridge();
+            push('b initHttpBridge', 'result=' + dump(r)
+                + '\n_httpReady=' + dump(Storage._httpReady)
+                + '  _httpProbeSettled=' + dump(Storage._httpProbeSettled));
+        } catch (e) { push('b initHttpBridge ERROR', dump(e && e.message || e)); }
+        // c) ping 的原始返回
+        try {
+            const r = await Storage._postMessageBridge('ping', 'GET', null);
+            push('c ping()', dump(r));
+        } catch (e) { push('c ping() ERROR', dump(e && e.message || e)); }
+        // d) users 列表的原始返回（原样展示 ok/status/text）
+        try {
+            const r = await Storage._bridgeRequest('users', 'GET', null);
+            push('d _bridgeRequest users', 'ok=' + dump(r && r.ok)
+                + '  status=' + dump(r && r.status)
+                + '\ntext=' + dump(r && r.text));
+        } catch (e) { push('d users ERROR', dump(e && e.message || e)); }
+        // e) 读取单个用户配置（最后登录用户，缺省 test）
+        try {
+            const who = Storage.getCurrentUser() || 'test';
+            const r = await Storage._bridgeRequest('user', 'GET', { name: who });
+            push('e _bridgeRequest user(name=' + who + ')', 'ok=' + dump(r && r.ok)
+                + '  status=' + dump(r && r.status)
+                + '\ntext=' + dump(r && r.text));
+        } catch (e) { push('e user ERROR', dump(e && e.message || e)); }
+        // f) localStorage 关键项
+        try {
+            push('f localStorage', 'currentUser=' + dump(localStorage.getItem('wordMemory_currentUser'))
+                + '\nhaveUserDir=' + dump(localStorage.getItem('wordMemory_haveUserDir')));
+        } catch (e) { push('f localStorage ERROR', dump(e && e.message || e)); }
+
+        this._showDiagnosticOverlay(lines.join('\n\n'));
+    }
+
+    // 诊断浮层：单块可滚动、可选中复制的纯文本 + 重新检测/关闭按钮
+    _showDiagnosticOverlay(text) {
+        try {
+            const old = document.getElementById('wm-diag-overlay');
+            if (old) old.remove();
+            const wrap = document.createElement('div');
+            wrap.id = 'wm-diag-overlay';
+            wrap.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483001;'
+                + 'background:rgba(0,0,0,.55);padding:16px;box-sizing:border-box;'
+                + 'display:flex;flex-direction:column;gap:8px;';
+            const pre = document.createElement('pre');
+            // 显式开启 user-select：移动端 WebView 默认可能禁用选中，这里保证可复制
+            pre.style.cssText = 'flex:1;overflow:auto;-webkit-overflow-scrolling:touch;margin:0;'
+                + 'background:var(--surface,#fff);color:var(--text-primary,#222);'
+                + 'border:1px solid var(--border-color,#ddd);border-radius:8px;padding:10px;'
+                + 'white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5;'
+                + 'user-select:text;-webkit-user-select:text;';
+            pre.textContent = text || '(空)';
+            const bar = document.createElement('div');
+            bar.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+            const btnStyle = 'padding:8px 14px;border-radius:8px;border:1px solid var(--border-color,#ddd);'
+                + 'background:var(--surface,#fff);color:var(--text-primary,#222);font-size:13px;cursor:pointer;';
+            const reload = document.createElement('button');
+            reload.type = 'button'; reload.textContent = '重新检测'; reload.style.cssText = btnStyle;
+            reload.addEventListener('click', () => this._runMobileDiagnostics());
+            const close = document.createElement('button');
+            close.type = 'button'; close.textContent = '关闭'; close.style.cssText = btnStyle;
+            close.addEventListener('click', () => wrap.remove());
+            bar.appendChild(reload); bar.appendChild(close);
+            wrap.appendChild(pre); wrap.appendChild(bar);
+            document.body.appendChild(wrap);
+        } catch (e) { /* 忽略：浮层渲染失败不影响主流程 */ }
+    }
+
     // 解析 postMessage 桥的响应（{ok,status,body}；body 可能是 JSON 文本或对象）
     parseBridgeReply(r) {
         let data = null;
@@ -36035,6 +36143,8 @@ document.addEventListener('DOMContentLoaded', () => {
     app = new WordMemoryApp();
     // 原生 alert 统一改为顶部中心静默提示（不打断操作）；confirm 防误点弹窗保持原生
     app.installSilentAlerts();
+    // 【临时诊断】仅移动端桥接宿主（Obsidian app:// iframe）显示「诊断」浮动按钮，桌面自动隐藏
+    app.installMobileDiagnostics();
     // 暴露全局实例，供 ai-service.js 等模块读取当前选择的 AI 模型
     window.app = app;
     // 跨文档收藏同步：Obsidian 右侧栏查词视图与主页视图是同一 origin 下的两个 iframe，
