@@ -61,6 +61,9 @@ examples/扇贝考研.xls
 examples/有道单词表.txt
 user/user_Stray_Cloud.json
 user/user_三号.json
+# 用户配置（含 API 密钥）一律不入库，仅保留模板
+user/user_*.json
+user/.backup/
 examples/index.html
 /.trae
 /.obsidian
