@@ -1859,13 +1859,16 @@
                                         <div class="word-meta-inline">
                                             <span class="word-stats" id="wordStats2" style="display: none;"></span>
                                             <span class="meaning-pos" id="meaningPos">A1</span>
-                                            <!-- 拼写模式仅图标操作：不再学习（太简单）/ 收藏 -->
+                                            <!-- 拼写模式：不再学习（太简单）仍为仅图标；收藏改造为模式1/3 同款完整按钮（悬浮切换收藏词单） -->
                                             <button class="btn-favorite btn-too-easy" id="tooEasyBtn2" title="太简单，不再复习该词">
                                                 <i class="fi-rr-ban"></i>
                                             </button>
-                                            <button class="btn-favorite" id="favoriteBtn2" title="收藏/取消收藏">
-                                                <i class="favorite-icon fi-rr-star favorite-gray"></i>
-                                            </button>
+                                            <div class="fav-target-wrap">
+                                                <button class="btn-word-option fav-target-btn" id="favoriteBtn2" title="收藏该词">
+                                                    <i class="favorite-icon fi-rr-star favorite-gray"></i><span>收藏该词</span>
+                                                </button>
+                                                <div class="fav-target-menu"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -4318,6 +4321,7 @@
                     <input type="number" class="setting-input" id="answerTimeLimit" 
                            value="" min="0" placeholder="留空或0为不计时">
                     <div class="setting-hint">输入大于0的秒数，超过时间未作答自动判定为"不知道"</div>
+                    <div class="setting-hint" style="margin-top: 4px; color: var(--text-tertiary);">拼写模式按词长偏移时长：少于 6 个字母收紧 10%（要求更快），多于 10 个字母放宽 10%</div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">
@@ -4369,8 +4373,9 @@
                     <select class="setting-select" id="voiceEngine">
                         <option value="system" selected>本地语音（离线优先）</option>
                         <option value="edge">Edge 在线神经语音（随机声优）</option>
+                        <option value="youdao">有道-真人在线语音</option>
                     </select>
-                    <div class="setting-hint">本地语音：本地离线音频包 → 在线真人录音（静态 mp3，手机/iOS 端即靠这一层，下载即播、无需合成）→ 浏览器语音；Edge 在线：随机声优、音色多样，需先启动本地网关 python tools/edge-tts-server.py（端口 8890），网关不可用时同样先试在线真人录音再退浏览器语音</div>
+                    <div class="setting-hint">本地语音：本地离线音频包 → 在线真人录音（静态 mp3，手机/iOS 端即靠这一层，下载即播、无需合成）→ 浏览器语音；Edge 在线：随机声优、音色多样，需先启动本地网关 python tools/edge-tts-server.py（端口 8890），网关不可用时同样先试在线真人录音再退浏览器语音；有道-真人在线语音：单个单词直接播有道词典真人录音（type=1 英音 / type=2 美音，下载即播），短语与例句退浏览器语音</div>
                 </div>
                 <div class="setting-group">
                     <label class="setting-label">发音口音</label>
@@ -7613,10 +7618,16 @@
         // 网页端或关闭该开关时返回 false，由调用方决定是否另作处理。
         // keepFocus=true：只展开侧栏展示释义，不把焦点抢到侧栏——否则主页 iframe 失焦后，
         // 网页内快捷键（如「如何记忆？」热键）将收不到按键，需再点一下页面才恢复
-        window.showWordDetailInSidebar = function (word) {
+        // opts.holdMs>0：锁定右侧栏若干毫秒，期间其他查词显示（悬浮取词/点击查词/其他模式作答推送）
+        // 一律不抢占，保证拼写模式每次填满后详情完整停留 3s；发起者自身可抢占并续锁。
+        window.showWordDetailInSidebar = function (word, opts) {
             if (!useSidebarLookup()) return false;
             const disp = String(word == null ? '' : word).trim();
             if (!disp) return false;
+            const now = Date.now();
+            const holdMs = (opts && Number(opts.holdMs)) || 0;
+            if (!holdMs && now < (window.__wordDetailHoldUntil || 0)) return false; // 锁定期内被其他查词打扰则忽略
+            if (holdMs > 0) window.__wordDetailHoldUntil = now + holdMs;            // 发起者续锁
             try { window.parent.postMessage({ type: 'wm-dict-lookup', word: disp, keepFocus: true }, '*'); } catch (e) { /* 忽略 */ }
             return true;
         };

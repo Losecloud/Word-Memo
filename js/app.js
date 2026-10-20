@@ -6669,6 +6669,18 @@ class WordMemoryApp {
             return;
         }
 
+        // 拼写模式（模式2）按词长做 ±10% 时长偏移：字母数 <6 收紧 10%（要求更快），
+        // >10 放宽 10%（长词多给时间），6~10 字母保持原时长。
+        // 恢复场景传入的 secondsOverride 已含偏移，此处不再二次调整。
+        const isResume = typeof secondsOverride === 'number' && secondsOverride > 0;
+        if (!isResume && this.currentMode === 'spell') {
+            const spellWord = this.sessionWords && this.sessionWords[this.currentWordIndex];
+            const letters = spellWord ? this._spellTarget(spellWord.word).length : 0;
+            if (letters > 0 && letters < 6) seconds = seconds * 0.9;
+            else if (letters > 10) seconds = seconds * 1.1;
+            seconds = Math.round(seconds * 10) / 10; // 保留 0.1 秒精度，避免进度条小数秒抖动
+        }
+
         // 已计时的秒数（恢复场景）：夹在 [0, seconds) 内，剩余时间为 0 时按满时重置
         let elapsed = Math.max(0, Number(resumeElapsed) || 0);
         if (elapsed >= seconds) elapsed = 0;
