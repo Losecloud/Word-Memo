@@ -822,13 +822,16 @@ if (typeof window.define !== 'function') {
     '词根词缀词频': '词根词缀词频 Roots & Affixes',
     'collins': '柯林斯高阶 Collins COBUILD',
     '柯林斯': '柯林斯高阶 Collins COBUILD',
+    // 牛津10简明：早期版本曾带英文后缀，统一收敛为纯中文名，避免与完整版牛津词典混淆
+    '牛津10简明 OALD10 Lite': '牛津10简明',
   };
   function unifyDictName(name) { return LEGACY_DICT_NAMES[name] || name; }
-  // 词典简称：取名称开头的中文部分（如「基础词典 Basic」→「基础词典」），
-  // 供词条详情页 detail-head 的 meta 显示；纯英文名无中文前缀则原样返回
+  // 词典简称：取名称开头的中文/数字部分（如「基础词典 Basic」→「基础词典」），
+  // 供词条详情页 detail-head 的 meta 显示；纯英文名无中文前缀则原样返回。
+  // 数字须并入：如「牛津10简明」若只取汉字会在 10 处截断成「牛津」，与完整牛津词典产生歧义
   function dictShortName(name) {
     const s = String(name == null ? '' : name).trim();
-    const m = s.match(/^[\u4e00-\u9fff]+/);
+    const m = s.match(/^[\u4e00-\u9fff0-9]+/);
     return m ? m[0] : s;
   }
 
