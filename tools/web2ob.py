@@ -114,6 +114,18 @@ DICT_CATALOG = [
         "icon": "📘",
         "source": "reciting",
     },
+    # 牛津10简明（oaldpe10-lite）：从 oaldpe-dict.json（320MB）精简生成的结构化词条版——
+    # 只保留词性/释义/例句/CEFR/习语/同义词辨析，去掉图片与整包 HTML 标记，
+    # 由查词引擎的 renderLiteEntry 渲染（支持词性/全部/Idioms/Synonyms 切换），无需 mdd 资源目录。
+    {
+        "file": "oaldpe10-lite-dict.json",
+        "varName": "OALDPE10_LITE_DICT",
+        "label": "牛津10简明 OALD10 Lite",
+        "name": "牛津10简明 OALD10 Lite",
+        "desc": "牛津高阶英汉双解（第10版）精简版，保留词性释义、例句、CEFR、习语与同义词辨析",
+        "icon": "📕",
+        "source": "reciting",
+    },
     # 牛津10双解（oaldpe）：v0.1.0 暂不分发，故注释掉。
     # 原因不只是 oaldpe-dict.json 320MB——配套的 data/oaldpe/ 还有约 2GB 资源
     # （数千个发音 mp3、css/scripts 样式、fonts/images、简繁词条），该目录一直 gitignore。

@@ -35,5 +35,11 @@ var DICT_MANIFEST = [
   "name": "柯林斯高阶 Collins COBUILD",
   "varName": "COLLINS_DICT",
   "size": 60870776
+ },
+ {
+  "file": "oaldpe10-lite-dict.json",
+  "name": "牛津10简明 OALD10 Lite",
+  "varName": "OALDPE10_LITE_DICT",
+  "size": 72312452
  }
 ];

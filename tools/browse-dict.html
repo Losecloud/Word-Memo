@@ -188,6 +188,57 @@
   body.dark-mode .collins-html .vExplain_r { background: #2b3037; }
   body.dark-mode .collins-html .vExplain_s { border-bottom-color: #33383f; }
   body.dark-mode .collins-html .collins-hl { color: #5fb3af; text-decoration-color: #5fb3af; }
+  /* ===== 牛津10简明（oaldpe10-lite 结构化词条）：词性/习语/同义词切换与版式 ===== */
+  .lite-html .part-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 14px; }
+  /* tag 字重常态即 600，激活态只换配色不改字重：切换时宽度零变化，避免右侧元素左右抖动 */
+  .lite-html .part-list .pn { font-size: 13px; font-weight: 600; color: #8a8f98; background: #f1f3f5; border-radius: 20px; padding: 2px 12px; cursor: pointer; user-select: none; }
+  .lite-html .part-list .pn:hover { color: #4a9d9a; }
+  .lite-html .part-list .pn.active { color: #fff; background: #4a9d9a; }
+  .lite-html .part-list .pn-sep { color: #d9dde3; margin: 0 2px; user-select: none; }
+  .lite-html .part_main { display: none; }
+  .lite-html .part_main.visible { display: block; }
+  /* 分区间隔仅「全部」视图生效；单个 tag 视图贴顶 */
+  .lite-html.show-all .part_main.visible + .part_main.visible { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e2e4e9; }
+  .lite-html .group-label { font-size: 18px; color: #4a9d9a; font-weight: 700; margin: 16px 0 2px; letter-spacing: .2px; }
+  .lite-html .group-label + .caption { margin-top: 0; }
+  .lite-html ul { list-style: none; margin: 6px 0 0; padding-left: 2px; }
+  .lite-html li { margin: 5px 0; }
+  .lite-html li > p { margin: 1px 0; }
+  .lite-html li > p + p { color: #7a7f87; }
+  .lite-html .cefr { display: inline-block; vertical-align: 1px; font-size: .72rem; font-weight: 700; line-height: 1.5; border-radius: 4px; padding: 0 6px; margin-right: 6px; letter-spacing: .3px; color: #fff; }
+  .lite-html .c-a1 { background: #57912b; } .lite-html .c-a2 { background: #93a418; }
+  .lite-html .c-b1 { background: #b9780f; } .lite-html .c-b2 { background: #b6620e; }
+  .lite-html .c-c1 { background: #b32e27; } .lite-html .c-c2 { background: #b1296d; }
+  .lite-html .part-title { font-size: 12.5px; color: #8a8f98; margin: 2px 0 8px; }
+  .lite-html .idm-note { font-size: 13px; color: #8a8f98; margin: 2px 0 6px; }
+  .lite-html .idm-note .zh { color: #7a7f87; display: block; font-size: 12.5px; }
+  .lite-html .idm-item { margin: 6px 0 4px; }
+  .lite-html .syn-block { margin: 10px 0 14px; }
+  .lite-html .syn-words { font-size: 14px; color: #1f2328; font-weight: 600; margin-bottom: 4px; }
+  .lite-html .syn-intro { font-size: 13.5px; margin: 2px 0 6px; }
+  .lite-html .syn-intro .zh { display: block; color: #7a7f87; font-size: 12.5px; }
+  .lite-html .syn-item { margin: 8px 0 10px; }
+  .lite-html .syn-item .num { color: #4a9d9a; font-weight: 700; margin-right: 6px; }
+  .lite-html .syn-item .syn-w { color: #4a9d9a; font-weight: 700; margin-right: 4px; }
+  .lite-html .syn-item .syn-zh { display: block; color: #7a7f87; font-size: 12.5px; }
+  /* 深色适配 */
+  body.dark-mode .lite-html .part-list .pn { color: #8a9099; background: #2b3037; }
+  body.dark-mode .lite-html .part-list .pn.active { background: #3d7b78; }
+  body.dark-mode .lite-html .part-list .pn-sep { color: #3a3f4b; }
+  body.dark-mode .lite-html.show-all .part_main.visible + .part_main.visible { border-top-color: #3a3f4b; }
+  body.dark-mode .lite-html .group-label { color: #5fb3af; }
+  body.dark-mode .lite-html li > p + p { color: #9aa0a8; }
+  body.dark-mode .lite-html .c-a1 { background: #8fce63; } body.dark-mode .lite-html .c-a2 { background: #c7d95a; }
+  body.dark-mode .lite-html .c-b1 { background: #e0a13a; } body.dark-mode .lite-html .c-b2 { background: #e08a3a; }
+  body.dark-mode .lite-html .c-c1 { background: #e0645c; } body.dark-mode .lite-html .c-c2 { background: #e07ab4; }
+  body.dark-mode .lite-html .part-title,
+  body.dark-mode .lite-html .idm-note { color: #8a9099; }
+  body.dark-mode .lite-html .idm-note .zh,
+  body.dark-mode .lite-html .syn-intro .zh,
+  body.dark-mode .lite-html .syn-item .syn-zh { color: #9aa0a8; }
+  body.dark-mode .lite-html .syn-words { color: #e7e9ee; }
+  body.dark-mode .lite-html .syn-item .num,
+  body.dark-mode .lite-html .syn-item .syn-w { color: #5fb3af; }
   .redirect-note { font-size: 12px; color: #888; background: #f5f5f5; padding: 4px 10px; border-radius: 4px; margin: 6px 0; }
   /* 基础词典补充信息块（形近词等非本词典词条在"查不到"提示下方展示） */
   .base-dict { margin-top: 10px; padding: 10px 12px; border: 1px solid #e4e6ea; border-radius: 8px; background: #f8f9fb; }
@@ -572,6 +623,17 @@ if (typeof window.define !== 'function') {
 
   // 纯文本提取（用于列表预览）
   function toText(html) {
+    // 结构化词条（牛津10简明 oaldpe10-lite）：取首义项释义+中文做预览
+    if (html && typeof html === 'object') {
+      try {
+        const p = (html.parts && html.parts[0]) || null;
+        const s = p && p.senses && p.senses[0];
+        if (s) return String((s.def || '').replace(/<[^>]+>/g, ' ') + ' ' + String(s.zh || '')).replace(/\s+/g, ' ').trim();
+        const idm = html.idioms && html.idioms.items && html.idioms.items[0];
+        if (idm) return String(idm.idm || '').replace(/<[^>]+>/g, ' ').trim();
+        return '';
+      } catch (e) { return ''; }
+    }
     return String(html)
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '\n')
@@ -1400,6 +1462,17 @@ if (typeof window.define !== 'function') {
         audio.play().catch(() => { systemTTS(text); });
         return;
       }
+      // 真人在线语音（有道）：单个单词直接播有道真人录音；失败或短语/例句再退本地/系统
+      if (text && readBasicSetting('voiceEngine') === 'youdao') {
+        const w = String(text).trim();
+        if (/^[A-Za-z][A-Za-z'’-]*$/.test(w)) {
+          const type = readBasicSetting('voiceAccent') === 'en-GB' ? 1 : 2;
+          const audio = new Audio('https://dict.youdao.com/dictvoice?type=' + type + '&audio=' + encodeURIComponent(w));
+          audio.onerror = () => { tryLocalAudio(text); };
+          audio.play().catch(() => { tryLocalAudio(text); });
+          return;
+        }
+      }
     } catch (e) { /* 回退本地/系统 */ }
     // 本地语音引擎：优先本地离线音频（static/audio/<首字母>/<word>.mp3），缺失回退浏览器语音
     tryLocalAudio(text);
@@ -2160,6 +2233,75 @@ if (typeof window.define !== 'function') {
     });
   }
 
+  // ===== 牛津10简明（oaldpe10-lite）：结构化词条渲染 =====
+  // 数据侧字段均已做 HTML 转义/关键词高亮（collins-hl 烘焙），此处原样拼接即可
+  function liteSensesHtml(senses, withNum, plain, ctr) {
+    let out = '';
+    (senses || []).forEach((s, i) => {
+      if (s.group) out += '<div class="group-label">' + s.group + '</div>';
+      const num = withNum ? '<span class="num">' + (ctr ? ++ctr[0] : (i + 1)) + '.</span> ' : '';
+      out += '<div class="caption"><span class="collins-def">' + num + '<span class="def-en">' + (s.def || '') + '</span></span>' +
+        (!plain && s.cefr ? '<span class="cefr c-' + String(s.cefr).toLowerCase() + '">' + s.cefr + '</span>' : '') +
+        (!plain && s.st ? '<span class="st" title="' + s.st + '">' + s.st + '</span>' : '') +
+        '<span class="text_blue">' + (s.zh || '') + '</span></div>';
+      if (s.examples && s.examples.length) {
+        out += '<ul>' + s.examples.map(e => '<li><p>' + (e.en || '') + '</p>' + (e.zh ? '<p>' + e.zh + '</p>' : '') + '</li>').join('') + '</ul>';
+      }
+    });
+    return out;
+  }
+  function renderLiteEntry(d) {
+    const parts = d.parts || [];
+    let h = '<div class="part-list">' +
+      parts.map((p, i) => '<span class="pn' + (i === 0 ? ' active' : '') + '" data-p="' + i + '">' + esc(p.pos || '') + '</span>').join('') +
+      (parts.length > 1 ? '<span class="pn" data-p="all">全部</span>' : '') +
+      ((d.idioms || d.synonyms) ? '<span class="pn-sep">|</span>' : '') +
+      (d.idioms ? '<span class="pn" data-p="idioms">Idioms</span>' : '') +
+      (d.synonyms ? '<span class="pn" data-p="synonyms">Synonyms</span>' : '') + '</div>';
+    parts.forEach((p, pi) => {
+      h += '<div class="part_main' + (pi === 0 ? ' visible' : '') + '" data-part="' + pi + '">' + liteSensesHtml(p.senses, true) + '</div>';
+    });
+    if (d.idioms) {
+      h += '<div class="part_main" data-part="idioms"><div class="part-title">Idioms 习语</div>';
+      if (d.idioms.note) h += '<div class="idm-note">' + (d.idioms.note.en || '') + '<span class="zh">' + (d.idioms.note.zh || '') + '</span></div>';
+      const ctrIdm = [0];
+      (d.idioms.items || []).forEach(it => {
+        h += '<div class="idm-item"><div class="group-label">' + it.idm + '</div>' + liteSensesHtml(it.senses, true, true, ctrIdm) + '</div>';
+      });
+      h += '</div>';
+    }
+    if (d.synonyms) {
+      h += '<div class="part_main" data-part="synonyms"><div class="part-title">Synonyms 同义词辨析</div>';
+      const ctrSyn = [0];
+      d.synonyms.forEach(b => {
+        h += '<div class="syn-block">';
+        if (b.words) h += '<div class="syn-words">' + b.words + '</div>';
+        if (b.intro && (b.intro.en || b.intro.zh)) h += '<div class="syn-intro">' + (b.intro.en || '') + (b.intro.zh ? '<span class="zh">' + b.intro.zh + '</span>' : '') + '</div>';
+        (b.items || []).forEach(it => {
+          h += '<div class="syn-item"><span class="num">' + (++ctrSyn[0]) + '.</span>' + (it.word ? '<span class="syn-w">' + it.word + '</span>' : '') + '<span class="syn-def">' + (it.def || '') + '</span>' + (it.zh ? '<span class="syn-zh">' + it.zh + '</span>' : '');
+          if (it.examples && it.examples.length) {
+            h += '<ul>' + it.examples.map(e => '<li><p>' + (e.en || '') + '</p>' + (e.zh ? '<p>' + e.zh + '</p>' : '') + '</li>').join('') + '</ul>';
+          }
+          h += '</div>';
+        });
+        h += '</div>';
+      });
+      h += '</div>';
+    }
+    return h;
+  }
+  // 牛津10简明：词性 / 全部 / Idioms / Synonyms tag 切换（委托于 #detail，仅作用于 lite 条目）
+  $('detail').addEventListener('click', (ev) => {
+    const pn = ev.target.closest ? ev.target.closest('.pn') : null;
+    if (!pn) return;
+    const box = pn.closest('.lite-html');
+    if (!box) return;
+    box.querySelectorAll('.pn').forEach(x => x.classList.toggle('active', x === pn));
+    const p = pn.getAttribute('data-p');
+    box.querySelectorAll('.part_main[data-part]').forEach(m => m.classList.toggle('visible', p === 'all' || m.getAttribute('data-part') === p));
+    box.classList.toggle('show-all', p === 'all');
+  });
+
   function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly, irr) {
     const d = DICTS[cur];
     // 重定向：@@@LINK=xxx → 展示目标词条
@@ -2177,6 +2319,9 @@ if (typeof window.define !== 'function') {
     let body;
     if (html == null) {
       body = hasBaseInfo ? '' : '<div class="raw">（该词条无内容或重定向目标缺失）</div>';
+    } else if (html && typeof html === 'object') {
+      // 结构化词条（牛津10简明 oaldpe10-lite）：渲染词性/习语/同义词切换视图
+      body = '<div class="collins-html lite-html">' + renderLiteEntry(html) + '</div>';
     } else if (/\.html?$/i.test(html) === false && /<[a-z]/i.test(html)) {
       // 含 HTML 标签：注入词典 CSS + 重写资源路径后原样展示
       injectDictCss(cur);
