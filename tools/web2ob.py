@@ -120,9 +120,9 @@ DICT_CATALOG = [
     {
         "file": "oaldpe10-lite-dict.json",
         "varName": "OALDPE10_LITE_DICT",
-        "label": "牛津10简明 OALD10 Lite",
-        "name": "牛津10简明 OALD10 Lite",
-        "desc": "牛津高阶英汉双解（第10版）精简版，保留词性释义、例句、CEFR、习语与同义词辨析",
+        "label": "牛津10简明",
+        "name": "牛津10简明",
+        "desc": "牛津高阶英汉双解（第10版）精简版，保留音标、词性释义、例句、CEFR、习语与同义词辨析，支持点击听音",
         "icon": "📕",
         "source": "reciting",
     },

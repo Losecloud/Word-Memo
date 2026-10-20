@@ -189,6 +189,11 @@
   body.dark-mode .collins-html .vExplain_s { border-bottom-color: #33383f; }
   body.dark-mode .collins-html .collins-hl { color: #5fb3af; text-decoration-color: #5fb3af; }
   /* ===== 牛津10简明（oaldpe10-lite 结构化词条）：词性/习语/同义词切换与版式 ===== */
+  /* 音标行：点击调用词忆在线真人发音引擎（有道 dictvoice），英/美各自发声 */
+  .lite-html .lite-phon { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 4px; }
+  .lite-html .phon-click { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #b0623a; cursor: pointer; border-radius: 6px; padding: 1px 6px; user-select: none; }
+  .lite-html .phon-click:hover { background: rgba(74, 157, 154, .12); color: #4a9d9a; }
+  .lite-html .phon-click svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .lite-html .part-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 14px; }
   /* tag 字重常态即 600，激活态只换配色不改字重：切换时宽度零变化，避免右侧元素左右抖动 */
   .lite-html .part-list .pn { font-size: 13px; font-weight: 600; color: #8a8f98; background: #f1f3f5; border-radius: 20px; padding: 2px 12px; cursor: pointer; user-select: none; }
@@ -222,6 +227,8 @@
   .lite-html .syn-item .syn-w { color: #4a9d9a; font-weight: 700; margin-right: 4px; }
   .lite-html .syn-item .syn-zh { display: block; color: #7a7f87; font-size: 12.5px; }
   /* 深色适配 */
+  body.dark-mode .lite-html .lite-phon .phon-click { color: #e0a13a; }
+  body.dark-mode .lite-html .lite-phon .phon-click:hover { color: #5fb3af; background: rgba(95, 179, 175, .16); }
   body.dark-mode .lite-html .part-list .pn { color: #8a9099; background: #2b3037; }
   body.dark-mode .lite-html .part-list .pn.active { background: #3d7b78; }
   body.dark-mode .lite-html .part-list .pn-sep { color: #3a3f4b; }
@@ -2250,9 +2257,28 @@ if (typeof window.define !== 'function') {
     });
     return out;
   }
+  // 词忆系统发音引擎的在线真人直链（有道 dictvoice：type=1 英 / type=2 美，与主应用 remoteVoiceUrl 同源，0本地占用）
+  let _liteAud = null;
+  function liteSpeak(word, type) {
+    if (!word) return;
+    try {
+      if (!_liteAud) _liteAud = new Audio();
+      _liteAud.pause();
+      _liteAud.src = 'https://dict.youdao.com/dictvoice?type=' + (type === '1' ? 1 : 2) + '&audio=' + encodeURIComponent(word);
+      _liteAud.play().catch(function () {});
+    } catch (e) { /* 忽略 */ }
+  }
   function renderLiteEntry(d) {
     const parts = d.parts || [];
-    let h = '<div class="part-list">' +
+    const speakIcon = '<svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
+    let h = '';
+    if (d.uk || d.us) {
+      h += '<div class="lite-phon">' +
+        (d.uk ? '<span class="phon-click" data-lw="' + (d.word || '') + '" data-lt="1" title="英式发音">' + speakIcon + '英 ' + d.uk + '</span>' : '') +
+        (d.us ? '<span class="phon-click" data-lw="' + (d.word || '') + '" data-lt="2" title="美式发音">' + speakIcon + '美 ' + d.us + '</span>' : '') +
+        '</div>';
+    }
+    h += '<div class="part-list">' +
       parts.map((p, i) => '<span class="pn' + (i === 0 ? ' active' : '') + '" data-p="' + i + '">' + esc(p.pos || '') + '</span>').join('') +
       (parts.length > 1 ? '<span class="pn" data-p="all">全部</span>' : '') +
       ((d.idioms || d.synonyms) ? '<span class="pn-sep">|</span>' : '') +
@@ -2290,8 +2316,13 @@ if (typeof window.define !== 'function') {
     }
     return h;
   }
-  // 牛津10简明：词性 / 全部 / Idioms / Synonyms tag 切换（委托于 #detail，仅作用于 lite 条目）
+  // 牛津10简明：词性 / 全部 / Idioms / Synonyms tag 切换 + 音标点击听音（委托于 #detail，仅作用于 lite 条目）
   $('detail').addEventListener('click', (ev) => {
+    const ph = ev.target.closest ? ev.target.closest('.phon-click') : null;
+    if (ph && ph.closest && ph.closest('.lite-html')) {
+      liteSpeak(ph.getAttribute('data-lw'), ph.getAttribute('data-lt'));
+      return;
+    }
     const pn = ev.target.closest ? ev.target.closest('.pn') : null;
     if (!pn) return;
     const box = pn.closest('.lite-html');

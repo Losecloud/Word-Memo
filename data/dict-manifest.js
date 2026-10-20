@@ -38,8 +38,8 @@ var DICT_MANIFEST = [
  },
  {
   "file": "oaldpe10-lite-dict.json",
-  "name": "牛津10简明 OALD10 Lite",
+  "name": "牛津10简明",
   "varName": "OALDPE10_LITE_DICT",
-  "size": 72312452
+  "size": 76669118
  }
 ];
