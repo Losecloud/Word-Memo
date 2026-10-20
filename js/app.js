@@ -741,6 +741,14 @@ class WordMemoryApp {
             addProviderBtn._aiBound = true;
             addProviderBtn.addEventListener('click', () => { this.addAiProvider(); });
         }
+        // API 密钥：失焦时字段内显示「首尾掩码」，聚焦时恢复真实密钥可编辑，输入中实时记录真实值
+        const keyInput = document.getElementById('aiApiKey');
+        if (keyInput && !keyInput._aiKeyBound) {
+            keyInput._aiKeyBound = true;
+            keyInput.addEventListener('focus', () => this.unmaskAiKeyInput());
+            keyInput.addEventListener('blur', () => this.maskAiKeyInput());
+            keyInput.addEventListener('input', () => { keyInput._realKey = keyInput.value; });
+        }
         const providerTabList = document.getElementById('aiProviderTabList');
         if (!providerTabList || providerTabList._aiBound) return;
         providerTabList._aiBound = true;
@@ -2360,7 +2368,7 @@ class WordMemoryApp {
         });
 
         document.getElementById('favoriteBtn2').addEventListener('click', () => {
-            this.toggleFavorite();
+            this.toggleFavorite(this._favHoverShownId());
         });
 
         document.getElementById('favoriteBtn3').addEventListener('click', () => {
@@ -6549,6 +6557,7 @@ class WordMemoryApp {
         // 阅读释义例句等都不计入，否则每个词都会多出 autoNextTime 秒
         this._wordAnswerT = null;
         this._wordAnswerMode = null; // 作答瞬间的练习模式（供错误次数按模式细分）
+        this._spellDetailShownIdx = null; // 拼写模式「空栏填满即推右侧栏查词」的本题去重标记
         this._viewingLastWord = false;
         
         // 更新进度
@@ -7680,14 +7689,15 @@ class WordMemoryApp {
     // word 可选：延后调用时传入作答当时的单词，避免用户已切题导致推送错词。
     // isCorrect：本次作答是否为答对。按插件「背单词模式 → 右侧查词」设置决定是否显示：
     //   none=均不显示 / wrong=答错（不知道、不记得）显示 / all=答对答错均显示
-    pushCurrentWordDetailToSidebar(word, isCorrect = false) {
+    pushCurrentWordDetailToSidebar(word, isCorrect = false, holdMs = 0) {
         const mode = (typeof window !== 'undefined' && window.__obAnswerLookupMode) || 'wrong';
         if (mode === 'none') return;
         if (mode === 'wrong' && isCorrect) return;
         const w = word || (this.sessionWords && this.sessionWords[this.currentWordIndex]);
         const text = w && w.word ? String(w.word).trim() : '';
         if (text && typeof window.showWordDetailInSidebar === 'function') {
-            window.showWordDetailInSidebar(text);
+            // holdMs>0：锁定右侧栏若干毫秒，期间不接受其他查词显示抢占（拼写模式空栏填满即现专用）
+            window.showWordDetailInSidebar(text, holdMs > 0 ? { holdMs: holdMs } : undefined);
         }
     }
 
@@ -9532,6 +9542,13 @@ ${example ? `- 例句：${example}` : ''}
             const firstResult = this.wordFirstResults[idx];
             const rec = this._spellState(idx);
 
+            // 空栏全部填满 → 立即把单词详情推到右侧栏（不等答对判定、不等并题，拼错与否都显示），
+            // 并通过 holdMs=3000 锁定 3s，期间不被其他查词显示抢占；本题只推一次，避免退格重填反复刷新
+            if (letters.length === slots.length && this._spellDetailShownIdx !== idx) {
+                this._spellDetailShownIdx = idx;
+                this.pushCurrentWordDetailToSidebar(this.sessionWords[idx], false, 3000);
+            }
+
             // 累计本题拼错过的字母位置（容错按「拼错次数」判定，已改正的不回退）
             wrongIdxNow.forEach(i => { if (rec.wrongPos.indexOf(i) === -1) rec.wrongPos.push(i); });
 
@@ -9900,7 +9917,7 @@ ${example ? `- 例句：${example}` : ''}
                 pos: currentWord.definitions[0].pos,
                 meaning: currentWord.definitions[0].meaning,
                 result: currentFirstResult, // 'correct', 'wrong', 'unknown' - 使用首次结果
-                favorite: this.getFavoriteTargetList() ? this.isFavoriteInTarget(currentWord.word) : (currentWord.favorite || false), // 收藏状态
+                favorite: this.isWordFavoritedAnywhere(currentWord.word), // 收藏状态（默认收藏或任一自建词单，不看首选）
                 originalIndex: currentWord.originalIndex, // 原始索引，用于收藏功能
                 bookId: currentWord._bookId || (this.currentBook && this.currentBook.id), // 所属词书，跨词书复习时定位正确词书
                 mode: this.currentMode, // 本次答题使用的模式，返回上一题时沿用
@@ -11653,6 +11670,14 @@ ${example ? `- 例句：${example}` : ''}
             this._speakFallback(wordText, callbacks);
             return;
         }
+        // 真人在线语音（有道）：单个单词直接播有道真人录音（下载即播），
+        // 短语 / 例句（有道无对应录音）或加载失败再退浏览器语音
+        if (this.settings.voiceEngine === 'youdao') {
+            this.playRemoteAudio(wordText, callbacks).then((played) => {
+                if (!played) this._speakFallback(wordText, callbacks);
+            });
+            return;
+        }
         // 本地语音引擎（system）：本地离线音频（static/audio，由 Edge 语音生成）→ 在线真人录音（静态 mp3）→ 浏览器语音。
         // 中间这层是为移动端补的：手机上既没有本地音频包、也没有 Edge 网关，
         // 旧链路会直接落到系统 TTS（iOS 上就是苹果系统语音，音质差），故插入一层预生成真人音频
@@ -12855,6 +12880,16 @@ ${example ? `- 例句：${example}` : ''}
                 voiceSelect.value = this.settings.voiceModel;
             }
             console.log('📢 已加载 ' + displayVoices.length + ' 个 Edge 在线声优选项');
+            return;
+        }
+
+        // 真人在线语音（有道）：仅「英音 / 美音」两种真人音色，随上方「发音口音」切换，
+        // 无独立声优可挑；此处只列一条说明项，避免误以为下面的浏览器声优对该引擎生效
+        if (engineSel && engineSel.value === 'youdao') {
+            const note = document.createElement('option');
+            note.value = '';
+            note.textContent = '有道真人仅英/美两种音色（随「发音口音」切换）';
+            voiceSelect.appendChild(note);
             return;
         }
 
@@ -16926,6 +16961,21 @@ ${example ? `- 例句：${example}` : ''}
         return false;
     }
 
+    // 单词是否被收藏进任意收藏词单（默认收藏聚合 或 任一自建词单）。
+    // 「上一题」徽标星标只关心「是否已收藏」，不看首选目标词单，故单列此判定。
+    isWordFavoritedAnywhere(wordText) {
+        const key = String(wordText || '').trim().toLowerCase();
+        if (!key) return false;
+        // 默认收藏（虚拟聚合：各词书 favorite 标记 + 全局收藏项）
+        if (this.getFavoritesVirtualBook().words.some(w => String((w && w.word) || '').trim().toLowerCase() === key)) return true;
+        // 各自建词单（含首选词单）
+        for (const d of this.getFavoriteLists()) {
+            if (!d || d.id === 'favorites') continue;
+            if ((Array.isArray(d.words) ? d.words : []).some(w => String((w && w.word) || '').trim().toLowerCase() === key)) return true;
+        }
+        return false;
+    }
+
     // 在所有词书（包括全局收藏）中查找单词，返回找到的词对象及来源信息
     findWordInAllBooks(wordText) {
         if (!wordText) return null;
@@ -20435,7 +20485,7 @@ ${example ? `- 例句：${example}` : ''}
     // 纯英文名（用户自行导入）无中文前缀则原样返回
     dictShortName(name) {
         const s = String(name || '').trim();
-        const m = s.match(/^[\u4e00-\u9fff]+/);
+        const m = s.match(/^[\u4e00-\u9fff0-9]+/); // 数字夹在中文里不截断（如 牛津10简明）
         return m ? m[0] : s;
     }
 
@@ -29332,6 +29382,33 @@ ${head}
         });
     }
 
+    // API 密钥输入框一体化显示：失焦时字段内直接显示「首4+点+末4」掩码（便于核对是哪条密钥），
+    // 聚焦时恢复真实密钥以供编辑。掩码仅为展示，不改动保存内容（真实值以 _realKey 为准）。
+    aiKeyMaskText(key) {
+        const k = String(key == null ? '' : key).trim();
+        if (!k) return '';
+        if (k.length > 8) return k.slice(0, 4) + '•'.repeat(Math.min(16, k.length - 8)) + k.slice(-4);
+        if (k.length > 2) return k[0] + '•'.repeat(k.length - 2) + k[k.length - 1];
+        return k;
+    }
+
+    maskAiKeyInput() {
+        const input = document.getElementById('aiApiKey');
+        if (!input) return;
+        if (document.activeElement === input) return; // 编辑中不掩码，避免把掩码串当成真实密钥
+        const real = input._realKey != null ? input._realKey : String(input.value || '');
+        input._realKey = real;
+        input.type = 'text';
+        input.value = this.aiKeyMaskText(real);
+    }
+
+    unmaskAiKeyInput() {
+        const input = document.getElementById('aiApiKey');
+        if (!input) return;
+        input.type = 'password';
+        input.value = input._realKey != null ? input._realKey : String(input.value || '');
+    }
+
     // 加载当前激活厂商的表单值
     loadAiProviderForm() {
         const providers = this.getAiProviders();
@@ -29342,7 +29419,10 @@ ${head}
         const fmtEl = document.getElementById('aiApiFormat');
         if (fmtEl && fmtEl._settingPickerBuilt) this._refreshSettingPicker(fmtEl);
         document.getElementById('aiApiBaseUrl').value = p.baseUrl || '';
-        document.getElementById('aiApiKey').value = p.apiKey || '';
+        const keyEl = document.getElementById('aiApiKey');
+        keyEl.value = p.apiKey || '';
+        keyEl._realKey = p.apiKey || '';
+        this.maskAiKeyInput(); // 切换厂商：以首尾掩码形态展示（未聚焦）
         // 填写地址后自动识别厂商名（仅当名称为"未命名"或为空时）
         const baseUrlEl = document.getElementById('aiApiBaseUrl');
         baseUrlEl.oninput = () => {
@@ -29362,7 +29442,9 @@ ${head}
         const p = providers[idx] || providers[0];
         p.apiFormat = document.getElementById('aiApiFormat').value || 'openai';
         p.baseUrl = document.getElementById('aiApiBaseUrl').value.trim() || '';
-        p.apiKey = document.getElementById('aiApiKey').value.trim() || '';
+        // 密钥输入框失焦态显示的是首尾掩码串，真实值以 _realKey 为准（聚焦编辑时才等于 value）
+        const keyEl = document.getElementById('aiApiKey');
+        p.apiKey = keyEl ? String((keyEl._realKey != null ? keyEl._realKey : keyEl.value) || '').trim() : '';
         // 地址变化时同步厂商名（若仍为"未命名"）
         if (p.baseUrl && (!p.name || p.name === '未命名')) {
             p.name = this.extractProviderName(p.baseUrl) || p.name;
