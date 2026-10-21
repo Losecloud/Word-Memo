@@ -123,6 +123,12 @@
   .detail-fav-star.favorited .favorite-icon { color: #FFC83D; }
   body.dark-mode .detail-fav-star .favorite-icon { color: #a0a0a0; }
   body.dark-mode .detail-fav-star:hover .favorite-icon { color: #c8c8c8; }
+  /* 复制单词按钮：位于收藏星标右侧，点击把当前词头写入剪贴板 */
+  .detail-copy-btn { margin: 0 8px 0 0; font-size: 16px; cursor: pointer; user-select: none; display: inline-flex; vertical-align: middle; line-height: 1; color: #8a8f98; transition: color .2s ease, transform .2s ease; }
+  .detail-copy-btn:hover { color: #4a9d9a; transform: translateY(-1px); }
+  .detail-copy-btn.copied { color: #4a9d9a; }
+  body.dark-mode .detail-copy-btn { color: #a0a0a0; }
+  body.dark-mode .detail-copy-btn:hover, body.dark-mode .detail-copy-btn.copied { color: #5fb3af; }
   .raw { font-size: 13px; color: #444; white-space: pre-wrap; word-break: break-word; }
   #pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin: 14px 0; }
   #pager button { padding: 6px 16px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; background: #fff; }
@@ -660,6 +666,31 @@ if (typeof window.define !== 'function') {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  // 复制文本到剪贴板：优先异步 Clipboard API（iframe 下可能被权限策略拦截），失败回退 execCommand
+  function copyText(text) {
+    const t = String(text == null ? '' : text);
+    if (!t) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(t).catch(function () { legacyCopy(t); });
+        return;
+      }
+    } catch (e) { /* 落到回退 */ }
+    legacyCopy(t);
+  }
+  function legacyCopy(t) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { /* 忽略 */ }
   }
 
   function humanSize(bytes) {
@@ -2395,7 +2426,7 @@ if (typeof window.define !== 'function') {
         if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">你可能要查的是 ↓ </span>';
       }
     } catch (e) { /* 忽略 */ }
-    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
+    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span><span class="detail-copy-btn" title="复制单词"><i class="fi-rr-copy"></i></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
     box.style.display = 'flex';
     // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮
     beautifyCollins(box, target, cands, irr);
@@ -2455,6 +2486,25 @@ if (typeof window.define !== 'function') {
             favorited: isFav
           });
         }
+      });
+    }
+
+    // 复制单词按钮：把词头写入剪贴板（保留展示大小写），成功后就地反馈 1.2s
+    const copyBtn = box.querySelector('.detail-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 避免触发 h2 的「搜索该词」
+        e.preventDefault();
+        copyText(head);
+        const ci = copyBtn.querySelector('i');
+        copyBtn.classList.add('copied');
+        copyBtn.title = '已复制';
+        if (ci) ci.className = 'fi-rr-check';
+        setTimeout(() => {
+          copyBtn.classList.remove('copied');
+          copyBtn.title = '复制单词';
+          if (ci) ci.className = 'fi-rr-copy';
+        }, 1200);
       });
     }
 
