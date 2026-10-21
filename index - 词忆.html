@@ -5853,11 +5853,6 @@
     (function () {
         var s = document.createElement('script');
         s.src = 'data/dict-manifest.js?v=' + Date.now();
-        s.onload = function () {
-            // manifest 异步加载完成后，如果 app 已初始化，重新渲染 AI 工坊词典卡片
-            // （constructor 执行时 manifest 大概率未就绪，首次渲染会把已安装词典误判为未安装）
-            try { if (window.app && typeof window.app.renderWorkshopDictCards === 'function') { window.app.renderWorkshopDictCards(); } } catch (e) {}
-        };
         document.head.appendChild(s);
     })();
     </script>

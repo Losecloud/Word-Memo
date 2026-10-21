@@ -2636,13 +2636,7 @@ if (typeof window.define !== 'function') {
       if (!list || !list.length) return;
       const cached = {};
       saved.forEach(m => { cached[m.varName] = m.mdd || ''; });
-      // 不仅要比 mdd，还要确保 manifest 中每条 varName 都存在于 cached 里——
-      // 否则新放回 data/ 的词典（如牛津同义词，无 mdd）会因 cached[varName] 与 m.mdd 同为 undefined 被误判为"一致"而跳过补注册
-      const needsSync = list.some(m => {
-        const cv = cached[m.varName];
-        return cv == null || cv !== (m.mdd || '');
-      });
-      if (!needsSync) return;
+      if (list.every(m => cached[m.varName] === (m.mdd || ''))) return; // 清单与缓存一致，无需处理
       return applyMetas(list).then(() => {
         renderSelect();
         broadcastPickerState();
