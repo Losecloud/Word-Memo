@@ -17654,6 +17654,82 @@ ${example ? `- 例句：${example}` : ''}
         });
     }
 
+    /**
+     * 把底层报错翻译成用户可读的中文说明（原始报错另行保留，供复制反馈排查）。
+     * 典型场景：iPad 上 requestUrl 报「TLS错误导致安全连接失败」这类原文用户根本看不懂。
+     */
+    friendlyErrorMessage(raw) {
+        const s = String(raw || '').toLowerCase();
+        if (/(^|[^a-z])(tls|ssl)|安全连接|握手|handshake/.test(s)) return '网络与服务器的安全连接（TLS）握手失败：通常是当前 Wi-Fi、代理或运营商网络拦截所致。可切换网络（例如手机热点）后重试。';
+        if (/write verify|回读校验|verify failed/.test(s)) return '文件写入后校验不一致：数据已尝试保存到本地，但回读结果与预期不同（常见于设备存储空间不足或插件写入权限受限）。请清理空间后重试。';
+        if (/timeout|timed out|超时/.test(s)) return '下载超时：迟迟未从服务器收到数据，请稍后重试或更换网络。';
+        if (/404|not found|找不到/.test(s)) return '文件不存在（HTTP 404）：下载地址已失效，词典文件可能尚未同步到该通道。';
+        if (/403|forbidden/.test(s)) return '访问被拒绝（HTTP 403）：该通道拒绝了本次请求（大文件常受镜像通道的体积限制）。';
+        if (/422|too large|超出上限/.test(s)) return '请求体积超限（HTTP 422）：文件大小超出该通道允许的上限。';
+        if (/429|too many|限流/.test(s)) return '请求过于频繁（HTTP 429）：服务器暂时限流，请稍等片刻再试。';
+        if (/5\d{2}|server error/.test(s)) return '下载服务器暂时异常（HTTP 5xx），请稍后重试。';
+        if (/refused|econnrefused|failed to fetch|net::|网络连接/.test(s)) return '网络连接失败：当前设备无法连通下载服务器，请检查网络（Wi-Fi/代理）后重试。';
+        if (/所有下载通道|所有通道|all download/.test(s)) return '主地址与备用镜像均下载失败：请检查网络后重试，或稍后再试。';
+        if (/权限|permission|denied/.test(s)) return '没有写入权限：插件被禁止写入目标目录，请在 Obsidian 中检查插件与目录权限。';
+        return '下载过程中出现问题，可复制下方完整报错信息以便反馈排查。';
+    }
+
+    /**
+     * 下载失败专用内置 modal：可读说明在上、报错源码在下，
+     * 「复制报错信息」按钮一键复制两者（可读信息 + 报错源码）。
+     */
+    showDownloadErrorModal(err) {
+        const raw = (((err && err.message) || String(err || '')) + '').trim() || '未知错误';
+        const friendly = this.friendlyErrorMessage(raw);
+        const overlay = document.createElement('div');
+        overlay.className = 'modal';
+        overlay.style.display = 'flex';
+        overlay.innerHTML = `
+            <div class="modal-overlay"></div>
+            <div class="modal-content modal-medium" style="max-width: 540px;">
+                <div class="modal-header">
+                    <h3>词典下载失败</h3>
+                    <button type="button" class="btn-icon modal-close-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div class="dl-err-friendly" style="padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--error); color: var(--text-primary); font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;"></div>
+                    <div>
+                        <div class="dl-err-raw-label" style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px;">报错源码</div>
+                        <pre class="dl-err-raw" style="margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--hover-bg); color: var(--text-secondary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto;"></pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary modal-copy-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fi-rr-copy"></i><span>复制报错信息</span>
+                    </button>
+                    <button type="button" class="btn-primary modal-ok-btn">知道了</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.querySelector('.dl-err-friendly').textContent = friendly;
+        overlay.querySelector('.dl-err-raw').textContent = raw;
+
+        const copyBtn = overlay.querySelector('.modal-copy-btn');
+        const icon = copyBtn.querySelector('i');
+        const label = copyBtn.querySelector('span');
+        const close = () => overlay.remove();
+        overlay.querySelector('.modal-close-btn').addEventListener('click', close);
+        overlay.querySelector('.modal-ok-btn').addEventListener('click', close);
+        overlay.querySelector('.modal-overlay').addEventListener('click', close);
+        copyBtn.addEventListener('click', () => {
+            this.copyToClipboard('【可读信息】\n' + friendly + '\n\n【报错源码】\n' + raw);
+            icon.className = 'fi-rr-check';
+            label.textContent = '已复制';
+            setTimeout(() => { icon.className = 'fi-rr-copy'; label.textContent = '复制报错信息'; }, 1200);
+        });
+    }
+
     // 重命名词书
     async renameBook() {
         const book = Storage.getBook(this.currentSettingsBookId);
@@ -20733,7 +20809,7 @@ ${example ? `- 例句：${example}` : ''}
             } catch (err) {
                 p.reset('重试');
                 btn.disabled = false;
-                this.showToast('下载失败：' + ((err && err.message) || err), 'error');
+                this.showDownloadErrorModal(err);
             }
         });
     }
