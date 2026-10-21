@@ -12,8 +12,9 @@ var DICT_CATALOG = {
    "size": 9554833,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json",
    "mirrors": [
-    "https://cdn.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/englishwords-dict.json",
-    "https://gcore.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/englishwords-dict.json"
+    "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json",
+    "https://gh.nxnow.top/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json"
    ]
   },
   {
@@ -26,8 +27,9 @@ var DICT_CATALOG = {
    "size": 2826408,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/youci-dict.json",
    "mirrors": [
-    "https://cdn.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/youci-dict.json",
-    "https://gcore.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/youci-dict.json"
+    "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/youci-dict.json",
+    "https://gh.nxnow.top/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/youci-dict.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/youci-dict.json"
    ]
   },
   {
@@ -40,8 +42,9 @@ var DICT_CATALOG = {
    "size": 4140772,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json",
    "mirrors": [
-    "https://cdn.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json",
-    "https://gcore.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json"
+    "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json",
+    "https://gh.nxnow.top/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins%E6%9F%AF%E6%9E%97%E6%96%AF%E8%8B%B1%E8%AF%AD%E5%90%8C%E4%B9%89%E8%AF%8D%E5%AD%97%E5%85%B8_collins_thesaurus_darkdickens-dict.json"
    ]
   },
   {
@@ -54,8 +57,9 @@ var DICT_CATALOG = {
    "size": 13022205,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json",
    "mirrors": [
-    "https://cdn.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json",
-    "https://gcore.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json"
+    "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json",
+    "https://gh.nxnow.top/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E7%89%9B%E6%B4%A5%E5%90%8C%E4%B9%89%E8%AF%8D%E8%AF%8D%E8%AF%8D%E5%85%B8-dict.json"
    ]
   },
   {
@@ -68,8 +72,9 @@ var DICT_CATALOG = {
    "size": 15577734,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json",
    "mirrors": [
-    "https://cdn.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json",
-    "https://gcore.jsdelivr.net/gh/Losecloud/Word-Memo@main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json"
+    "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json",
+    "https://gh.nxnow.top/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/%E8%8B%B1%E8%AF%AD%E8%AF%8D%E6%A0%B9%E8%AF%8D%E7%BC%80%E8%AF%8D%E9%A2%91-dict.json"
    ]
   },
   {
@@ -80,7 +85,13 @@ var DICT_CATALOG = {
    "desc": "柯林斯高阶英汉词典，整句释义、语料地道",
    "icon": "📘",
    "size": 60870776,
-   "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins-dict.json"
+   "url": "https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/collins-dict.json",
+   "mirrors": [
+    "https://gh.monlor.com/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/collins-dict.json",
+    "https://gh.nxnow.top/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/collins-dict.json",
+    "https://gh-proxy.com/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/collins-dict.json",
+    "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/collins-dict.json"
+   ]
   },
   {
    "file": "oaldpe10-lite-dict.json",
@@ -90,7 +101,13 @@ var DICT_CATALOG = {
    "desc": "牛津高阶英汉双解（第10版）精简版，含音标、词性释义、例句、CEFR、习语与同义词辨析",
    "icon": "📕",
    "size": 76669118,
-   "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/oaldpe10-lite-dict.json"
+   "url": "https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/oaldpe10-lite-dict.json",
+   "mirrors": [
+    "https://gh.monlor.com/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/oaldpe10-lite-dict.json",
+    "https://gh.nxnow.top/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/oaldpe10-lite-dict.json",
+    "https://gh-proxy.com/https://github.com/Losecloud/Word-Memo/releases/download/dict-v1/oaldpe10-lite-dict.json",
+    "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/oaldpe10-lite-dict.json"
+   ]
   }
  ]
 };

@@ -45,30 +45,32 @@ RECITING_RAW = "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/
 # 本地引用改写为仓库 raw 地址（图片已在主仓库跟踪，raw 可直连），两端因此共用同一份 CSS。
 EXAMPLES_LOCAL_REF = "../examples/"
 EXAMPLES_REMOTE_REF = "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/examples/"
-WORD_MEMO_RELEASE = "https://github.com/Losecloud/Obsidian-Word-Memo/releases/download/"
-# 承载超大词典（oaldpe，320MB，超出 GitHub 仓库单文件 100MB 限制）的 Release 标签
+WORD_MEMO_RELEASE = "https://github.com/Losecloud/Word-Memo/releases/download/"
+# 承载大词典（collins 58MB / 牛津10简明 73MB / oaldpe 320MB，逼近或超出 GitHub 仓库
+# 单文件 100MB 上限）的 Release 标签；资产与仓库同在主仓库，避免与插件版本审查混在一起
 DICT_RELEASE_TAG = "dict-v1"
 
-# ===== 备用下载通道（jsDelivr 镜像）=====
+# ===== 备用下载通道（国内 GitHub 反代镜像）=====
 # iPad/Obsidian 侧 requestUrl 访问 raw.githubusercontent.com 偶发 TLS 握手失败
 # （实测报「TLS错误导致安全连接失败」），而同一链路曾经成功过——属单点 CDN 抖动。
 # 故给 catalog 条目附带备用镜像地址，前端主地址失败时按序自动切换，不让下载链断在这里。
-# jsDelivr：免账号、CORS 响应头为 *（页面侧 fetch 直接可用）、多节点、CN 可达。
-# 但它对 GitHub 单文件上限 20MB（实测超限返回 403），故仅 ≤20MB 的词典生成镜像；
-# 大文件（collins 58MB / oaldpe10-lite 73MB）无此通道，仍只有 raw 主地址。
-RECITING_REPO = "Losecloud/Word-Memo"
-RECITING_REF = "main"
-JSDELIVR_MAX_BYTES = 20 * 1024 * 1024
-JSDELIVR_HOSTS = ("cdn.jsdelivr.net", "gcore.jsdelivr.net")
+# 曾用 jsDelivr 镜像，已停用：它对 GitHub 单文件有 20MB 上限（超限 403），无法一劳永逸
+# （collins/牛津10简明这类大词典根本走不通）。
+# 改用 GitHub 反代类镜像：服务端抓取再回源，不限单文件大小，且为国内可达域名。
+# 前缀式拼接完整原 URL（前端把镜像地址当普通下载地址用，无需感知拼接规则）。
+# 实测（2026-10-21，含 58MB Release 资产下载采样）：
+#   gh.monlor.com ≈1.4MB/s（最快，列为首备）→ gh.nxnow.top ≈0.9MB/s → gh-proxy.com 慢但稳。
+# 三家均支持 Range、反代 Release 与 raw 地址，单文件无 20MB 类限制。
+GH_PROXY_PREFIXES = (
+    "https://gh.monlor.com/",
+    "https://gh.nxnow.top/",
+    "https://gh-proxy.com/",
+)
 
 
-def jsdelivr_mirrors(filename, size):
-    """生成 jsDelivr 备用地址列表；体积未知或超 20MB 时返回空（超限该节点会 403）。"""
-    if not size or size > JSDELIVR_MAX_BYTES:
-        return []
-    f = quote(filename)
-    return ["https://%s/gh/%s@%s/data/%s" % (h, RECITING_REPO, RECITING_REF, f)
-            for h in JSDELIVR_HOSTS]
+def github_mirrors(url):
+    """给任意 GitHub raw/Release 地址生成国内反代镜像列表。"""
+    return [p + url for p in GH_PROXY_PREFIXES]
 
 # 词典数据目录：安装候选清单，随 main.js 内嵌并在应用「AI 工坊」中展示。
 # size 由构建时读取本地文件自动填充（进度条按它计算，不能用响应的 content-length——
@@ -134,6 +136,8 @@ DICT_CATALOG = [
         "desc": "柯林斯高阶英汉词典，整句释义、语料地道",
         "icon": "📘",
         "source": "reciting",
+        # 大词典（>20MB）：主通道走 Release 资产 + 国内反代镜像（见 build_dict_catalog）
+        "releaseAsset": True,
     },
     # 牛津10简明（oaldpe10-lite）：从 oaldpe-dict.json（320MB）精简生成的结构化词条版——
     # 只保留词性/释义/例句/CEFR/习语/同义词辨析，去掉图片与整包 HTML 标记，
@@ -146,6 +150,7 @@ DICT_CATALOG = [
         "desc": "牛津高阶英汉双解（第10版）精简版，含音标、词性释义、例句、CEFR、习语与同义词辨析",
         "icon": "📕",
         "source": "reciting",
+        "releaseAsset": True,
     },
     # 牛津10双解（oaldpe）：v0.1.0 暂不分发，故注释掉。
     # 原因不只是 oaldpe-dict.json 320MB——配套的 data/oaldpe/ 还有约 2GB 资源
@@ -271,16 +276,22 @@ def build_dict_catalog():
     for item in DICT_CATALOG:
         entry = dict(item)
         source = entry.pop("source")
+        release_asset = entry.pop("releaseAsset", False)
         local = ROOT / "data" / item["file"]
         entry["size"] = local.stat().st_size if local.exists() else 0
         if source == "release":
             entry["url"] = WORD_MEMO_RELEASE + DICT_RELEASE_TAG + "/" + quote(item["file"])
+        elif release_asset:
+            # 大词典主通道：GitHub Release 资产（raw 直连大文件在部分网络下不稳，
+            # 且 jsDelivr 镜像有 20MB 上限已停用）。备用依次为国内反代镜像的
+            # Release 地址、raw 直连，前端失败时按序降级（见 app.js 下载循环）。
+            rel = WORD_MEMO_RELEASE + DICT_RELEASE_TAG + "/" + quote(item["file"])
+            entry["url"] = rel
+            entry["mirrors"] = github_mirrors(rel) + [RECITING_RAW + quote(item["file"])]
         else:
             entry["url"] = RECITING_RAW + quote(item["file"])
-            # 备用镜像：主地址 TLS/网络失败时前端按序降级（见 jsdelivr_mirrors 注释）
-            ms = jsdelivr_mirrors(item["file"], entry["size"])
-            if ms:
-                entry["mirrors"] = ms
+            # 备用镜像：主地址 TLS/网络失败时前端按序降级（见 github_mirrors 注释）
+            entry["mirrors"] = github_mirrors(entry["url"])
         dicts.append(entry)
     doc = {"updated": date.today().isoformat(), "dicts": dicts}
     text = ("// 由 tools/web2ob.py 自动生成：词典数据安装清单（AI 工坊「词典」类目按此渲染）\n"

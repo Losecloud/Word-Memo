@@ -20770,7 +20770,7 @@ ${example ? `- 例句：${example}` : ''}
                     : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + '/' + this.formatDictSize(entry.size) + spd);
             };
             try {
-                // 下载地址序列：主地址（仓库 raw）+ catalog 生成的备用镜像。
+                // 下载地址序列：主地址（raw / 大词典为 Release 资产）+ catalog 生成的备用镜像（国内反代）。
                 // 主地址偶发 TLS/网络失败时按序切换下一条通道，不让整条下载链被单点 CDN 抖动打断
                 const urls = [entry.url].concat(Array.isArray(entry.mirrors) ? entry.mirrors : []);
                 let saved = null, lastErr = null;
