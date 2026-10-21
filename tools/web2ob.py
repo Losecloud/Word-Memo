@@ -49,6 +49,27 @@ WORD_MEMO_RELEASE = "https://github.com/Losecloud/Obsidian-Word-Memo/releases/do
 # 承载超大词典（oaldpe，320MB，超出 GitHub 仓库单文件 100MB 限制）的 Release 标签
 DICT_RELEASE_TAG = "dict-v1"
 
+# ===== 备用下载通道（jsDelivr 镜像）=====
+# iPad/Obsidian 侧 requestUrl 访问 raw.githubusercontent.com 偶发 TLS 握手失败
+# （实测报「TLS错误导致安全连接失败」），而同一链路曾经成功过——属单点 CDN 抖动。
+# 故给 catalog 条目附带备用镜像地址，前端主地址失败时按序自动切换，不让下载链断在这里。
+# jsDelivr：免账号、CORS 响应头为 *（页面侧 fetch 直接可用）、多节点、CN 可达。
+# 但它对 GitHub 单文件上限 20MB（实测超限返回 403），故仅 ≤20MB 的词典生成镜像；
+# 大文件（collins 58MB / oaldpe10-lite 73MB）无此通道，仍只有 raw 主地址。
+RECITING_REPO = "Losecloud/Word-Memo"
+RECITING_REF = "main"
+JSDELIVR_MAX_BYTES = 20 * 1024 * 1024
+JSDELIVR_HOSTS = ("cdn.jsdelivr.net", "gcore.jsdelivr.net")
+
+
+def jsdelivr_mirrors(filename, size):
+    """生成 jsDelivr 备用地址列表；体积未知或超 20MB 时返回空（超限该节点会 403）。"""
+    if not size or size > JSDELIVR_MAX_BYTES:
+        return []
+    f = quote(filename)
+    return ["https://%s/gh/%s@%s/data/%s" % (h, RECITING_REPO, RECITING_REF, f)
+            for h in JSDELIVR_HOSTS]
+
 # 词典数据目录：安装候选清单，随 main.js 内嵌并在应用「AI 工坊」中展示。
 # size 由构建时读取本地文件自动填充（进度条按它计算，不能用响应的 content-length——
 # GitHub raw 对文本自动 gzip，该头部是压缩后大小，会导致进度算到 300%）。
@@ -256,6 +277,10 @@ def build_dict_catalog():
             entry["url"] = WORD_MEMO_RELEASE + DICT_RELEASE_TAG + "/" + quote(item["file"])
         else:
             entry["url"] = RECITING_RAW + quote(item["file"])
+            # 备用镜像：主地址 TLS/网络失败时前端按序降级（见 jsdelivr_mirrors 注释）
+            ms = jsdelivr_mirrors(item["file"], entry["size"])
+            if ms:
+                entry["mirrors"] = ms
         dicts.append(entry)
     doc = {"updated": date.today().isoformat(), "dicts": dicts}
     text = ("// 由 tools/web2ob.py 自动生成：词典数据安装清单（AI 工坊「词典」类目按此渲染）\n"

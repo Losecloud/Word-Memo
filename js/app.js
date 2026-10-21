@@ -20694,18 +20694,30 @@ ${example ? `- 例句：${example}` : ''}
                     : Math.round(ratio * 100) + '% · ' + this.formatDictSize(loaded) + '/' + this.formatDictSize(entry.size) + spd);
             };
             try {
-                let saved;
-                if (this.isBridgeOnlyHost()) {
-                    // 移动端（app:// iframe）：下载与落盘一并在插件侧完成（easy-sync 式），
-                    // 页面不再自己 fetch 拿字节再经桥回传，只等插件回传写入结果
-                    p.set(0, '正在下载到本地…');
-                    saved = await this.downloadDictToVault(entry.url, varName, entry.file, onProgress, entry.size);
-                } else {
-                    // 桌面/内置服务：保持原路径（页面流式 fetch + /save-dict 同源写入）
-                    const jsText = await this.downloadDictData(entry.url, entry.size, onProgress);
-                    p.set(1, '正在写入本地…');
-                    saved = await this.saveDictToData(jsText, varName, entry.file);
+                // 下载地址序列：主地址（仓库 raw）+ catalog 生成的备用镜像。
+                // 主地址偶发 TLS/网络失败时按序切换下一条通道，不让整条下载链被单点 CDN 抖动打断
+                const urls = [entry.url].concat(Array.isArray(entry.mirrors) ? entry.mirrors : []);
+                let saved = null, lastErr = null;
+                for (let ui = 0; ui < urls.length && !saved; ui++) {
+                    const u = urls[ui];
+                    try {
+                        if (this.isBridgeOnlyHost()) {
+                            // 移动端（app:// iframe）：下载与落盘一并在插件侧完成（easy-sync 式），
+                            // 页面不再自己 fetch 拿字节再经桥回传，只等插件回传写入结果
+                            p.set(0, ui > 0 ? '主地址失败，正在尝试备用通道…' : '正在下载到本地…');
+                            saved = await this.downloadDictToVault(u, varName, entry.file, onProgress, entry.size);
+                        } else {
+                            // 桌面/内置服务：保持原路径（页面流式 fetch + /save-dict 同源写入）
+                            const jsText = await this.downloadDictData(u, entry.size, onProgress);
+                            p.set(1, '正在写入本地…');
+                            saved = await this.saveDictToData(jsText, varName, entry.file);
+                        }
+                    } catch (e) {
+                        lastErr = e;
+                        saved = null;
+                    }
                 }
+                if (!saved) throw lastErr || new Error('所有下载通道均失败');
                 // 自动启用：写入引擎的持久化清单 + 启用记录，刷新后即被加载，无需用户再点「应用」
                 this.registerDictMeta({
                     name: entry.label || entry.file,
