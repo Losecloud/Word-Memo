@@ -20584,6 +20584,8 @@ ${example ? `- 例句：${example}` : ''}
         const manifest = Array.isArray(window.DICT_MANIFEST) ? window.DICT_MANIFEST : [];
         const catalog = (window.DICT_CATALOG && Array.isArray(window.DICT_CATALOG.dicts)) ? window.DICT_CATALOG.dicts : [];
         if (catalog.length === 0) return;
+        // 幂等：先清掉旧的词典卡片（防止 manifest 加载完二次追加导致重复）
+        grid.querySelectorAll('.workshop-app-card[data-cat="dict"]').forEach(el => el.remove());
         const frag = document.createDocumentFragment();
         catalog.forEach(d => {
             // 按 varName 匹配：落盘文件名由 varName 推导（word-roots → word_roots-dict.js），

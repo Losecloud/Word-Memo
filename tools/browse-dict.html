@@ -252,6 +252,48 @@
   body.dark-mode .lite-html .syn-words { color: #e7e9ee; }
   body.dark-mode .lite-html .syn-item .num,
   body.dark-mode .lite-html .syn-item .syn-w { color: #5fb3af; }
+  /* ===== 牛津同义词 Oxford Thesaurus 词条美化 ===== */
+  .thesaurus-html { line-height: 1.7; font-size: 14px; color: #222; word-break: break-word; }
+  /* 根容器 block 展开 */
+  .thesaurus-html .CK,
+  .thesaurus-html .JS,
+  .thesaurus-html .CY,
+  .thesaurus-html .CX { display: block; }
+  /* DC（重复的单词名，外部 h2 已显示）隐藏 */
+  .thesaurus-html .DC { display: none; }
+  /* 顶部标题行：主词 + 音标 + 词性 */
+  .thesaurus-html .YX { display: none; } /* YX 也是重复的主词，外部 h2 已显示 */
+  .thesaurus-html .YB { display: block; margin-bottom: 8px; }
+  .thesaurus-html .CB { font-size: 14px; color: #b0623a; font-weight: 500; }
+  .thesaurus-html .DX {
+    display: inline-block; vertical-align: 1px; margin-left: 6px;
+    font-size: 0.78rem; font-weight: 700;
+    color: #fff; background: #4a9d9a;
+    border-radius: 4px; padding: 1px 8px; letter-spacing: .3px;
+  }
+  /* 义项块 */
+  .thesaurus-html .JX { display: block; margin: 10px 0 4px; }
+  .thesaurus-html .entryNum { color: #4a9d9a; font-weight: 700; margin-right: 4px; }
+  .thesaurus-html .entryDot { color: #c0c4cc; margin-right: 6px; font-size: 10px; }
+  /* 例句块 */
+  .thesaurus-html .LJ { display: block; margin: 2px 0 2px 22px; }
+  .thesaurus-html .LY { display: block; color: #333; }
+  .thesaurus-html .LS { display: block; color: #7a7f87; font-size: 13px; }
+  /* 同义词 / 参阅行 */
+  .thesaurus-html .GZ { display: block; margin: 6px 0; font-size: 13px; color: #5a6067; }
+  /* 行内高亮 */
+  .thesaurus-html .bold { color: #4a9d9a; font-weight: 700; }
+  .thesaurus-html .italic { color: #8a8f98; font-style: italic; font-size: 12.5px; }
+  /* 深色适配 */
+  body.dark-mode .thesaurus-html { color: #e0e0e0; }
+  body.dark-mode .thesaurus-html .CB { color: #e0a13a; }
+  body.dark-mode .thesaurus-html .DX { background: #3d7b78; color: #eafaf9; }
+  body.dark-mode .thesaurus-html .entryNum { color: #5fb3af; }
+  body.dark-mode .thesaurus-html .LY { color: #e0e0e0; }
+  body.dark-mode .thesaurus-html .LS { color: #9aa0a8; }
+  body.dark-mode .thesaurus-html .GZ { color: #9aa0a8; }
+  body.dark-mode .thesaurus-html .bold { color: #5fb3af; }
+  body.dark-mode .thesaurus-html .italic { color: #8a9099; }
   .redirect-note { font-size: 12px; color: #888; background: #f5f5f5; padding: 4px 10px; border-radius: 4px; margin: 6px 0; }
   /* 基础词典补充信息块（形近词等非本词典词条在"查不到"提示下方展示） */
   .base-dict { margin-top: 10px; padding: 10px 12px; border: 1px solid #e4e6ea; border-radius: 8px; background: #f8f9fb; }
@@ -2390,7 +2432,10 @@ if (typeof window.define !== 'function') {
     } else if (/\.html?$/i.test(html) === false && /<[a-z]/i.test(html)) {
       // 含 HTML 标签：注入词典 CSS + 重写资源路径后原样展示
       injectDictCss(cur);
-      body = '<div class="collins-html">' + renderDictHtml(html, cur) + '</div>';
+      // 牛津同义词词典（HTML 词条含 <span class="CK"> 根容器）→ 使用 .thesaurus-html 结构化排版
+      const isThesaurus = /class="CK"/i.test(html);
+      const containerClass = isThesaurus ? 'collins-html thesaurus-html' : 'collins-html';
+      body = '<div class="' + containerClass + '">' + renderDictHtml(html, cur) + '</div>';
     } else {
       body = '<div class="raw">' + toText(html) + '</div>';
     }
@@ -2591,7 +2636,13 @@ if (typeof window.define !== 'function') {
       if (!list || !list.length) return;
       const cached = {};
       saved.forEach(m => { cached[m.varName] = m.mdd || ''; });
-      if (list.every(m => cached[m.varName] === (m.mdd || ''))) return; // 清单与缓存一致，无需处理
+      // 不仅要比 mdd，还要确保 manifest 中每条 varName 都存在于 cached 里——
+      // 否则新放回 data/ 的词典（如牛津同义词，无 mdd）会因 cached[varName] 与 m.mdd 同为 undefined 被误判为"一致"而跳过补注册
+      const needsSync = list.some(m => {
+        const cv = cached[m.varName];
+        return cv == null || cv !== (m.mdd || '');
+      });
+      if (!needsSync) return;
       return applyMetas(list).then(() => {
         renderSelect();
         broadcastPickerState();
