@@ -7040,7 +7040,7 @@
             showDropdown();
             // 本次打开的词：无详情停留清单时，供清单页笔记使用（记住展示用词形）
             pendingWord = String(it.w == null ? '' : it.w).toLowerCase();
-            pendingDisp = it.disp || lastQueryDisp || it.w;
+            pendingDisp = it.disp || it.w || lastQueryDisp;
             hideListNote(); // 尝试进入详情：先收起清单页笔记，无详情停留清单时再展开
             // 过渡优化：iframe 立即渲染但视觉隐藏（悬浮于清单之上，保持布局使引擎测高准确），
             // 等引擎渲染完成（opened 消息）再撤掉隐藏、隐藏清单，实现"清单→详情"无闪烁切换
@@ -7076,7 +7076,7 @@
             const itNote = getWordNoteMeta(it.w);
             // 基础词典兜底条目（dl-dict-sim「基础词典」）：只展示基础词典本身，
             // 不再连带当前首选词典（柯林斯/词根词缀）的释义，故传 baseOnly
-            post({ cmd: 'open', w: it.w, disp: it.disp || lastQueryDisp || it.w, q: lastQuery, dict: it.dict, base: base, baseOnly: !!it.baseFallback, favorited: favorited, cands: dictCandidates(it.w), irr: dictIrregular(it.w), note: itNote.text, noteTs: itNote.ts });
+            post({ cmd: 'open', w: it.w, disp: it.disp || it.w || lastQueryDisp, q: lastQuery, dict: it.dict, base: base, baseOnly: !!it.baseFallback, favorited: favorited, cands: dictCandidates(it.w), irr: dictIrregular(it.w), note: itNote.text, noteTs: itNote.ts });
             input.blur();
             sidebarIdle(); // 侧栏：详情态强制展开结果区（输入框可能未被聚焦，如由主页转交的请求）
         }

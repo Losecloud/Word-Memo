@@ -3322,7 +3322,7 @@ if (typeof window.define !== 'function') {
       // 判据只看词键本身，不看是否首选词典 —— 首选词典未收录该词时，命中落在别的词典上，
       // 那条同样该被当作精确命中优先展示
       const preferredHit = !isFuzzy && w === q;
-      arr.push({ w: target, dict: v, dictName: d.name, preview: toText(html).slice(0, preferredHit ? 380 : 110), fuzzy: isFuzzy, preferred: preferredHit });
+      arr.push({ w: target, disp: w, dict: v, dictName: d.name, preview: toText(html).slice(0, preferredHit ? 380 : 110), fuzzy: isFuzzy, preferred: preferredHit });
     };
     // 第一趟：先在所有已启用词典里挑出「完整词形」命中（如 rose 本身）。
     // 首选词典可能并未收录该词、却有一堆同前缀的派生词（rose-coloured / rosebud…），
