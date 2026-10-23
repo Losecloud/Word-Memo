@@ -4,7 +4,7 @@ var DICT_MANIFEST = [
   "file": "englishwords-dict.json",
   "name": "基础词典 Basic",
   "varName": "ENGLISHWORDS_DICT",
-  "size": 9554833
+  "size": 9628314
  },
  {
   "file": "youci-dict.json",
