@@ -94,6 +94,93 @@
   header input { flex: 1; min-width: 200px; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
   #dictSelect { padding: 7px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; min-width: 180px; max-width: 320px; }
   .meta { font-size: 12px; color: #888; }
+  /* detail-head 词典切换下拉（典雅 ai-picker 风格）：
+     默认精简为「book 图标 + 词典简称」，悬浮才浮现下拉外观（底纹/边框/箭头），点击展开面板 */
+  .dict-switch { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 2px; }
+  .dict-switch-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 4px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #8a8f98;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.6;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  }
+  .dict-switch:hover .dict-switch-trigger,
+  .dict-switch.open .dict-switch-trigger {
+    background: #f1f2f4;
+    border-color: #e2e4e9;
+    color: #5f6670;
+  }
+  .dict-switch-chevron {
+    flex: 0 0 auto;
+    width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: width 0.16s ease, opacity 0.16s ease;
+  }
+  .dict-switch:hover .dict-switch-chevron,
+  .dict-switch.open .dict-switch-chevron { width: 12px; opacity: 0.75; }
+  /* 浮层用 position:fixed（由 JS 定位）：.detail-scroll 自身 overflow:auto 会裁掉绝对定位面板 */
+  .dict-switch-panel {
+    position: fixed;
+    z-index: 3000;
+    display: none;
+    box-sizing: border-box;
+    min-width: 180px;
+    max-width: min(320px, calc(100vw - 16px));
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 6px;
+    background: #fff;
+    border: 1px solid #e2e4e9;
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+    text-align: left;
+    font-weight: 400;
+  }
+  .dict-switch.open .dict-switch-panel { display: block; }
+  .dict-switch-panel-title { padding: 4px 10px 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: #999; }
+  .dict-switch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #333;
+    cursor: pointer;
+  }
+  .dict-switch-item:hover { background: #f4f4f5; }
+  .dict-switch-item.active { background: #eef0ff; color: #667eea; font-weight: 600; }
+  .dict-switch-item.disabled { color: #b0b4bb; cursor: default; }
+  .dict-switch-item.disabled:hover { background: transparent; }
+  .dict-switch-item-icon { flex: 0 0 auto; font-size: 12px; opacity: 0.8; }
+  .dict-switch-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dict-switch-item-tag { flex: 0 0 auto; font-size: 11px; color: #aaa; }
+  .dict-switch-item-check { flex: 0 0 auto; font-size: 12px; color: #667eea; }
+  body.dark-mode .dict-switch-trigger { color: #9aa0a8; }
+  body.dark-mode .dict-switch:hover .dict-switch-trigger,
+  body.dark-mode .dict-switch.open .dict-switch-trigger { background: #33383f; border-color: #3f454e; color: #d0d4da; }
+  body.dark-mode .dict-switch-panel { background: #2b3038; border-color: #3f454e; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); }
+  body.dark-mode .dict-switch-panel-title { color: #7f858e; }
+  body.dark-mode .dict-switch-item { color: #d6d9df; }
+  body.dark-mode .dict-switch-item:hover { background: #353b44; }
+  body.dark-mode .dict-switch-item.active { background: #3a4160; color: #9db1ff; }
+  body.dark-mode .dict-switch-item.disabled { color: #6b7078; }
+  body.dark-mode .dict-switch-item.disabled:hover { background: transparent; }
+  body.dark-mode .dict-switch-item-check { color: #9db1ff; }
   main { padding: 16px; max-width: 960px; margin: 0 auto; }
   #list { list-style: none; margin: 0; padding: 0; }
   #list li { background: #fff; border-radius: 8px; padding: 10px 14px; margin: 5px 0; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
@@ -105,11 +192,24 @@
   #detail { background: #fff; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.05); display: flex; flex-direction: column; overflow: hidden; }
   /* 词条内容滚动区：padding 从 #detail 下移至此，保证滚动条只覆盖上方内容、不影响底部笔记区 */
   .detail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px; }
-  #detail h2 { margin: 0 0 10px; }
+  /* 分栏对照：主/副两栏各自独立滚动，底部「我的笔记」仍整行显示 */
+  .detail-columns { flex: 1 1 auto; min-height: 0; display: flex; }
+  .detail-columns .detail-scroll { flex: 1 1 0; min-width: 0; padding: 14px; }
+  .detail-columns .detail-scroll + .detail-scroll { border-left: 1px solid #eceef1; }
+  /* 窄栏内词头缩小一号，避免两栏并列时标题过大挤占正文 */
+  .detail-columns .detail-head h2 { font-size: 1.05rem; }
+  body.dark-mode .detail-columns .detail-scroll + .detail-scroll { border-left-color: #3a3f47; }
+  #detail h2 { margin: 3px 0; }
   .detail-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px; margin-left: -8px; margin-right: -8px; border-radius: 6px; cursor: pointer; transition: background 0.15s ease; }
   .detail-head:hover { background: #f1f2f4; }
-  /* h2 不铺满整行，留出右侧空白区域供点击折叠；超长省略 */
-  .detail-head h2 { margin: 0; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* h2 不铺满整行，留出右侧空白区域供点击折叠；词名可省略，其余操作项保持可见 */
+  .detail-head h2 { margin: 0; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .detail-head h2 .detail-word { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px;}
+  .detail-head h2 > .dict-switch,
+  .detail-head h2 > .meta,
+  .detail-head h2 > .fuzzy-hint,
+  .detail-head h2 > .detail-fav-star,
+  .detail-head h2 > .detail-copy-btn { flex: 0 0 auto; }
   /* 折叠提示 icon：仅悬浮时显示 */
   .detail-head .collapse-icon { flex-shrink: 0; margin-left: auto; margin-right: 5px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: transparent;  opacity: 0; transition: opacity 0.15s ease; }
   .detail-head .collapse-icon svg { width: 26px; height: 26px; display: block; }
@@ -674,6 +774,11 @@ if (typeof window.define !== 'function') {
   // 查询模式：主页通过 iframe ?mode=lookup 嵌入，仅作为词条检索引擎
   const LOOKUP = /[?&]mode=lookup/.test(location.search);
   let lookupReady = false; // 引擎初始化完成标志：供 hello 握手时补发 ready
+  // 详情分栏（Obsidian 右侧栏）：是否开启由宿主下发；副栏词典独立缓存，不受首选查词词典约束
+  let splitEnabled = false;
+  let splitDict = '';
+  try { splitDict = localStorage.getItem('dictSplitDict') || ''; } catch (e) { /* 忽略 */ }
+  let lastDetail = null; // 当前详情的参数快照，供分栏开关/副栏重绘复用
   if (LOOKUP) document.body.classList.add('lookup-mode');
 
   // 纯文本提取（用于列表预览）
@@ -756,15 +861,51 @@ if (typeof window.define !== 'function') {
     });
   }
 
-  // 构建重定向表：@@@LINK=xxx 的条目不参与检索，点击时跳转到目标词条
+  // 识别 Collins 纯交叉引用条目（如 despatch → 「→see: dispatch」）并提取目标词。
+  // 仅当整条没有词性 .st、没有例句、且带 entry:// 链接时才判定为重定向，
+  // 避免把真实词条里的「→see also」整条劫持成重定向。
+  function seeRedirectTarget(html, data) {
+    if (typeof html !== 'string' || !/entry:\/\//i.test(html)) return '';
+    if (!/→[\s\u00a0]*see[\s\u00a0]*:/i.test(html)) return '';
+    if (/class\s*=\s*["']st["']/i.test(html)) return '';
+    if (/<li[\s>]/i.test(html)) return '';
+    const m = /href\s*=\s*["']entry:\/\/([^"']+)["']/i.exec(html);
+    if (!m) return '';
+    const raw = m[1].trim();
+    const decoded = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    // 逐步宽松匹配实际键名：原样 → 去 See__ 前缀 → 去 _数字 锚点 → 下划线转空格 → 小写
+    const cands = [];
+    const push = (s) => {
+      s = String(s).trim();
+      if (s && cands.indexOf(s) < 0) cands.push(s);
+    };
+    [decoded, raw].forEach(base => {
+      const noSee = base.replace(/^see__/i, '');
+      [base, noSee, base.replace(/_\d+$/, ''), noSee.replace(/_\d+$/, '')].forEach(x => {
+        push(x);
+        push(x.replace(/_/g, ' '));
+        push(x.toLowerCase());
+        push(x.replace(/_/g, ' ').toLowerCase());
+      });
+    });
+    for (let i = 0; i < cands.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(data, cands[i])) return cands[i];
+    }
+    // 目标不存在（如锚点/变体拼写差异）：不登记重定向，保留原条目展示，避免跳向空词条
+    return '';
+  }
+  // 构建重定向表：@@@LINK=xxx 与 Collins 纯 see 引用条目不参与检索，点击时跳转到目标词条
   function buildRedirects(data) {
     const redirects = {};
     let normal = 0;
     for (const k of Object.keys(data)) {
       const v = String(data[k]);
       const m = /^@@@LINK=(.+)$/.exec(v.trim());
-      if (m) redirects[k] = m[1].trim();
-      else normal++;
+      if (m) { redirects[k] = m[1].trim(); continue; }
+      const see = seeRedirectTarget(v, data);
+      if (see && see !== k) { redirects[k] = see; continue; }
+      normal++;
     }
     return { redirects, normal };
   }
@@ -781,7 +922,8 @@ if (typeof window.define !== 'function') {
   // ---- IndexedDB 词典缓存：加载过一次后，重启网页秒载（file:// 下 IDB 不可用则自动跳过） ----
   // 缓存内容版本：词典数据文件内容更新后递增，使旧缓存失效、强制重新加载
   // （经 dict-manifest.js 加载时 meta.size 缺失，缓存无法按体积校验，只能靠本版本号失效）
-  const DICT_CACHE_VERSION = 3;
+  // v4：新增 Collins「→see」纯交叉引用条目识别，旧缓存的重定向表需重建
+  const DICT_CACHE_VERSION = 4;
   let idbPromise = null;
   function idb() {
     if (idbPromise) return idbPromise;
@@ -895,8 +1037,9 @@ if (typeof window.define !== 'function') {
     '词根词缀词频': '词根词缀词频 Roots & Affixes',
     'collins': '柯林斯高阶 Collins COBUILD',
     '柯林斯': '柯林斯高阶 Collins COBUILD',
-    // 牛津10简明：早期版本曾带英文后缀，统一收敛为纯中文名，避免与完整版牛津词典混淆
-    '牛津10简明 OALD10 Lite': '牛津10简明',
+    // 牛津10简明：规范全称 = 中文名 + 英文名（对齐「柯林斯高阶 Collins COBUILD」），
+    // 旧缓存/旧清单里的纯中文名统一升级为全称；非设置页展示再经 dictShortName 收敛为中文简称
+    '牛津10简明': '牛津10简明 OALD10 Lite',
   };
   function unifyDictName(name) { return LEGACY_DICT_NAMES[name] || name; }
   // 词典简称：取名称开头的中文/数字部分（如「基础词典 Basic」→「基础词典」），
@@ -906,6 +1049,38 @@ if (typeof window.define !== 'function') {
     const s = String(name == null ? '' : name).trim();
     const m = s.match(/^[\u4e00-\u9fff0-9]+/);
     return m ? m[0] : s;
+  }
+
+  // detail-head 词典切换下拉：默认精简显示「book 图标 + 词典简称」，悬浮才浮现下拉外观，点击展开。
+  // 仅列出已启用词典；当前词在该词典无条目时标记「未收录」且不可点，避免切过去只看到空词条。
+  function buildDictSwitchHtml(curVar, word) {
+    const curDict = DICTS[curVar];
+    if (!curDict || !curDict.name) return '';
+    const w = String(word == null ? '' : word).toLowerCase();
+    let items = '';
+    Object.keys(DICTS).forEach(v => {
+      const dd = DICTS[v];
+      if (!dd || !dd.enabled || !dd.name) return;
+      const active = v === curVar;
+      const loaded = !!dd.data;
+      const miss = loaded && dd.data[resolveRedirect(v, w)] == null && dd.data[w] == null;
+      let tag = '';
+      if (active) tag = '<i class="fi-rr-check dict-switch-item-check"></i>';
+      else if (!loaded) tag = '<span class="dict-switch-item-tag">加载中…</span>';
+      else if (miss) tag = '<span class="dict-switch-item-tag">未收录</span>';
+      items += '<div class="dict-switch-item' + (active ? ' active' : '') + (miss && !active ? ' disabled' : '') + '" data-var="' + esc(v) + '">' +
+        '<i class="fi-rr-book dict-switch-item-icon"></i>' +
+        '<span class="dict-switch-item-name">' + esc(dd.name) + '</span>' + tag + '</div>';
+    });
+    if (!items) return '';
+    return '<span class="dict-switch">' +
+      '<span class="dict-switch-trigger" title="切换词典">' +
+        '<i class="fi-rr-book"></i>' +
+        '<span class="dict-switch-name">' + esc(dictShortName(curDict.name)) + '</span>' +
+        '<i class="fi-rr-angle-small-down dict-switch-chevron"></i>' +
+      '</span>' +
+      '<div class="dict-switch-panel"><div class="dict-switch-panel-title">切换词典</div>' + items + '</div>' +
+      '</span>';
   }
 
   // ---- 词典清单持久化：进入网页直接加载已启用的词典，跳过每次清单扫描 ----
@@ -1380,12 +1555,12 @@ if (typeof window.define !== 'function') {
     const wrap = document.createElement('span');
     wrap.className = 'collins-def';
     defNodes.forEach(n => wrap.appendChild(n));
-    // 在英文释义行前侧也补上义项序号（如 "1. If someone permits..."），与下行序号同款
+    // 义项序号只保留在英文释义行：直接把原 .num 移入，避免下行中文释义再重复显示同一个序号
     let numEl = null;
     for (let n = caption.firstChild; n; n = n.nextSibling) {
       if (n.nodeType === 1 && n.classList && n.classList.contains('num')) { numEl = n; break; }
     }
-    if (numEl && numEl.textContent.trim()) wrap.insertBefore(numEl.cloneNode(true), wrap.firstChild);
+    if (numEl && numEl.textContent.trim()) wrap.insertBefore(numEl, wrap.firstChild);
     caption.insertBefore(wrap, caption.firstChild);
   }
   // 美化 Collins 词条：排列调整 + 缩写 .st 词性 + 高亮主词及其词形变体（仅作用于含 .tab_content/dict_tab_* 的词条）
@@ -1801,7 +1976,7 @@ if (typeof window.define !== 'function') {
       const d = DICTS[v];
       const op = document.createElement('option');
       op.value = v;
-      op.textContent = d.name + '（' + d.count + ' 词条）';
+      op.textContent = dictShortName(d.name) + '（' + d.count + ' 词条）';
       if (v === cur) op.selected = true;
       sel.appendChild(op);
     });
@@ -1826,7 +2001,7 @@ if (typeof window.define !== 'function') {
       item.className = 'dict-picker-item' + (v === cur ? ' dict-picker-item-active' : '');
       const idSpan = document.createElement('span');
       idSpan.className = 'dict-picker-item-id';
-      idSpan.textContent = d.name;
+      idSpan.textContent = dictShortName(d.name);
       item.appendChild(idSpan);
       // 重命名笔形按钮：悬浮显示，点击进入编辑态
       const renameBtn = document.createElement('button');
@@ -2037,7 +2212,11 @@ if (typeof window.define !== 'function') {
       picker.classList.toggle('open');
     });
     panel.addEventListener('click', (e) => e.stopPropagation());
-    document.addEventListener('click', () => picker.classList.remove('open'));
+    // 点击页面空白处：同时收起顶部词库下拉与详情页词典切换浮层
+    document.addEventListener('click', () => {
+      picker.classList.remove('open');
+      document.querySelectorAll('.dict-switch.open').forEach(el => el.classList.remove('open'));
+    });
   }
   initDictPicker();
 
@@ -2158,6 +2337,9 @@ if (typeof window.define !== 'function') {
         if (exact.length) {
           // 精准匹配优先
           filtered = exact;
+        } else if (DICTS[cur] && (DICTS[cur].redirects || {})[q] != null) {
+          // 重定向词（如 Collins despatch → dispatch）不参与全量列表，但精确输入时仍展示一条
+          filtered = [q];
         } else {
           // 无精准匹配：模糊匹配按近似程度排序（词库大，放 rAF 后继续用微任务避免卡顿）
           filtered = fuzzyMatch(q).map(x => x.w);
@@ -2178,7 +2360,9 @@ if (typeof window.define !== 'function') {
     if (slice.length === 0) list.innerHTML = '<li>无匹配词条</li>';
     slice.forEach((w, i) => {
       const li = document.createElement('li');
-      const preview = toText(DICTS[cur].data[w]).slice(0, 120);
+      const dd = DICTS[cur];
+      const rTarget = (dd.redirects || {})[w];
+      const preview = toText(rTarget && dd.data[rTarget] != null ? dd.data[rTarget] : dd.data[w]).slice(0, 120);
       li.innerHTML = '<div class="w"></div><div class="preview"></div>';
       li.querySelector('.w').textContent = w;
       li.querySelector('.preview').textContent = preview;
@@ -2409,36 +2593,184 @@ if (typeof window.define !== 'function') {
     box.classList.toggle('show-all', p === 'all');
   });
 
-  function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly, irr) {
-    const d = DICTS[cur];
+  // 某词典下的词条正文（主栏 / 副栏共用；不含头部与基础词典补充块）
+  function buildEntryBody(varName, word, baseOnly) {
+    const d = DICTS[varName];
     // 重定向：@@@LINK=xxx → 展示目标词条
-    const target = d ? resolveRedirect(cur, w) : w;
-    // 展示用词形：优先用调用方传入的原始大小写（如 Design / DESIGN），检索仍用 target
-    const head = disp || target;
-    let html = (d && d.data) ? (d.data[target] != null ? d.data[target] : d.data[w]) : null;
-    // 基础词典兜底条目：只展示基础词典本身，忽略当前词典的释义，避免连带前置显示
-    // （如首选的柯林斯高阶 / 词根词缀词频）造成「点基础词典却看到别的词典」的错觉
+    const target = d ? resolveRedirect(varName, word) : word;
+    let html = (d && d.data) ? (d.data[target] != null ? d.data[target] : d.data[word]) : null;
+    // 基础词典兜底条目：只展示基础词典本身，忽略当前词典的释义
     if (baseOnly) html = null;
-    // 未导入任何词典时：若有基础词典信息，则不显示"无内容"提示，直接以下方基础词典块作为详情
-    const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
-    const fromNote = target !== w ? '<div class="redirect-note">↪ 重定向自「' + w + '」</div>' : '';
-    const box = $('detail');
     let body;
     if (html == null) {
-      body = hasBaseInfo ? '' : '<div class="raw">（该词条无内容或重定向目标缺失）</div>';
+      body = '<div class="raw">（该词条无内容或重定向目标缺失）</div>';
     } else if (html && typeof html === 'object') {
       // 结构化词条（牛津10简明 oaldpe10-lite）：渲染词性/习语/同义词切换视图
       body = '<div class="collins-html lite-html">' + renderLiteEntry(html) + '</div>';
     } else if (/\.html?$/i.test(html) === false && /<[a-z]/i.test(html)) {
       // 含 HTML 标签：注入词典 CSS + 重写资源路径后原样展示
-      injectDictCss(cur);
+      injectDictCss(varName);
       // 牛津同义词词典（HTML 词条含 <span class="CK"> 根容器）→ 使用 .thesaurus-html 结构化排版
       const isThesaurus = /class="CK"/i.test(html);
       const containerClass = isThesaurus ? 'collins-html thesaurus-html' : 'collins-html';
-      body = '<div class="' + containerClass + '">' + renderDictHtml(html, cur) + '</div>';
+      body = '<div class="' + containerClass + '">' + renderDictHtml(html, varName) + '</div>';
     } else {
       body = '<div class="raw">' + toText(html) + '</div>';
     }
+    return { target: target, body: body, has: html != null };
+  }
+
+  const COLLAPSE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+  // detail-head 外壳：词头 + 词典切换下拉 + 附加操作（收藏/复制）+ 折叠箭头
+  // 词名单独包一层 .detail-word：窄栏（分栏）下先省略词名，保证词典下拉始终可点
+  function buildDetailHeadHtml(head, metaHtml, extraHtml) {
+    return '<div class="detail-head" title="点击空白处折叠"><h2><span class="detail-word">' + esc(head) + '</span>' + metaHtml + (extraHtml || '') + '</h2>' +
+      '<span class="collapse-icon" title="折叠当前词条">' + COLLAPSE_ICON_SVG + '</span></div>';
+  }
+
+  // 副栏词典：已缓存且仍启用则沿用；否则取第一本其他已启用词典（不受首选查词词典约束）
+  function ensureSplitDict() {
+    if (splitDict && DICTS[splitDict] && DICTS[splitDict].enabled) return splitDict;
+    const withData = Object.keys(DICTS).find(v => v !== cur && DICTS[v].enabled && DICTS[v].name && DICTS[v].data);
+    const anyEnabled = Object.keys(DICTS).find(v => v !== cur && DICTS[v].enabled && DICTS[v].name);
+    splitDict = withData || anyEnabled || '';
+    if (splitDict) { try { localStorage.setItem('dictSplitDict', splitDict); } catch (e) { /* 忽略 */ } }
+    return splitDict;
+  }
+
+  // 切换副栏词典：就地重绘副栏并固化缓存，不影响主栏与用户首选
+  function selectSplitDict(v) {
+    if (!DICTS[v] || !DICTS[v].enabled) return;
+    splitDict = v;
+    try { localStorage.setItem('dictSplitDict', v); } catch (e) { /* 忽略 */ }
+    if (!DICTS[v].data) loadDict(DICTS[v].meta).then(renderSideColumn).catch(() => {});
+    else renderSideColumn();
+  }
+
+  // 开关分栏（宿主按钮下发）：有详情时保留收藏态与未落盘笔记并就地重渲染
+  function setSplitEnabled(on) {
+    on = !!on;
+    if (on === splitEnabled) return;
+    splitEnabled = on;
+    // 详情未展示（如宿主已退回清单/AI 视图）时只记状态，等下次查词再应用
+    if (!lastDetail || $('detail').style.display === 'none') return;
+    const box = $('detail');
+    const st = lastDetail;
+    const favEl = box.querySelector('.detail-fav-star');
+    const ta = box.querySelector('.word-note-input');
+    showDetail(st.w, st.base, favEl ? favEl.classList.contains('favorited') : st.favorited, st.cands, st.disp, ta ? ta.value : st.note, st.noteTs, st.baseOnly, st.irr);
+    if (LOOKUP) post({ type: 'detail-height' });
+  }
+
+  // 重绘副栏（不动主栏滚动位置），用于切换副栏词典 / 词典异步加载完成
+  function renderSideColumn() {
+    if (!lastDetail) return;
+    const box = $('detail');
+    const sideCol = box.querySelector('.detail-scroll-side');
+    if (!sideCol) return;
+    const v = ensureSplitDict();
+    const st = lastDetail;
+    const head = st.disp || st.w;
+    let metaHtml = '<span class="meta">未选择词典</span>';
+    let body = '<div class="raw">（未找到可用的对照词典）</div>';
+    if (v && DICTS[v]) {
+      metaHtml = buildDictSwitchHtml(v, st.w) || ('<span class="meta">' + esc(dictShortName(DICTS[v].name)) + '</span>');
+      if (DICTS[v].data) {
+        body = buildEntryBody(v, st.w, false).body;
+      } else {
+        body = '<div class="raw">词典加载中…</div>';
+        loadDict(DICTS[v].meta).then(renderSideColumn).catch(() => {});
+      }
+    }
+    sideCol.innerHTML = buildDetailHeadHtml(head, metaHtml, '') + body;
+    if (v && DICTS[v]) beautifyCollins(sideCol, DICTS[v].data ? resolveRedirect(v, st.w) : st.w, st.cands, st.irr);
+    bindDetailDictSwitch(sideCol, selectSplitDict);
+    const sideHead = sideCol.querySelector('.detail-head');
+    if (sideHead) {
+      sideHead.addEventListener('click', (e) => {
+        if (e.target.closest('.dict-switch')) return; // 切换词典不返回清单
+        doCollapseDetail();
+      });
+    }
+    if (LOOKUP) post({ type: 'detail-height' });
+  }
+
+  // 绑定 detail-head 内词典切换下拉（主栏 / 副栏共用）：点击展开浮层，选中后回调 onSelect
+  function bindDetailDictSwitch(container, onSelect) {
+    if (!container) return;
+    const dictSwitch = container.querySelector('.dict-switch');
+    if (!dictSwitch) return;
+    const trigger = dictSwitch.querySelector('.dict-switch-trigger');
+    const panel = dictSwitch.querySelector('.dict-switch-panel');
+    const closePanel = () => dictSwitch.classList.remove('open');
+    const openPanel = () => {
+      dictSwitch.classList.add('open');
+      // 先显示再量尺寸：面板内含长词典名，按视口左右/上下边界钳制，避免溢出侧栏
+      panel.style.left = '0px';
+      panel.style.top = '0px';
+      const r = trigger.getBoundingClientRect();
+      const pw = panel.offsetWidth || 200;
+      const ph = panel.offsetHeight || 200;
+      let left = r.left;
+      let top = r.bottom + 6;
+      if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
+      if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+      panel.style.left = Math.round(left) + 'px';
+      panel.style.top = Math.round(top) + 'px';
+    };
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (dictSwitch.classList.contains('open')) closePanel();
+      else openPanel();
+    });
+    // 悬浮即浮现下拉（轻微延时避免鼠标划过时闪开），移出后稍缓收起，便于移入面板选择。
+    // 仅鼠标设备启用：移动端 tap 会连带合成 mouseleave，自动收起会让面板点不中
+    let hoverTimer = 0;
+    const clearHoverTimer = () => { if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = 0; } };
+    const canHover = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+    if (canHover) {
+      dictSwitch.addEventListener('mouseenter', () => {
+        clearHoverTimer();
+        hoverTimer = setTimeout(openPanel, 120);
+      });
+      dictSwitch.addEventListener('mouseleave', () => {
+        clearHoverTimer();
+        hoverTimer = setTimeout(closePanel, 180);
+      });
+    }
+    panel.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = e.target.closest('.dict-switch-item');
+      if (!item || item.classList.contains('active') || item.classList.contains('disabled')) return;
+      const v = item.getAttribute('data-var');
+      if (!v || !DICTS[v]) return;
+      closePanel();
+      onSelect(v);
+    });
+    // 详情区滚动时浮层会与触发器错位，直接收起（容器复用，仅绑一次避免重绘累积监听）
+    if (!container.__dlSwitchScrollBound) {
+      container.__dlSwitchScrollBound = true;
+      container.addEventListener('scroll', () => {
+        const open = container.querySelector('.dict-switch.open');
+        if (open) open.classList.remove('open');
+      }, { passive: true });
+    }
+  }
+
+  function showDetail(w, base, favorited, cands, disp, note, noteTs, baseOnly, irr) {
+    // 记录本次详情参数：分栏开关 / 副栏重绘复用（含未落盘的笔记文本与收藏态）
+    lastDetail = { w: w, base: base, favorited: favorited, cands: cands, disp: disp, note: note, noteTs: noteTs, baseOnly: baseOnly, irr: irr };
+    const d = DICTS[cur];
+    const entry = buildEntryBody(cur, w, baseOnly);
+    // 展示用词形：优先用调用方传入的原始大小写（如 Design / DESIGN），检索仍用 target
+    const target = entry.target;
+    const head = disp || target;
+    // 未导入任何词典时：若有基础词典信息，则不显示"无内容"提示，直接以下方基础词典块作为详情
+    const hasBaseInfo = !!(base && (base.phonetic || base.meaning || base.category));
+    const fromNote = target !== w ? '<div class="redirect-note">↪ 重定向自「' + w + '」</div>' : '';
+    const box = $('detail');
+    let body = (!entry.has && hasBaseInfo) ? '' : entry.body;
     // 基础词典补充信息（形近词等非本词典词条）：保留上述"查不到"提示，在其下方追加基础词典详情
     let baseHtml = '';
     if (base && (base.phonetic || base.meaning || base.category)) {
@@ -2471,10 +2803,55 @@ if (typeof window.define !== 'function') {
         if (!hasExact) fuzzyHint = '<span class="fuzzy-hint">你可能要查的是 ↓ </span>';
       }
     } catch (e) { /* 忽略 */ }
-    box.innerHTML = '<div class="detail-scroll"><div class="detail-head" title="点击空白处折叠"><h2>' + esc(head) + ' <span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>' + fuzzyHint + '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span><span class="detail-copy-btn" title="复制单词"><i class="fi-rr-copy"></i></span></h2><span class="collapse-icon" title="折叠当前词条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>' + fromNote + body + baseHtml + '</div>';
+    // 词典切换下拉：默认仅「book 图标 + 词典简称」，悬浮浮现下拉外观、点击展开切换其他已启用词典
+    let metaHtml = '<span class="meta">' + ((baseOnly || !(d && d.name)) ? (hasBaseInfo ? '基础词典' : '') : dictShortName(d.name)) + '</span>';
+    if (!baseOnly && d && d.name) {
+      const pickerHtml = buildDictSwitchHtml(cur, w);
+      if (pickerHtml) metaHtml = pickerHtml;
+    }
+    // 主栏头部：词典切换下拉 + 拼写提示 + 收藏/复制
+    const extraHtml = fuzzyHint +
+      '<span class="detail-fav-star' + (favorited ? ' favorited' : '') + '" title="收藏"><i class="favorite-icon ' + (favorited ? 'fi-sr-star' : 'fi-rr-star') + '"></i></span>' +
+      '<span class="detail-copy-btn" title="复制单词"><i class="fi-rr-copy"></i></span>';
+    const primaryHtml = '<div class="detail-scroll"' + (splitEnabled ? ' data-col="main"' : '') + '>' +
+      buildDetailHeadHtml(head, metaHtml, extraHtml) + fromNote + body + baseHtml + '</div>';
+    let inner = primaryHtml;
+    // 分栏对照：副栏复用 detail-scroll 样式，独立滚动；词头/词典由副栏自己的下拉控制
+    if (splitEnabled) {
+      const sideVar = ensureSplitDict();
+      let sideMeta = '<span class="meta">未选择词典</span>';
+      let sideBody = '<div class="raw">（未找到可用的对照词典）</div>';
+      if (sideVar && DICTS[sideVar]) {
+        sideMeta = buildDictSwitchHtml(sideVar, w) || ('<span class="meta">' + esc(dictShortName(DICTS[sideVar].name)) + '</span>');
+        if (DICTS[sideVar].data) {
+          sideBody = buildEntryBody(sideVar, w, false).body;
+        } else {
+          sideBody = '<div class="raw">词典加载中…</div>';
+          loadDict(DICTS[sideVar].meta).then(renderSideColumn).catch(() => {});
+        }
+      }
+      inner = '<div class="detail-columns">' + primaryHtml +
+        '<div class="detail-scroll detail-scroll-side" data-col="side">' +
+        buildDetailHeadHtml(head, sideMeta, '') + sideBody + '</div></div>';
+    }
+    box.innerHTML = inner;
     box.style.display = 'flex';
-    // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮
-    beautifyCollins(box, target, cands, irr);
+    // Collins 词条美化：词性缩写（N-COUNT→n.[C] 等）+ 主词及其词形变体高亮（两栏各自处理）
+    const mainCol = box.querySelector('.detail-scroll[data-col="main"]') || box.querySelector('.detail-scroll');
+    beautifyCollins(mainCol, target, cands, irr);
+    if (splitEnabled) {
+      const sideCol = box.querySelector('.detail-scroll-side');
+      const sideVar = sideCol ? ensureSplitDict() : '';
+      if (sideCol) beautifyCollins(sideCol, sideVar ? resolveRedirect(sideVar, w) : target, cands, irr);
+      if (sideCol) {
+        bindDetailDictSwitch(sideCol, selectSplitDict);
+        const sideHead = sideCol.querySelector('.detail-head');
+        if (sideHead) sideHead.addEventListener('click', (e) => {
+          if (e.target.closest('.dict-switch')) return; // 切换词典不返回清单
+          doCollapseDetail();
+        });
+      }
+    }
     // 底部固定「我的笔记」区：即时编辑、自动保存（防抖后回传宿主落盘）
     renderWordNote(box, target, note, noteTs);
     // 滚动到词条顶部：查询模式下滚动内层滚动容器（整页已禁止滚动），
@@ -2553,6 +2930,22 @@ if (typeof window.define !== 'function') {
       });
     }
 
+    // 主栏词典切换下拉：选择其他已启用词典后就地重渲染当前词条（副栏保持不变）
+    bindDetailDictSwitch(mainCol, (v) => {
+      // 切换前保留尚未落盘的笔记内容与当前收藏状态，重渲染后不丢失
+      const favEl = box.querySelector('.detail-fav-star');
+      const favNow = favEl ? favEl.classList.contains('favorited') : favorited;
+      const ta = box.querySelector('.word-note-input');
+      const noteNow = ta ? ta.value : note;
+      const applySwitch = () => {
+        switchDict(v, { keepPref: true });
+        showDetail(w, base, favNow, cands, disp, noteNow, noteTs, baseOnly, irr);
+        if (LOOKUP) post({ type: 'detail-height' });
+      };
+      if (!DICTS[v].data) loadDict(DICTS[v].meta).then(applySwitch).catch(() => {});
+      else applySwitch();
+    });
+
     // 记录最近查阅：展开超过 1 秒才计入（历史跨词典全局共享）
     const key = 'recentWords';
     let timer = setTimeout(() => {
@@ -2574,6 +2967,7 @@ if (typeof window.define !== 'function') {
 
   // 折叠详情区，并滚动回列表中的该词
   function doCollapseDetail() {
+    lastDetail = null; // 详情已关闭：分栏开关不再触发重渲染，等下次查词应用
     const box = $('detail');
     box.style.display = 'none';
     const lw = box.querySelector('.w');
@@ -3297,6 +3691,38 @@ if (typeof window.define !== 'function') {
     scored.sort((a, b) => a.d - b.d || a.w.length - b.w.length);
     return scored.slice(0, max).map(x => x.w);
   }
+  // 中文反查索引缓存：词典 varName → { data, list: [{ w, text }] }
+  // list 只保留词条的纯中文文本（截断），避免每次输入中文都遍历全部词条解析 HTML
+  const ZH_INDEX = {};
+  // 取词条里的纯中文文本：结构化词条（牛津10简明）收集各义项中文，HTML 词条先去标签再抽中文
+  function zhTextOf(entry) {
+    let s = '';
+    if (entry && typeof entry === 'object') {
+      const out = [];
+      try {
+        (entry.parts || []).forEach(p => (p.senses || []).forEach(x => { if (x && x.zh) out.push(String(x.zh)); }));
+        const items = (entry.idioms && entry.idioms.items) || [];
+        items.forEach(x => { if (x && x.idm) out.push(String(x.idm)); });
+      } catch (e) { /* 忽略 */ }
+      s = out.join(' ');
+    } else {
+      s = String(entry == null ? '' : entry).replace(/<[^>]+>/g, ' ');
+    }
+    return (s.match(/[\u4e00-\u9fa5]+/g) || []).join(' ').slice(0, 100);
+  }
+  // 词库数据被替换（重新加载词典）时重建索引
+  function zhIndexOf(v, d) {
+    if (!d || !d.data) return [];
+    const cached = ZH_INDEX[v];
+    if (cached && cached.data === d.data) return cached.list;
+    const list = [];
+    for (const w of Object.keys(d.data)) {
+      const text = zhTextOf(d.data[w]);
+      if (text) list.push({ w, text });
+    }
+    ZH_INDEX[v] = { data: d.data, list };
+    return list;
+  }
   // 首选词典（browseDictCur）：检索与最近查词时排在最前，保证其释义优先展示
   function preferredOrder() {
     let prio = null;
@@ -3312,7 +3738,7 @@ if (typeof window.define !== 'function') {
     q = (q || '').trim().toLowerCase();
     const exact = [], fuzzy = [];
     const seen = new Set();
-    const push = (arr, w, v, d, isFuzzy) => {
+    const push = (arr, w, v, d, isFuzzy, previewText) => {
       const target = resolveRedirect(v, w);
       const k = v + '\u0001' + target;
       if (seen.has(k)) return;
@@ -3322,8 +3748,30 @@ if (typeof window.define !== 'function') {
       // 判据只看词键本身，不看是否首选词典 —— 首选词典未收录该词时，命中落在别的词典上，
       // 那条同样该被当作精确命中优先展示
       const preferredHit = !isFuzzy && w === q;
-      arr.push({ w: target, disp: w, dict: v, dictName: d.name, preview: toText(html).slice(0, preferredHit ? 380 : 110), fuzzy: isFuzzy, preferred: preferredHit });
+      // 重定向条目（@@@LINK / Collins →see）：展示目标词形，避免详情标题仍停在索引词上
+      const dispWord = target !== w ? target : w;
+      const preview = previewText != null ? previewText : toText(html).slice(0, preferredHit ? 380 : 110);
+      arr.push({ w: target, disp: dispWord, dict: v, dictName: d.name, preview: preview, fuzzy: isFuzzy, preferred: preferredHit });
     };
+    // 中文查询：按首选词典顺序，在各已启用词典的中文释义里反查（基础词典由主页兜底，排在最后）
+    if (/[\u4e00-\u9fa5]/.test(q)) {
+      for (const v of preferredOrder()) {
+        const d = DICTS[v];
+        if (!d.enabled || !d.data) continue;
+        const found = [];
+        for (const it of zhIndexOf(v, d)) {
+          const pos = it.text.indexOf(q);
+          if (pos >= 0) found.push({ w: it.w, pos, text: it.text });
+        }
+        // 同词典内：释义中匹配位置越靠前越相关，其次词形短的优先；
+        // 每本最多 12 条，避免首选词典一家占满、把其它词典的可用结果挤掉
+        found.sort((a, b) => a.pos - b.pos || a.w.length - b.w.length);
+        for (let i = 0; i < found.length && i < 12 && exact.length < 30; i++) {
+          push(exact, found[i].w, v, d, false, found[i].text.slice(found[i].pos, found[i].pos + 110));
+        }
+        if (exact.length >= 30) break;
+      }
+    } else {
     // 第一趟：先在所有已启用词典里挑出「完整词形」命中（如 rose 本身）。
     // 首选词典可能并未收录该词、却有一堆同前缀的派生词（rose-coloured / rosebud…），
     // 若直接进前缀匹配，这些派生词会排在前面、甚至占满 60 条上限把真正要查的词挤掉，
@@ -3349,6 +3797,7 @@ if (typeof window.define !== 'function') {
         }
       }
       if (exact.length >= 60) break;
+    }
     }
     // 上报是否有已启用的导入词典：供主页判断是否需要用基础词典兜底
     let hasDicts = false;
@@ -3390,11 +3839,12 @@ if (typeof window.define !== 'function') {
       // 去除多余空格，保留句尾标点
       .replace(/\s+/g, ' ')
       .trim();
-    // 去掉首尾的标点（如 , . - : ; ）
-    s = s.replace(/^[\s,.\-:;!?]+/, '').replace(/[\s,.\-:;!?]+$/, '');
+    // 首尾杂散标点处理：句首的引导符号去掉；句尾只去掉残留的逗号/冒号/引号等，
+    // **句末 . ! ? 原样保留**——原句是问句（…the children?）不能被统一改写成句号
+    s = s.replace(/^[\s,.!?;:\-–—"'“”‘’()（）]+/, '').replace(/[\s,;:\-–—…"'“”‘’()（）]+$/, '');
     // 如果去掉中文后太短（< 5 个英文字符），说明例句主要就是中文，放弃
     if (s.replace(/[^a-zA-Z']/g, '').length < 5) return '';
-    // 补齐句号
+    // 句末本无标点时才补 '.'
     if (s && !/[.!?]$/.test(s)) s += '.';
     return s;
   }
@@ -3525,6 +3975,44 @@ if (typeof window.define !== 'function') {
     return list.length ? list[0] : '';
   }
 
+  // 牛津10简明（结构化词条）：例句在 parts[].senses[].examples[]（以及 idioms[].examples[]），
+  // 校验规则与 HTML 版一致（含目标词、全文词数 > 5），供「例句填充」多选来源使用
+  function extractAllExamplesFromLite(entry, word) {
+    if (!entry || typeof entry !== 'object') return [];
+    const base = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
+    const out = [];
+    const seen = {};
+    const push = function (en) {
+      if (!en) return;
+      const raw = String(en).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const ex = cleanExampleText(raw);
+      if (!ex) return;
+      const bare = ex.replace(/[.!?]+$/, '').trim();
+      if (base) {
+        const stem = base.length > 4 ? base.slice(0, base.length - 1) : base;
+        if (bare.toLowerCase().indexOf(stem) < 0) return;
+      }
+      const wc = bare.split(/\s+/).filter(function (s) { return /[a-zA-Z]/.test(s); }).length;
+      if (wc <= 5) return;
+      const k = bare.toLowerCase();
+      if (seen[k]) return;
+      seen[k] = 1;
+      out.push(ex);
+    };
+    (entry.parts || []).forEach(function (p) {
+      (p.senses || []).forEach(function (s) {
+        (s.examples || []).forEach(function (e) { push(e && e.en); });
+      });
+    });
+    // 习语：可能是数组，也可能是 { items: [...] } 对象（oaldpe10-lite 后者居多），两种都兼容
+    const _idi = entry.idioms;
+    const _idiItems = Array.isArray(_idi) ? _idi : ((_idi && Array.isArray(_idi.items)) ? _idi.items : []);
+    _idiItems.forEach(function (it) {
+      ((it && it.examples) || []).forEach(function (e) { push(e && e.en); });
+    });
+    return out;
+  }
+
   // 「例句填充」最后兜底：词典连例句都没有时，取词条首个释义的「英英定义整句」。
   // 柯林斯把定义写在 <div class="caption"> 中：序号/词性/中文释义之后即为英文定义句，
   // 例如 glacier 无例句（<ul> 为空），但 caption 内含
@@ -3570,6 +4058,11 @@ if (typeof window.define !== 'function') {
     const target = resolveRedirect(varName, w);
     const html = d.data[target] != null ? d.data[target] : d.data[w];
     if (html == null) return { text: '', dictName: '' };
+    // 牛津10简明等结构化词条：直接读 parts/senses 里的 examples，不走 HTML 解析
+    if (typeof html === 'object') {
+      const liteList = extractAllExamplesFromLite(html, w);
+      return { text: liteList.length ? liteList[idx % liteList.length] : '', dictName: d.name || varName };
+    }
     // 收集全部例句供轮换；仍先取「例句」、无例句时回落取「英英定义句」（如 glacier），保证不空手而归
     const list = extractAllExamplesFromHtml(String(html), w);
     if (list.length) return { text: list[idx % list.length], dictName: d.name || varName };
@@ -3611,9 +4104,11 @@ if (typeof window.define !== 'function') {
     // 渲染完成：报告内容自然高度（上方词条滚动区内容 + 底部笔记区），供主页按内容撑开 iframe；
     // #detail 为 overflow:hidden 弹性容器，其 scrollHeight 已不再反映被裁剪的内容，故显式求和
     const detailBox = $('detail');
-    const scrollBox = detailBox ? detailBox.querySelector('.detail-scroll') : null;
+    // 分栏时取两栏内容高度的较大值，避免 iframe 被按较矮的主栏撑开导致副栏内容被裁
+    const scrolls = detailBox ? Array.from(detailBox.querySelectorAll('.detail-scroll')) : [];
+    const scrollH = scrolls.reduce((m, el) => Math.max(m, el.scrollHeight), 0);
     const noteBox = detailBox ? detailBox.querySelector('.word-note') : null;
-    const naturalH = (scrollBox ? scrollBox.scrollHeight : (detailBox ? detailBox.scrollHeight : 0)) + (noteBox ? noteBox.offsetHeight : 0);
+    const naturalH = (scrolls.length ? scrollH : (detailBox ? detailBox.scrollHeight : 0)) + (noteBox ? noteBox.offsetHeight : 0);
     post({ type: 'opened', w, height: naturalH || 0, hasContent });
   }
   if (LOOKUP) {
@@ -3639,10 +4134,15 @@ if (typeof window.define !== 'function') {
         const word = d.word;
         if (!word) { post({ type: 'example-result', word: '', example: '' }); return; }
         const idx = parseInt(d.idx, 10) || 0;
-        const example = (d.dict && DICTS[d.dict] && DICTS[d.dict].enabled)
-          ? extractFirstExampleFromDict(word, d.dict, idx)
-          : extractExampleFromDicts(word, idx);
-        post({ type: 'example-result', word, example: example.text, dictName: example.dictName });
+        let example = { text: '', dictName: '' };
+        // 任一词典取例句抛错（如结构化词条字段形态不符）时仍要回包，否则宿主会空等到 8 秒超时
+        try {
+          example = (d.dict && DICTS[d.dict] && DICTS[d.dict].enabled)
+            ? extractFirstExampleFromDict(word, d.dict, idx)
+            : extractExampleFromDicts(word, idx);
+        } catch (e) { example = { text: '', dictName: '' }; }
+        // 回带请求 id：宿主并发查询同一单词时按 id 配对，避免回调串台导致来源标注错乱
+        post({ type: 'example-result', word: word, id: d.id, example: example.text, dictName: example.dictName });
       }
       else if (d.cmd === 'close') doCollapseDetail();
       else if (d.cmd === 'get-state') post({ type: 'picker-state', state: pickerState() });
@@ -3676,6 +4176,10 @@ if (typeof window.define !== 'function') {
         // 宿主刚完成「本地词典目录」授权（句柄已写入 IndexedDB）：清掉句柄缓存后重新加载，
         // 使 file:// 下无需刷新页面即可从本地目录直接读到词典原文件
         reloadDictsFromDisk();
+      }
+      else if (d.cmd === 'set-split') {
+        // 宿主侧栏「分栏对照」按钮：开启/关闭副栏（副栏词典独立缓存，不受首选词典约束）
+        setSplitEnabled(!!d.enabled);
       }
       else if (d.cmd === 'set-theme') {
         // 主题类同时挂 body 与 html：body 控制内容配色，html 让 root scroller 滚动条也随主题切换

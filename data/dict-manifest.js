@@ -4,7 +4,7 @@ var DICT_MANIFEST = [
   "file": "englishwords-dict.json",
   "name": "基础词典 Basic",
   "varName": "ENGLISHWORDS_DICT",
-  "size": 9628314
+  "size": 9626137
  },
  {
   "file": "youci-dict.json",
@@ -38,7 +38,7 @@ var DICT_MANIFEST = [
  },
  {
   "file": "oaldpe10-lite-dict.json",
-  "name": "牛津10简明",
+  "name": "牛津10简明 OALD10 Lite",
   "varName": "OALDPE10_LITE_DICT",
   "size": 76669118
  }

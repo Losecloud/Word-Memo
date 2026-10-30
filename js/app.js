@@ -1776,6 +1776,22 @@ class WordMemoryApp {
             this.loadDemoWords();
         });
 
+        // 首页快捷入口：学习新词（随机选一本用户词单，无用户词单时才用示例单词）
+        const homeQuickLearnBtn = document.getElementById('homeQuickLearnBtn');
+        if (homeQuickLearnBtn) {
+            homeQuickLearnBtn.addEventListener('click', () => this.startRandomBookLearning());
+        }
+        // 首页快捷入口：复习生词（与右侧 SM-2 面板「开始复习到期单词」同一入口）
+        const homeQuickReviewBtn = document.getElementById('homeQuickReviewBtn');
+        if (homeQuickReviewBtn) {
+            homeQuickReviewBtn.addEventListener('click', () => {
+                // 今日仍有到期→复习今日；今日已练完→提前复习明日
+                const dueToday = Storage.getDueWords().length;
+                this.startSm2Review(dueToday === 0);
+            });
+            this.updateSm2Panel();
+        }
+
         // 单词导入封面：打开设置弹窗并定位到「页面设置」选项卡，直接选择默认封面
         const switchNebulaBtn = document.getElementById('switchNebulaCoverBtn');
         if (switchNebulaBtn) {
@@ -6428,6 +6444,20 @@ class WordMemoryApp {
         this.showNotice('已进入编辑模式：可直接点击单元格编辑，用收藏/删除按钮管理单词，编辑完成后点"完成"导入');
     }
 
+    // 首页「学习新词」：随机选一本有单词的词单开始学习
+    // 优先用户自己上传的词单；仅当只剩示例词书（没有任何上传词单）时才使用示例单词
+    startRandomBookLearning() {
+        const books = (Storage.loadBooks() || []).filter(b => b && Array.isArray(b.words) && b.words.length > 0);
+        const userBooks = books.filter(b => b.name !== '示例单词');
+        const pool = userBooks.length ? userBooks : books;
+        if (pool.length === 0) {
+            this.loadDemoWords();
+            return;
+        }
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        this.startBookLearning(pick.id);
+    }
+
     // 加载示例单词
     async loadDemoWords() {
         this.showLoading('正在加载示例单词...');
@@ -7582,7 +7612,7 @@ class WordMemoryApp {
 
     // 「例句填充」来源词典的展示名（例句末标注「——柯林斯高阶」用）
     exampleFillLabel(dictVar) {
-        const map = { COLLINS_DICT: '柯林斯高阶' };
+        const map = { COLLINS_DICT: '柯林斯高阶', OALDPE10_LITE_DICT: '牛津10简明' };
         const v = String(dictVar || '');
         return map[v] || v.replace(/_?DICT_?$/i, '').replace(/[_-]+/g, ' ').trim() || '词典';
     }
@@ -7598,19 +7628,45 @@ class WordMemoryApp {
      * 「第一个释义的第一个例句」补位（写入 definitions[0].example）。成功返回 true。
      * 未启用该功能、未选词典或取不到时返回 false，不改动原数据。
      */
+    // 「例句填充」选定的词典列表（支持多选；兼容旧版单选的 exampleFillDict 字段）
+    _exampleFillVars() {
+        const s = this.settings || {};
+        const arr = Array.isArray(s.exampleFillDicts) ? s.exampleFillDicts.filter(Boolean) : [];
+        if (arr.length) return arr;
+        return s.exampleFillDict ? [String(s.exampleFillDict)] : [];
+    }
+
     async fillMissingExample(wordObj) {
-        const dictVar = (this.settings && this.settings.exampleFillDict) || '';
-        if (!dictVar || !wordObj || !wordObj.word) return false;
+        const vars = this._exampleFillVars();
+        if (!vars.length || !wordObj || !wordObj.word) return false;
         const def = wordObj.definitions && wordObj.definitions[0];
         if (def && this.isValidExample(def.example, wordObj.word)) return false;
         if (typeof window.lookupExampleFromDict !== 'function') return false;
-        let ex = '';
-        try {
-            ex = await window.lookupExampleFromDict(wordObj.word, dictVar);
-        } catch (e) {
-            return false;
+        // 多选来源：随机顺序依次尝试，取第一个有效例句（多词典互为兜底）。
+        // 上一次成功的词典本轮排到最后，避免两本都可用时来源老落在同一本
+        const order = vars.slice().sort(() => Math.random() - 0.5);
+        const lastVar = this._lastExampleFillVar;
+        if (order.length > 1 && lastVar) {
+            const li = order.indexOf(lastVar);
+            if (li >= 0) order.push(order.splice(li, 1)[0]);
         }
-        if (!this.isValidExample(ex, wordObj.word)) return false;
+        let ex = '';
+        let dictVar = '';
+        for (const v of order) {
+            let got = '';
+            try {
+                got = await window.lookupExampleFromDict(wordObj.word, v);
+            } catch (e) {
+                got = '';
+            }
+            if (this.isValidExample(got, wordObj.word)) {
+                ex = got;
+                dictVar = v;
+                break;
+            }
+        }
+        if (!dictVar) return false;
+        this._lastExampleFillVar = dictVar;
         if (!wordObj.definitions || !wordObj.definitions.length) {
             wordObj.definitions = [{ pos: '', meaning: '', example: '' }];
         }
@@ -7627,7 +7683,7 @@ class WordMemoryApp {
     // 批量补缺（会话开始时后台预热）：逐词串行，避免同时向词典引擎发大量请求。
     // 词典（尤其柯林斯 60MB）可能仍在后台加载，首轮取空后延迟再补一轮。
     async prefillExamples(words) {
-        if (!this.settings || !this.settings.exampleFillDict) return;
+        if (!this.settings || !this._exampleFillVars().length) return;
         const list = (words || []).filter(Boolean);
         let done = 0;
         for (const w of list) {
@@ -9067,6 +9123,75 @@ ${example ? `- 例句：${example}` : ''}
         this.updateStatsRealtime();
     }
 
+    // 渲染拼写模式的例句：将单词及其变形替换为下划线（避免泄露答案）；下划线按字符拆成独立单元，
+    // 供拼写时把已输入的字母叠回原位显示。转义后再替换，保证例句里的 < > & 不会当成标签解析
+    _renderSpellExample(word) {
+        const def = (word.definitions && word.definitions[0]) || {};
+        let exampleText = def.example || '';
+        let exampleHtml = '';
+        if (exampleText) {
+            exampleHtml = String(exampleText)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/\b[\w']+\b/g, (match) => {
+                    if (this.shouldHideWord(word.word, match)) {
+                        // 下划线在词长基础上两端各加 1 个字符（总加 2 个，最终由 _fitSpellBlankUnderlines 实测校正）
+                        // 字母层用隐藏的目标词撑出等宽框并居中，输入从左端逐字出现
+                        return `<span class="example-blank" data-len="${match.length}">${'_'.repeat(match.length + 2)}<span class="example-blank-overlay"><span class="example-blank-box"><span class="example-blank-ghost">${match}</span><span class="example-blank-visible"></span></span></span></span>`;
+                    }
+                    return match;
+                });
+        }
+        const _spEl = document.getElementById('exampleSentence');
+        _spEl.innerHTML = exampleHtml;
+        // 只有一个空位时，用拼写目标词（去空格）撑宽：例句里可能是变形（awaiting），
+        // 与拼写目标（await）长度不同，按原词撑宽会让字母框偏大、字母看起来偏左。
+        // 多空位（短语）时各框仍按例句中对应词形撑宽。
+        const _blanks = _spEl.querySelectorAll('.example-blank');
+        if (_blanks.length === 1) {
+            const _target = this._spellTarget(word.word);
+            const _ghost = _blanks[0].querySelector('.example-blank-ghost');
+            if (_ghost) _ghost.textContent = _target;
+            _blanks[0].dataset.len = String(_target.length);
+            // 下划线长度跟目标词走，并在两端各保留 1 个字符（总加 2 个）
+            if (_blanks[0].firstChild && _blanks[0].firstChild.nodeType === 3) {
+                _blanks[0].firstChild.nodeValue = '_'.repeat(_target.length + 2);
+            }
+        }
+        if (exampleText) {
+            const _spSuffix = this.exampleSourceSuffix(def);
+            if (_spSuffix) _spEl.insertAdjacentHTML('beforeend', _spSuffix);
+        }
+        this._fitSpellBlankUnderlines(_spEl);
+    }
+
+    // 校正拼写例句下划线宽度：`_` 字形宽度与字母平均宽度并不相等（字体回退/斜体时更窄），
+    // 按字符数堆出的下划线对长词会短于单词本身。这里实测 ghost 词宽与单个 `_` 宽，
+    // 把下划线字符数补到「词宽 + 2 个平均字符（两端各约 1 个）」对应的数量，与字体无关。
+    _fitSpellBlankUnderlines(container) {
+        const blanks = container.querySelectorAll('.example-blank');
+        if (!blanks.length) return;
+        // 用例句同字体/字号/斜体量一次单个 `_` 的宽度
+        const probe = document.createElement('span');
+        probe.textContent = '_';
+        probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
+        container.appendChild(probe);
+        const uW = probe.offsetWidth;
+        probe.remove();
+        if (!uW) return; // 容器不可见时量不到，保持原样
+        blanks.forEach((blank) => {
+            const ghost = blank.querySelector('.example-blank-ghost');
+            if (!ghost) return;
+            const len = Number(blank.dataset.len) || (ghost.textContent || '').length;
+            const gW = ghost.offsetWidth;
+            if (!len || !gW) return;
+            // 目标宽度 = 词宽 × (len+2)/len，即词宽再加 2 个平均字符
+            const need = Math.max(len + 2, Math.ceil(gW * (len + 2) / len / uW));
+            if (blank.firstChild && blank.firstChild.nodeType === 3 && blank.firstChild.nodeValue.length !== need) {
+                blank.firstChild.nodeValue = '_'.repeat(need);
+            }
+        });
+    }
+
     // 显示拼写模式
     showSpellMode(word) {
         // 切题进入拼写模式时上锁：拼写模式的「提示=option1、不知道=option2」与上一题选项热键常为同一键，
@@ -9113,23 +9238,27 @@ ${example ? `- 例句：${example}` : ''}
         const meaningText = (def.meaning || '').replace(/\n/g, '  ');
         document.getElementById('meaningText').innerHTML = this.boldPosHtml(meaningText);
         
-        // 处理例句：将单词及其变形替换为下划线（避免泄露答案）
-        let exampleText = def.example || '';
-        if (exampleText) {
-            // 分词处理（保留标点）
-            exampleText = exampleText.replace(/\b[\w']+\b/g, (match) => {
-                // 检查是否需要隐藏这个单词
-                if (this.shouldHideWord(word.word, match)) {
-                    return '_'.repeat(match.length);
+        // 处理例句：将单词及其变形替换为下划线（避免泄露答案），渲染逻辑见 _renderSpellExample
+        this._renderSpellExample(word);
+
+        // 例句填充：词单里缺有效例句（如只有 "apparent." 这类占位）时，立即向所选词典取一次。
+        // 不再依赖会话开始的预热窗口（原来只预填前 100 词，索引更靠后的词永远补不到）；
+        // 取到后仅重绘例句区，不打断当前拼写（已输入字母仍由槽位同步回填）
+        if (!this.isValidExample(def.example, word.word) && this._exampleFillVars().length) {
+            this.fillMissingExample(word).then(ok => {
+                if (!ok) return;
+                if (this.sessionWords[this.currentWordIndex] !== word) return;
+                const panel = document.getElementById('modeSpellWord');
+                if (!panel || panel.classList.contains('hidden')) return;
+                this._renderSpellExample(word);
+                // 重绘后把已输入的字母重新叠回新下划线（用户可能已开始拼写）
+                const _slots = Array.from(document.querySelectorAll('#letterSlots .letter-slot'));
+                if (_slots.length) {
+                    const _wrong = [];
+                    _slots.forEach((s, i) => { if (s.classList.contains('wrong')) _wrong.push(i); });
+                    this._syncExampleBlanks(_slots.map(s => s.textContent || ''), _wrong);
                 }
-                return match;
             });
-        }
-        document.getElementById('exampleSentence').textContent = exampleText;
-        if (exampleText) {
-            const _spEl = document.getElementById('exampleSentence');
-            const _spSuffix = this.exampleSourceSuffix(def);
-            if (_spSuffix) _spEl.insertAdjacentHTML('beforeend', _spSuffix);
         }
 
         // 生成字母槽
@@ -9205,6 +9334,12 @@ ${example ? `- 例句：${example}` : ''}
                 slot.className = 'letter-slot';
                 slot.dataset.index = index;
                 slot.dataset.letter = ch.toLowerCase();
+                // 连字符等固定符号：提前预置在槽位里，用户无需输入（如 brand-new 的第 6 位 "-"）
+                if (ch === '-') {
+                    slot.dataset.fixed = '1';
+                    slot.textContent = ch;
+                    slot.classList.add('fixed');
+                }
                 container.appendChild(slot);
                 index++;
             }
@@ -9212,6 +9347,47 @@ ${example ? `- 例句：${example}` : ''}
 
         // 激活第一个槽
         if (container.children[0]) container.children[0].classList.add('active');
+    }
+
+    // 例句下划线逐字回填：输入 per 即在例句空位上方显示 per。
+    // 下划线本身仍是原来的连续 `_` 文本，不做任何改动；
+    // 字母层直接写入文本，用浏览器标准字距整体居中，不再逐字算位置（避免手动模拟字距导致挤压）。
+    _syncExampleBlanks(slotChars, wrongIdx) {
+        const host = document.getElementById('exampleSentence');
+        if (!host) return;
+        const blanks = host.querySelectorAll('.example-blank');
+        if (!blanks.length) return;
+        // slotChars：按槽位顺序的字符数组（空槽为 ''），预置符号也会显示
+        const chars = Array.isArray(slotChars)
+            ? slotChars
+            : String(slotChars || '').replace(/\s+/g, '').split('');
+        const wrongSet = new Set(Array.isArray(wrongIdx) ? wrongIdx : []);
+        let cursor = 0;
+        blanks.forEach((blank) => {
+            const n = parseInt(blank.dataset.len, 10) || 0;
+            if (!n) return;
+            const layer = blank.querySelector('.example-blank-visible');
+            if (layer) {
+                // 逐字写入，拼错的字母包一层 span 标红，与主拼写区域一一对应
+                const frag = document.createDocumentFragment();
+                for (let i = 0; i < n; i++) {
+                    const ch = chars[cursor + i];
+                    // 空槽跳过但继续往后，保证预置符号（如连字符）落在正确位置
+                    if (ch === undefined || ch === '') continue;
+                    if (wrongSet.has(cursor + i)) {
+                        const span = document.createElement('span');
+                        span.className = 'example-blank-char wrong';
+                        span.textContent = ch;
+                        frag.appendChild(span);
+                    } else {
+                        frag.appendChild(document.createTextNode(ch));
+                    }
+                }
+                layer.textContent = '';
+                layer.appendChild(frag);
+            }
+            cursor += n;
+        });
     }
 
     // ===== 拼写模式：答对后「音节拆分」展示（如 me·lan·cho·lic）=====
@@ -9515,48 +9691,64 @@ ${example ? `- 例句：${example}` : ''}
             letters = raw.toLowerCase().split('');
         }
 
-        // 清空所有槽
+        // 清空所有槽（预置固定符号保留原样）
         slots.forEach(slot => {
-            slot.textContent = '';
             slot.classList.remove('filled', 'wrong', 'correct', 'active');
+            if (slot.dataset.fixed === '1') return;
+            slot.textContent = '';
         });
 
         let wrongCount = 0; // 当前错误字母数
         const wrongIdxNow = []; // 当前错误字母所在位置
+        const slotList = Array.from(slots);
 
-        // 填充字母
-        letters.forEach((letter, index) => {
-            if (index < slots.length) {
-                const slot = slots[index];
-                // 显示用户输入的大小写
-                slot.textContent = letter;
-                slot.classList.add('filled');
-
-                const correctLetter = slot.dataset.letter;
-                // 不区分大小写比较
-                if (letter.toLowerCase() === correctLetter.toLowerCase()) {
-                    slot.classList.add('correct');
-                } else {
-                    slot.classList.add('wrong');
-                    wrongCount++;
-                    wrongIdxNow.push(index);
+        // 填充字母：遇到预置符号槽自动跳过；用户照着输入该符号时吞掉，不重复写入。
+        // 连续多输入一个（如 brand--new）时，第二个会落到普通槽并按错字标红。
+        let cursor = 0;
+        letters.forEach(letter => {
+            while (cursor < slotList.length && slotList[cursor].dataset.fixed === '1') {
+                if (letter === slotList[cursor].dataset.letter) {
+                    cursor++;
+                    return; // 吞掉这个已预置的符号
                 }
+                cursor++;
             }
+            if (cursor >= slotList.length) return;
+            const slot = slotList[cursor];
+            // 显示用户输入的大小写
+            slot.textContent = letter;
+            slot.classList.add('filled');
+
+            const correctLetter = slot.dataset.letter;
+            // 不区分大小写比较
+            if (letter.toLowerCase() === String(correctLetter || '').toLowerCase()) {
+                slot.classList.add('correct');
+            } else {
+                slot.classList.add('wrong');
+                wrongCount++;
+                wrongIdxNow.push(cursor);
+            }
+            cursor++;
         });
 
-        // 激活当前位置
-        if (letters.length < slots.length) {
-            slots[letters.length].classList.add('active');
-        }
+        // 激活当前可输入位置（跳过预置符号槽）
+        let activeCursor = cursor;
+        while (activeCursor < slotList.length && slotList[activeCursor].dataset.fixed === '1') activeCursor++;
+        if (activeCursor < slotList.length) slotList[activeCursor].classList.add('active');
+
+        // 例句下划线逐字回填，与拼写槽同步（含预置符号；拼错字母同步标红）
+        this._syncExampleBlanks(slotList.map(s => s.textContent || ''), wrongIdxNow);
 
             const idx = this.currentWordIndex;
             const isLong = slots.length > 8; // >8 字母的长词享有一次容错
             const firstResult = this.wordFirstResults[idx];
             const rec = this._spellState(idx);
 
-            // 空栏全部填满 → 立即把单词详情推到右侧栏（不等答对判定、不等并题，拼错与否都显示），
+            // 空栏全部填满（预置符号槽不计入）→ 立即把单词详情推到右侧栏（不等答对判定、不等并题，拼错与否都显示），
             // 并通过 holdMs=3000 锁定 3s，期间不被其他查词显示抢占；本题只推一次，避免退格重填反复刷新
-            if (letters.length === slots.length && this._spellDetailShownIdx !== idx) {
+            const editableSlots = slotList.filter(s => s.dataset.fixed !== '1');
+            const editableFilled = editableSlots.filter(s => s.classList.contains('filled')).length;
+            if (editableSlots.length > 0 && editableFilled === editableSlots.length && this._spellDetailShownIdx !== idx) {
                 this._spellDetailShownIdx = idx;
                 this.pushCurrentWordDetailToSidebar(this.sessionWords[idx], false, 3000);
             }
@@ -9595,8 +9787,10 @@ ${example ? `- 例句：${example}` : ''}
                 return; // 不继续处理
             }
 
-        // 自动提交（如果全部填完且没有错误）
-        if (letters.length === this._spellTarget(word).length && wrongCount === 0) {
+        // 自动提交（如果所有可输入槽都填完且没有错误；预置符号槽不计入）
+        const editableAll = slotList.filter(s => s.dataset.fixed !== '1');
+        const allFilled = editableAll.length > 0 && editableAll.every(s => s.classList.contains('filled'));
+        if (allFilled && wrongCount === 0) {
             setTimeout(() => {
                 this.submitSpell();
             }, 300);
@@ -9611,13 +9805,18 @@ ${example ? `- 例句：${example}` : ''}
         // 用户已作出判断（拼写完成）：停在此刻计入答题耗时
         this._stampAnswerTime();
         const input = document.getElementById('spellInput');
-        const userAnswer = input.value.toLowerCase().replace(/\s+/g, '');
-        const correctAnswer = this._spellTarget(word.word).toLowerCase();
+        // 预置符号（如连字符）不计入答案：用户只需拼出字母部分；
+        // 但多输入的符号仍算错（如 brand--new），与槽位标红保持一致
+        const targetText = this._spellTarget(word.word).toLowerCase();
+        const userRaw = input.value.toLowerCase().replace(/\s+/g, '');
+        const userAnswer = userRaw.replace(/-/g, '');
+        const correctAnswer = targetText.replace(/-/g, '');
+        const hyphenOverflow = (userRaw.match(/-/g) || []).length > (targetText.match(/-/g) || []).length;
         
         // 提交后重新聚焦（避免焦点丢失）
         setTimeout(() => this.refocusSpellInput(), 100);
 
-        const isCorrect = userAnswer === correctAnswer;
+        const isCorrect = userAnswer === correctAnswer && !hyphenOverflow;
         
         // 检查是否使用过提示
         const usedHint = this.hintUsedForWords[this.currentWordIndex];
@@ -9833,6 +10032,8 @@ ${example ? `- 例句：${example}` : ''}
             slot.textContent = slot.dataset.letter || '';
             slot.classList.add('reveal');
         });
+        // 例句下划线同步一次性填充完整单词，与拼写区揭示保持一一对应
+        this._syncExampleBlanks(slots.map(s => s.dataset.letter || ''));
         // 字母淡入与音节拆分同步起播；若期间已切题（容器被重建）则放弃
         this._showSyllableSplit(word);
     }
@@ -10401,9 +10602,14 @@ ${example ? `- 例句：${example}` : ''}
         // 计算正确率
         const accuracyRate = Math.round(((wordInBook.totalAttempts - wordInBook.wrongTimes) / wordInBook.totalAttempts) * 100);
         
-        // 落盘词书统计（updateBook 的签名是 (bookId, updates)）
-        const updatedBook = Storage.updateBook(bookId, book);
-        if (!updatedBook) {
+        // 落盘：同一单词在各词单共用一套正确率统计（按词形同步到所有词书）
+        const savedCount = Storage.saveWordStatsShared(wordInBook.word, {
+            totalAttempts: wordInBook.totalAttempts,
+            wrongTimes: wordInBook.wrongTimes,
+            lastWrongDate: wordInBook.lastWrongDate,
+            wrongByMode: wordInBook.wrongByMode
+        });
+        if (!savedCount) {
             console.error(`❌ 词书保存失败！bookId: ${bookId}`);
         }
         
@@ -10696,7 +10902,14 @@ ${example ? `- 例句：${example}` : ''}
         const cTextSecondary = cssVar('--text-secondary') || '#6B7280';
         const cTextTertiary = cssVar('--text-tertiary') || '#9CA3AF';
         const cBorder = cssVar('--border-color') || '#E5E7EB';
-        const cQuadTR = cssVar('--scatter-quad-tr') || '#f4dee1';
+        // 象限底色变量可能写成 var(--primary-light)：canvas 的 fillStyle 不解析 var()，
+        // 读到字面 var(...) 会是非法颜色，故手动再取一层实际值
+        const resolveVar = n => {
+            const v = cssVar(n);
+            const m = v.match(/^var\(\s*(--[\w-]+)/);
+            return m ? cssVar(m[1]) : v;
+        };
+        const cQuadTR = resolveVar('--scatter-quad-tr') || '#e8f5f4';
         const cQuadBL = cssVar('--scatter-quad-bl') || '#dee2ed';
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
@@ -11069,12 +11282,19 @@ ${example ? `- 例句：${example}` : ''}
             // 看似互斥：本轮开始时的到期总数（如 239）里，已复习的 50 个已移出到期队列，
             // 故当前只剩 189。这里同时给出「本轮 N · 剩余 M」，两者都明确。
             // 提前练习（ahead）模式下今日已无到期，剩余数取明日到期，避免误显"已复习完"
-            const ahead = !!this._sm2AheadMode;
-            const remaining = ahead ? Storage.getDueWords({ ahead: true }).length : Storage.getDueWords().length;
-            continueBtn.textContent = remaining > 0
-                ? `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${remaining})`
-                : (ahead ? '明日到期已复习完' : '今日到期已复习完');
-            continueBtn.onclick = () => this.startSm2Review(ahead);
+            // 顺序：今日仍有到期 → 继续复习；今日已清空但明日有 → 提前练习明日；都无 → 已复习完
+            const todayLeft = Storage.getDueWords().length;
+            const tomorrowLeft = Storage.getDueWords({ ahead: true }).length;
+            if (todayLeft > 0) {
+                continueBtn.textContent = `继续复习 (本轮 ${this._sm2RoundCount || 0} · 剩余 ${todayLeft})`;
+                continueBtn.onclick = () => this.startSm2Review(false);
+            } else if (tomorrowLeft > 0) {
+                continueBtn.textContent = '意犹未尽，提前练习明日？';
+                continueBtn.onclick = () => this.startSm2Review(true);
+            } else {
+                continueBtn.textContent = '今日到期已复习完';
+                continueBtn.onclick = () => this.startSm2Review(false);
+            }
         } else if (bookCompleted) {
             completionIcon.textContent = '🎊';
             completionTitle.textContent = '词书已学完！';
@@ -13127,7 +13347,8 @@ ${example ? `- 例句：${example}` : ''}
             wreWereadKey: String(this.settings.wreWereadKey || ''), // 微信读书划线导出专用 Key（在「微信读书设置」弹窗维护，此处仅沿用）
             wreKeyConfirmed: !!this.settings.wreKeyConfirmed, // 是否已确认沿用原著榜 Key（同上）
             selectProMode: !!this.settings.selectProMode, // 「看单词选释义」Pro 版（由栏右侧刷新图标即时切换，此处仅沿用）
-            exampleFillDict: String(this.settings.exampleFillDict || '') // 「例句填充」选定词典变量名（页面设置下拉即时落盘，此处仅沿用）
+            exampleFillDict: String(this.settings.exampleFillDict || ''), // 「例句填充」旧版单选字段（保留兼容）
+            exampleFillDicts: Array.isArray(this.settings.exampleFillDicts) ? this.settings.exampleFillDicts.filter(Boolean) : [] // 「例句填充」多选词典列表
         };
 
         Storage.saveSettings(this.settings);
@@ -13377,7 +13598,8 @@ ${example ? `- 例句：${example}` : ''}
                 autoNext: true,
                 autoNextTime: 1,
                 selectProMode: false, // 「看单词选释义」Pro 版：默认关闭
-                exampleFillDict: '', // 「例句填充」选定词典变量名：默认关闭
+                exampleFillDict: '', // 「例句填充」旧版单选字段（兼容保留）
+                exampleFillDicts: [], // 「例句填充」多选词典变量名列表：默认关闭，可多选随机取例句
                 aiApiFormat: 'openai', // AI API 格式（openai/anthropic）
                 aiApiBaseUrl: '', // AI API 自定义请求地址
                 aiApiKey: '', // 默认为空，用户需要自己配置
@@ -13811,6 +14033,7 @@ ${example ? `- 例句：${example}` : ''}
         // （留空回退全局设置；-1 表示不限、全量复习）
         const perSession = this.resolveWordsPerSession(book);
         this.sessionWords = perSession === -1 ? reviewWords : reviewWords.slice(0, perSession);
+        this.prefillExamples(this.sessionWords.slice(0, 100)); // 复习词同样补例句
         this.currentWordIndex = 0;
         this.sessionResults = { correct: 0, wrong: 0, unknown: 0 };
         this.wordResults = [];
@@ -13919,6 +14142,23 @@ ${example ? `- 例句：${example}` : ''}
             const dueTodayLabel = document.getElementById('sm2DueTodayLabel');
             const sidebarDueTodayLabel = document.getElementById('sidebarSm2DueTodayLabel');
             const aheadOrdered = this.orderSm2DueWords(Storage.getDueWords({ ahead: true })).words;
+            // 首页快捷按钮同步复习词数：今日有到期→「复习生词(N)」；今日已练完→「提前复习(N)」
+            const homeReviewBtn = document.getElementById('homeQuickReviewBtn');
+            if (homeReviewBtn) {
+                if (allDueWords.length > 0) {
+                    homeReviewBtn.innerHTML = `<i class="fi-rr-refresh"></i><span>复习生词(${allDueWords.length})</span>`;
+                    homeReviewBtn.disabled = false;
+                    homeReviewBtn.title = `今日有 ${allDueWords.length} 个到期单词待复习`;
+                } else if (aheadOrdered.length > 0) {
+                    homeReviewBtn.innerHTML = `<i class="fi-rr-refresh"></i><span>提前复习(${aheadOrdered.length})</span>`;
+                    homeReviewBtn.disabled = false;
+                    homeReviewBtn.title = `今日已练完，明日预计到期 ${aheadOrdered.length} 个，可提前复习`;
+                } else {
+                    homeReviewBtn.innerHTML = `<i class="fi-rr-refresh"></i><span>暂无复习</span>`;
+                    homeReviewBtn.disabled = true;
+                    homeReviewBtn.title = '';
+                }
+            }
             if (allDueWords.length === 0 && aheadOrdered.length > 0) {
                 document.getElementById('sm2DueToday').textContent = aheadOrdered.length;
                 document.getElementById('sm2DueToday').title = `明日预计到期 ${aheadOrdered.length} 个`;
@@ -14918,6 +15158,102 @@ ${example ? `- 例句：${example}` : ''}
         } catch (e) {
             console.warn('归并重复单词失败:', e);
         }
+        // 同一单词跨词单共用一套正确率与 EF（SM-2 状态），历史数据一次性归并
+        try {
+            this.mergeSharedWordData();
+        } catch (e) {
+            console.warn('跨词单记忆归并失败:', e);
+        }
+    }
+
+    // 跨词单共用同一单词的正确率与 SM-2（EF）状态。
+    // 历史上同一词在各词单各存一份（`${bookId}:${word}` 键 + 各词书各自的统计字段），
+    // 这里一次性归并：练习次数/错误次数按模式求和、记忆状态取复习次数最多的副本，
+    // 并把结果写回同词形的全部副本。用 config 标记避免重复累加。
+    mergeSharedWordData() {
+        const config = Storage.getUserConfig();
+        if (!config || !config.learningData) return;
+        if (config.learningData.sharedWordDataMigrated) return;
+
+        const norm = s => String(s || '').trim().toLowerCase();
+        const books = (config.bookList && config.bookList.books) || [];
+        const groups = new Map(); // 词形 → 统计归并基准
+        let changed = false;
+
+        books.forEach(book => {
+            (book.words || []).forEach(w => {
+                if (!w || !w.word) return;
+                const key = norm(w.word);
+                if (!key) return;
+                const item = {
+                    count: 1,
+                    refs: [w], // 同词形的单词条目引用，供第二遍写入归并结果
+                    attempts: w.totalAttempts || 0,
+                    wrong: w.wrongTimes || 0,
+                    byMode: { select: 0, spell: 0, remember: 0 },
+                    lastWrongDate: w.lastWrongDate || 0
+                };
+                ['select', 'spell', 'remember'].forEach(k => {
+                    item.byMode[k] = ((w.wrongByMode || {})[k] || 0);
+                });
+                const g = groups.get(key);
+                if (!g) { groups.set(key, item); return; }
+                g.count++;
+                g.refs.push(w);
+                g.attempts += item.attempts;
+                g.wrong += item.wrong;
+                ['select', 'spell', 'remember'].forEach(k => { g.byMode[k] += item.byMode[k]; });
+                if (item.lastWrongDate > g.lastWrongDate) g.lastWrongDate = item.lastWrongDate;
+            });
+        });
+
+        // 把归并后的统计写回同词形的全部副本（只处理确实重复的词形）
+        groups.forEach(g => {
+            if (g.count < 2) return;
+            g.refs.forEach(w => {
+                w.totalAttempts = g.attempts;
+                w.wrongTimes = g.wrong;
+                w.wrongByMode = { ...g.byMode };
+                if (g.lastWrongDate) w.lastWrongDate = g.lastWrongDate;
+            });
+            changed = true;
+        });
+
+        // 记忆状态：同词形取复习次数最多的副本为基准，广播给其它副本
+        const map = config.learningData.wordMemory || {};
+        const memGroups = new Map();
+        Object.entries(map).forEach(([key, mem]) => {
+            if (!mem) return;
+            const at = key.indexOf(':');
+            if (at < 0) return;
+            const nw = norm(key.slice(at + 1));
+            const arr = memGroups.get(nw) || [];
+            arr.push({ key, mem });
+            memGroups.set(nw, arr);
+        });
+        memGroups.forEach(arr => {
+            if (arr.length < 2) return;
+            let best = arr[0];
+            arr.forEach(it => {
+                if ((it.mem.totalReviews || 0) > (best.mem.totalReviews || 0)) best = it;
+            });
+            const blocked = arr.some(it => !!(it.mem.blacklist));
+            arr.forEach(it => {
+                if (it === best) return;
+                map[it.key] = {
+                    ...best.mem,
+                    history: best.mem.history ? best.mem.history.map(h => ({ ...h })) : [],
+                    blacklist: blocked
+                };
+                if (blocked) map[it.key].nextReviewDate = null;
+            });
+            if (blocked) { best.mem.blacklist = true; best.mem.nextReviewDate = null; }
+            changed = true;
+        });
+
+        config.learningData.sharedWordDataMigrated = 1;
+        Storage.saveUserConfig(config);
+        if (changed) console.log('🔧 已归并跨词单的同一单词统计与记忆状态');
     }
 
     // 归并词书内的重复单词条目并持久化。
@@ -15705,6 +16041,9 @@ ${example ? `- 例句：${example}` : ''}
             const res = await fetch(url, {
                 method: opts.method || 'GET',
                 credentials: 'omit',
+                // 欧路列表/单词接口是纯 GET：禁用 HTTP 缓存，否则生词本清单与单词数会一直读到旧响应，
+                // 点「连接」看起来重新请求，实际拿的是浏览器缓存里的老数据
+                cache: 'no-store',
                 headers: Object.assign({ 'Authorization': token },
                     opts.body ? { 'Content-Type': 'application/json' } : {}),
                 body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -15736,21 +16075,54 @@ ${example ? `- 例句：${example}` : ''}
     // 该接口行为实测有两个坑：
     //  1) 传 page 会直接返回空数组（page=1 亦然），只能用不传 page 的默认全量；
     //  2) page_size 上限为 100，超过 100（如 150/500/2000）同样返回空数组。
-    // 故先按 page_size=100 取一次，若恰好取满 100 条则无法确认是否还有更多，
-    // 退化为只处理已取到的部分（欧路单生词本超过 100 词时需另行处理）。
+    // 故先不传 page 取首页，取满 100 条说明可能还有更多：按序探测有效分页参数
+    // （官方文档为 page 从 1 起，但历史实测表现不一）连拉至取全量，
+    // 有效方案会记在 _eudicPageSchemeIdx，本次会话后续调用直接复用、不再逐个试。
     async eudicFetchWords(categoryId) {
-        const d = await this.eudicApi('/studylist/words', {
-            query: { language: 'en', category_id: String(categoryId), page_size: '100' }
-        });
-        const arr = Array.isArray(d) ? d : [];
         const seen = new Set();
         const out = [];
-        arr.forEach(it => {
-            const k = (it && it.word ? String(it.word) : '').trim().toLowerCase();
-            if (!k || seen.has(k)) return;
-            seen.add(k);
-            out.push(it);
-        });
+        const merge = arr => {
+            (Array.isArray(arr) ? arr : []).forEach(it => {
+                const k = (it && it.word ? String(it.word) : '').trim().toLowerCase();
+                if (!k || seen.has(k)) return;
+                seen.add(k);
+                out.push(it);
+            });
+        };
+        const base = { language: 'en', category_id: String(categoryId), page_size: '100' };
+        merge(await this.eudicApi('/studylist/words', { query: base }));
+        if (out.length < 100) return out; // 未取满一页 → 已是全量
+
+        const schemes = [
+            n => ({ page: String(n) }),              // 官方文档：page 从 1 起（首页=1，第二页=2）
+            n => ({ page: String(n - 1) }),          // 0 起页码（首页=0，第二页=1）
+            n => ({ offset: String((n - 1) * 100) }),// 偏移量
+            n => ({ page_index: String(n) })
+        ];
+        const startIdx = (Number.isInteger(this._eudicPageSchemeIdx) && schemes[this._eudicPageSchemeIdx])
+            ? this._eudicPageSchemeIdx : 0;
+        const ordered = schemes.slice(startIdx).concat(schemes.slice(0, startIdx));
+        let scheme = null;
+        for (let si = 0; si < ordered.length && !scheme; si++) {
+            const mk = ordered[si];
+            let page2 = [];
+            try { page2 = await this.eudicApi('/studylist/words', { query: Object.assign({}, base, mk(2)) }); }
+            catch (e) { continue; } // 该参数组合不被接口接受，换下一个
+            const before = out.length;
+            merge(page2);
+            if (out.length > before) { // 第二页出现新词 → 方案有效
+                scheme = mk;
+                this._eudicPageSchemeIdx = schemes.indexOf(mk);
+            }
+        }
+        if (!scheme) return out; // 无法翻页：维持首页的 100 条（不比旧的更差）
+
+        for (let n = 3; n <= 20; n++) {
+            const before = out.length;
+            try { merge(await this.eudicApi('/studylist/words', { query: Object.assign({}, base, scheme(n)) })); }
+            catch (e) { break; }
+            if (out.length === before) break; // 空页或全重复 → 已到尾页
+        }
         return out;
     }
 
@@ -16053,7 +16425,7 @@ ${example ? `- 例句：${example}` : ''}
         else {
             const parts = [];
             if (r.pulled) parts.push(`拉取 ${r.pulled}`);
-            if (r.overwritten) parts.push(`重写释义 ${r.overwritten}`);
+            if (r.overwritten) parts.push(`更新释义 ${r.overwritten}`);
             this.showToast('已重新拉取欧路：' + parts.join('、'), 'success');
         }
         return r;
@@ -16106,7 +16478,8 @@ ${example ? `- 例句：${example}` : ''}
     // 例句不参与覆盖：生词本条目的 context_line 是「添加时自己填的语境」，多数为空，
     // 词典例句所在的语料库接口取不到稳定的对应关系，强行覆盖只会弄丢本地例句。
     // 云端释义为空时保留本地原值。force = 无条件重写（清洗规则更新后手动重拉时用），
-    // 此时即使清洗结果与本地相同也重新落盘，确保旧释义按新规则刷新一遍。
+    // 此时即使清洗结果与本地相同也走一遍，但**不计入变化数**——否则手动重拉每次都报
+    // 「重写释义 104」这种全量数字，用户看不懂（返回值只用于提示文案）。
     // 返回实际发生变化的词数。
     eudicOverwriteFromRemote(id, remoteArr, force) {
         if (!Array.isArray(remoteArr) || !remoteArr.length) return 0;
@@ -16125,10 +16498,9 @@ ${example ? `- 例句：${example}` : ''}
             const meaning = this.eudicCleanExp(r.exp);
             if (!meaning) return false;
             if (meaning === def.meaning) {
-                // 强制重拉：内容相同也算一次刷新，保证旧释义按新规则重新落盘
-                if (!force) return false;
-                changed++;
-                return true;
+                // 内容相同：无需改动、不计数（force 重拉时若计入，提示每次都会报
+                // 「重写释义 全量」这种看不懂的数字）。清洗规则变了文本必然不同，走下方计数。
+                return false;
             }
             def.meaning = meaning;
             changed++;
@@ -16228,11 +16600,8 @@ ${example ? `- 例句：${example}` : ''}
                     // 基线直接取云端全量：强制重拉不改变两端词集合
                     base[l.id] = Array.from(new Set([...curMap.keys(), ...remoteMap.keys()]));
                     this.saveEudicSyncedMap(base);
-                    const nameF = l.eudic.categoryName || '欧路生词本';
-                    const partsF = [];
-                    if (pulledF) partsF.push(`拉取 ${pulledF}`);
-                    if (rewritten) partsF.push(`重写释义 ${rewritten}`);
-                    this.showToast(`已重新拉取欧路「${nameF}」：${partsF.join('、') || '已是最新'}`, 'success');
+                    // 不在这里弹提示：外层 runFavEudicSync 会统一播报一次，
+                    // 此处重复弹 + 全量「重写释义 n」数字用户看不懂
                     continue;
                 }
 
@@ -16724,6 +17093,9 @@ ${example ? `- 例句：${example}` : ''}
                     } finally {
                         sync.disabled = false;
                         sync.classList.remove('eudic-spin');
+                        // 同步会增删云端单词：作废该生词本的旧计数并重新拉取，避免 (n) 停留在同步前的数字
+                        delete counts[String(link.categoryId)];
+                        ensureCounts([String(link.categoryId)]);
                     }
                 });
                 acts.appendChild(sync);
@@ -16819,6 +17191,9 @@ ${example ? `- 例句：${example}` : ''}
                 const list = await this.eudicFetchCategories();
                 cats = list;
                 page = 1;
+                // 清单已重新拉取：作废本地单词数缓存，否则 (…) 数字还是上一次的老计数
+                counts = {};
+                countsToken = this.getEudicToken();
                 setHint(list.length
                     ? '已读取 ' + list.length + ' 个欧路生词本，选择其一与当前收藏词单合并。'
                     : '该账号下暂无欧路生词本。', list.length ? 'ok' : 'info');
@@ -18966,6 +19341,51 @@ ${example ? `- 例句：${example}` : ''}
         return false;
     }
     
+    // 把单词表单元格的新值应用到词条对象（word/phonetic/meaning/example），
+    // 有实际改动才返回 true。释义/例句写 definitions[0]，不存在时补建；
+    // 旧值按空串归一，避免无编辑的单元格被误判为已改。
+    _applyWordListField(target, field, newValue) {
+        if (!target) return false;
+        if (newValue === '-') newValue = '';
+        switch (field) {
+            case 'word':
+                if (newValue && newValue !== target.word) {
+                    target.word = newValue;
+                    return true;
+                }
+                return false;
+            case 'phonetic': {
+                const old = target.phonetic || '';
+                if (newValue !== old) {
+                    target.phonetic = newValue;
+                    return true;
+                }
+                return false;
+            }
+            case 'meaning': {
+                const def = target.definitions && target.definitions[0] ? target.definitions[0] : {};
+                const old = def.meaning == null ? '' : def.meaning;
+                if (newValue !== old) {
+                    if (!target.definitions || !target.definitions.length) target.definitions = [{}];
+                    target.definitions[0].meaning = newValue;
+                    return true;
+                }
+                return false;
+            }
+            case 'example': {
+                const def = target.definitions && target.definitions[0] ? target.definitions[0] : {};
+                const old = def.example == null ? '' : def.example;
+                if (newValue !== old) {
+                    if (!target.definitions || !target.definitions.length) target.definitions = [{}];
+                    target.definitions[0].example = newValue;
+                    return true;
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
     // 保存所有单词表编辑
     saveAllWordListEdits() {
         // 判断是否为临时词书（智能导入模式）
@@ -18985,7 +19405,11 @@ ${example ? `- 例句：${example}` : ''}
         
         let hasChanges = false;
         const modifiedSourceBooks = {}; // bookId → book 对象，保存已修改的源词书引用
-        const modifiedSourceBookIds = new Set();
+        const modifiedSourceBookIds = new Set(); // 已修改的源词书 id 集合
+        let globalsItems = null;    // 全局收藏项缓存（_sourceBookId === 'global'）
+        let globalsDirty = false;
+        let favListDirty = false;   // 自建词单自身 words 被改动
+        const favListId = this.getCurrentFavoriteListId();
         const editableCells = document.querySelectorAll('.editable-cell');
         
         editableCells.forEach(cell => {
@@ -19000,6 +19424,41 @@ ${example ? `- 例句：${example}` : ''}
             let newValue = textSpan ? textSpan.textContent.trim() : cell.textContent.trim();
 
             if (this.currentWordListBookId === 'favorites') {
+                // 自建词单（含链接欧路的词单）：词条就存在词单自身，虚拟表是其浅拷贝、
+                // 没有 _sourceBookId，走源词书回写会因取不到书而整格静默丢弃 → 刷新即还原。
+                // 这里直接改虚拟词条，最后由 favListDirty 整单落盘。
+                if (favListId !== 'favorites') {
+                    const target = book.words[wordIndex];
+                    if (!target) return;
+                    let v = newValue;
+                    if (field === 'meaning') {
+                        const posEl = cell.querySelector('.word-list-pos');
+                        if (posEl) v = v.replace(posEl.textContent.trim(), '').trim();
+                    }
+                    if (this._applyWordListField(target, field, v)) {
+                        hasChanges = true;
+                        favListDirty = true;
+                    }
+                    return;
+                }
+                // 全局收藏项（翻译/查词收藏，不属任何词书）：同样回写全局收藏存储，
+                // 否则 Storage.getBook('global') 取不到书、编辑被静默丢弃
+                if (word._sourceBookId === 'global') {
+                    if (!globalsItems) globalsItems = Storage.loadFavoriteItems() || [];
+                    const gkey = String(word._originalWord || word.word || '').trim().toLowerCase();
+                    const g = globalsItems.find(x => x && String(x.word || '').trim().toLowerCase() === gkey);
+                    if (!g) return;
+                    let v = newValue;
+                    if (field === 'meaning') {
+                        const posEl = cell.querySelector('.word-list-pos');
+                        if (posEl) v = v.replace(posEl.textContent.trim(), '').trim();
+                    }
+                    if (this._applyWordListField(g, field, v)) {
+                        hasChanges = true;
+                        globalsDirty = true;
+                    }
+                    return;
+                }
                 // 回写到源词书
                 const sourceBookId = word._sourceBookId;
                 const sourceIndexHint = word._sourceWordIndex;
@@ -19127,6 +19586,17 @@ ${example ? `- 例句：${example}` : ''}
 
         // 写回修改的源词书
         if (this.currentWordListBookId === 'favorites') {
+            // 全局收藏项落盘
+            if (globalsItems && globalsDirty) Storage.saveFavoriteItems(globalsItems);
+            // 自建词单：虚拟表整体写回词单 words 后落盘（词条就是词单自身的数据）
+            if (favListDirty) {
+                const lists = this.getFavoriteLists();
+                const d = lists.find(x => x.id === favListId);
+                if (d) {
+                    d.words = book.words;
+                    this.saveFavoriteLists(lists);
+                }
+            }
             modifiedSourceBookIds.forEach(bookId => {
                 const src = modifiedSourceBooks[bookId];
                 if (src) {
@@ -19135,9 +19605,9 @@ ${example ? `- 例句：${example}` : ''}
             });
             if (hasChanges) {
                 this.loadBooks();
-                // 重新打开收藏词单以刷新虚拟列表
-                this.openFavoritesWordList();
-                console.log('✅ 收藏词单的修改已同步回源词书');
+                // 重新打开当前词单以刷新虚拟列表（此前不传 id 会跳回首选词单）
+                this.openFavoritesWordList(favListId);
+                console.log('✅ 收藏词单的修改已同步回来源词书');
                 this.showToast('保存成功（已同步至来源词书）', 'success');
             }
             return;
@@ -20778,10 +21248,18 @@ ${example ? `- 例句：${example}` : ''}
                     const u = urls[ui];
                     try {
                         if (this.isBridgeOnlyHost()) {
-                            // 移动端（app:// iframe）：下载与落盘一并在插件侧完成（easy-sync 式），
-                            // 页面不再自己 fetch 拿字节再经桥回传，只等插件回传写入结果
+                            // 移动端（app:// iframe）：先试页面自身 fetch 流式下载，拿实时进度
+                            // （与桌面端同构），下载完经桥 save-dict 一次性落盘。页面 fetch 失败
+                            // 再降级到插件侧 easy-sync（requestUrl + 落盘 + 清单，无进度兜底）
                             p.set(0, ui > 0 ? '主地址失败，正在尝试备用通道…' : '正在下载到本地…');
-                            saved = await this.downloadDictToVault(u, varName, entry.file, onProgress, entry.size);
+                            try {
+                                const text = await this._downloadDictViaPage(u, entry.size, onProgress);
+                                p.set(1, '正在写入本地…');
+                                saved = await this.saveDictToBridge(text, varName, entry.file);
+                            } catch (e) {
+                                // 页面 fetch 失败（iOS 上 TLS/WKWebView 偶发拦截）：降级到插件侧 easy-sync
+                                saved = await this.downloadDictToVault(u, varName, entry.file, null, entry.size);
+                            }
                         } else {
                             // 桌面/内置服务：保持原路径（页面流式 fetch + /save-dict 同源写入）
                             const jsText = await this.downloadDictData(u, entry.size, onProgress);
@@ -20814,9 +21292,8 @@ ${example ? `- 例句：${example}` : ''}
         });
     }
 
-    // 移动端专用：把「下载 + 落盘 + 重建清单」合并为一次插件桥调用（easy-sync 式），
-    // 页面不再自己 fetch 拿字节再回传，避免 app:// 下跨域失败与整份内容的内存搬运。
-    // 返回插件回传的元信息 { file, path, count, mdd }，与桌面 saveDictToData 同构
+    // 移动端专用 easy-sync 兜底：页面 fetch 失败时降级用。
+    // 插件侧 requestUrl 一次性下载完并落盘，中间没有进度回调，onProgress 仅在最终 OK 时被调一次
     async downloadDictToVault(url, varName, file, onProgress, totalBytes) {
         const payload = JSON.stringify({ url: url, varName: varName, file: file || '' });
         const r = await Storage._postMessageBridge('download-dict', 'POST', { body: payload });
@@ -20825,8 +21302,18 @@ ${example ? `- 例句：${example}` : ''}
             // 失败时把插件回传的实际落盘路径一并抛出（如有），便于定位
             throw new Error((data.error || ('下载失败（桥接 HTTP ' + (r && r.status) + '）')) + (data.path ? '（' + data.path + '）' : ''));
         }
-        // 插件是一次性下载完才返回，进度只能粗粒度：直接给到完成态
         if (onProgress) onProgress(1, totalBytes || 0);
+        return data;
+    }
+
+    // 移动端专用：内容已在页面（流式 fetch 拿到真进度后），经桥 save-dict 一次性落盘 + 重建清单
+    async saveDictToBridge(content, varName, file) {
+        const payload = JSON.stringify({ varName: varName, file: file || '', content: content });
+        const r = await Storage._postMessageBridge('save-dict', 'POST', { body: payload });
+        const data = this.parseBridgeReply(r);
+        if (!data.ok) {
+            throw new Error((data.error || ('写入失败（桥接 HTTP ' + (r && r.status) + '）')) + (data.path ? '（' + data.path + '）' : ''));
+        }
         return data;
     }
 
@@ -32419,7 +32906,11 @@ ${head}
         if (!this._writingCorrection) {
             this._writingCorrection = {
                 entries: [],            // [{ type, wrong, correct, detail }]，wrong/correct 均为精确片段
-                lastAnalyzedText: ''    // 已分析到的文本位置（增量分析游标）
+                lastAnalyzedText: '',   // 已分析到的文本位置（增量分析游标）
+                // 用户决策记忆：签名 → { action: 'dismissed'|'accepted', type, wrong, correct, detail }
+                // 让同一处错误在被忽略/接受后不会因增量重发、AI 换个上下文窗口而「复活」
+                decisions: new Map(),
+                seq: 0                  // 请求序号：只采纳最新一次分析结果，丢弃过期响应
             };
         }
         return this._writingCorrection;
@@ -32768,6 +33259,51 @@ ${head}
         return true;
     }
 
+    // 纠错身份签名：只保留 wrong→correct 的实际改动核心（首尾共同词不计入）。
+    // AI 每次返回的上下文窗口可能不同，同一处改动会换个写法，用核心签名才能稳定去重
+    _writingCorrectionSignature(type, wrong, correct) {
+        const toks = (s) => String(s == null ? '' : s).toLowerCase().match(/[a-z0-9']+|[^\s]/g) || [];
+        const a = toks(wrong);
+        const b = toks(correct);
+        const maxP = Math.min(a.length, b.length);
+        let p = 0;
+        while (p < maxP && a[p] === b[p]) p++;
+        let s = 0;
+        while (s < maxP - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+        return (type === 'grammar' ? 'grammar' : 'vocab') + '|' +
+            a.slice(p, a.length - s).join(' ') + '>' + b.slice(p, b.length - s).join(' ');
+    }
+
+    // 该纠错是否已被用户决策过：签名一致直接命中；已忽略的再按「位置区间重叠」兜底，
+    // 避免 AI 对同一处换个措辞（签名变化）又重新弹出
+    _isWritingCorrectionHandled(type, wrong, correct, ranges, fullText) {
+        const st = this._ensureWritingCorrectionState();
+        if (!st.decisions.size) return false;
+        if (st.decisions.has(this._writingCorrectionSignature(type, wrong, correct))) return true;
+        if (!fullText || !Array.isArray(ranges) || !ranges.length) return false;
+        for (const d of st.decisions.values()) {
+            if (d.action !== 'dismissed' || !d.wrong) continue;
+            const occ = this._findAllWritingOccurrences(fullText, d.wrong);
+            if (occ.some(o => ranges.some(r => r.start < o.end && r.end > o.start))) return true;
+        }
+        return false;
+    }
+
+    // 已决策且仍留在待分析文本中的片段：随请求一起告知 AI 不要重复提出
+    _writingDecisionsForText(text) {
+        const st = this._ensureWritingCorrectionState();
+        if (!st.decisions.size) return [];
+        const normText = this._normalizeWritingFragment(text);
+        const out = [];
+        for (const d of st.decisions.values()) {
+            if (!d.wrong) continue;
+            if (!normText.includes(this._normalizeWritingFragment(d.wrong))) continue;
+            out.push(`${d.wrong} → ${d.correct}`);
+            if (out.length >= 20) break;
+        }
+        return out;
+    }
+
     // 查找短句在文本中的所有出现位置（规范化后比对，再把命中位置映射回原文）
     _findAllWritingOccurrences(text, phrase) {
         const out = [];
@@ -32882,6 +33418,11 @@ ${head}
 
     // 组装 aiEvaluation basic 提示词（与小程序云函数保持一致）
     _buildWritingCorrectionPrompt(text) {
+        const avoid = this._writingDecisionsForText(text);
+        const avoidRule = avoid.length
+            ? `7. 以下片段用户已明确忽略或已完成修正，禁止再次列入 errors（即使你认为仍有误）：${JSON.stringify(avoid)}
+`
+            : '';
         const template = {
             "errors": [
                 {
@@ -32903,7 +33444,7 @@ Important:
 4. "detail" 只写该错误的中文解释（为什么错、怎么改，鼓励语气），不要重复原句，也不要写"前后词为…"这类上下文描述；
 5. "type" 只能是 "vocab" 或 "grammar"；同一个错误只返回一次，不要重复；
 6. 若确实无错误，返回 {"errors": []}
-`;
+${avoidRule}`;
     }
 
     // 解析 AI 返回的 JSON（容错：去除代码块标记与常见转义问题）
@@ -32993,7 +33534,7 @@ Important:
     }
 
     // 将 AI 结果合并进错误池（精确错误/正确片段 + 中文解释）
-    _mergeWritingCorrectionResult(data) {
+    _mergeWritingCorrectionResult(data, fullText) {
         const st = this._ensureWritingCorrectionState();
         const list = data && Array.isArray(data.errors) ? data.errors : [];
         list.forEach(item => {
@@ -33006,9 +33547,20 @@ Important:
             // 精简过长的纠错片段为「改动核心 + 少量上下文」
             const narrow = this._narrowWritingCorrectionPair(wrong, correct);
             if (narrow) { wrong = narrow.wrong; correct = narrow.correct; }
+            const ranges = fullText ? this._findAllWritingOccurrences(fullText, wrong) : [];
+            // 原文里已经找不到该片段（AI 幻觉或已被用户改掉）→ 不入池
+            if (fullText && !ranges.length) return;
+            // 用户已忽略/已接受过同一处（签名一致或位置重叠）→ 丢弃，避免「复活」
+            if (this._isWritingCorrectionHandled(type, wrong, correct, ranges, fullText)) return;
             const entry = { type, wrong, correct, detail: String(item.detail == null ? '' : item.detail) };
-            const key = type + '|' + this._normalizeWritingFragment(wrong);
-            const idx = st.entries.findIndex(e => e.type + '|' + this._normalizeWritingFragment(e.wrong) === key);
+            const sig = this._writingCorrectionSignature(type, wrong, correct);
+            // 同一处改动：核心签名一致（上下文窗口不同）或位置区间重叠（同位置换措辞），合并为一条
+            const idx = st.entries.findIndex(e => {
+                if (this._writingCorrectionSignature(e.type, e.wrong, e.correct) === sig) return true;
+                if (!fullText || !ranges.length) return false;
+                const er = this._findAllWritingOccurrences(fullText, e.wrong);
+                return er.some(r => ranges.some(x => r.start < x.end && r.end > x.start));
+            });
             if (idx >= 0) st.entries[idx] = entry; else st.entries.push(entry);
         });
     }
@@ -33055,6 +33607,7 @@ Important:
         if (!model) { this._endWritingAnalysis(); return; } // 未配置 AI 模型时不打断用户
 
         this._writingAnalyzing = true;
+        const seq = (st.seq = (st.seq || 0) + 1);
         // 进入请求中：下划线切到更明显的呼吸档（沿用等待期确定的分析区间）
         const prevRegion = this._writingAnalyzingRegion;
         if (prevRegion && prevRegion.end > prevRegion.start) {
@@ -33068,8 +33621,10 @@ Important:
                 max_tokens: 2000,
                 temperature: 1
             });
+            // 已有更新的分析请求 → 本次结果过期，直接丢弃，避免旧结果覆盖新文本的错误池
+            if (seq !== st.seq) return;
             const data = this._parseWritingCorrectionResponse(resp);
-            if (data) this._mergeWritingCorrectionResult(data);
+            if (data) this._mergeWritingCorrectionResult(data, text);
             st.lastAnalyzedText = text;
         } catch (err) {
             console.warn('[writing] AI纠正请求失败:', err && err.message ? err.message : err);
@@ -33190,11 +33745,39 @@ Important:
         editor.querySelectorAll('.writing-error-mark.active').forEach(sp => sp.classList.remove('active'));
     }
 
-    // 从错误池移除某条错误（接受/忽略后）
-    _removeWritingError(tip) {
+    // 从错误池移除某条错误（接受/忽略后），并把决策写入会话记忆。
+    // 同一位置可能因多轮分析残留多条相互重叠的建议（如 “has a”→“have an” 与 “a”→“an”），
+    // 一并清掉并记为已决策，否则用户处理完一条后下一条会立刻在同一位置弹出
+    _removeWritingError(tip, action) {
         const st = this._ensureWritingCorrectionState();
-        const key = tip.type + '|' + this._normalizeWritingFragment(tip.wrong);
-        st.entries = st.entries.filter(e => e.type + '|' + this._normalizeWritingFragment(e.wrong) !== key);
+        const act = action === 'accepted' ? 'accepted' : 'dismissed';
+        const tipSig = this._writingCorrectionSignature(tip.type, tip.wrong, tip.correct);
+        const editor = document.getElementById('writingEditor');
+        const text = editor ? this._getWritingText(editor) : '';
+        const tipRanges = text ? this._findAllWritingOccurrences(text, tip.wrong) : [];
+        const overlapsTip = (e) => {
+            if (!text || !tipRanges.length || !e.wrong) return false;
+            const rs = this._findAllWritingOccurrences(text, e.wrong);
+            return rs.some(r => tipRanges.some(t => r.start < t.end && r.end > t.start));
+        };
+        const record = (e) => {
+            if (!e.wrong) return;
+            st.decisions.set(this._writingCorrectionSignature(e.type, e.wrong, e.correct), {
+                action: act,
+                type: e.type,
+                wrong: e.wrong,
+                correct: e.correct,
+                detail: e.detail,
+                at: Date.now()
+            });
+        };
+        record(tip);
+        st.entries = st.entries.filter(e => {
+            const same = this._writingCorrectionSignature(e.type, e.wrong, e.correct) === tipSig;
+            if (!same && !overlapsTip(e)) return true;
+            if (!same) record(e);
+            return false;
+        });
     }
 
     // 程序化改写正文：静默重渲染，并把分析游标校正到新文本，避免下次增量切片错位
@@ -33214,7 +33797,7 @@ Important:
         const escaped = String(tip.wrong).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const flags = tip.type === 'grammar' ? 'g' : 'gi';
         const newText = text.replace(new RegExp(escaped, flags), tip.correct);
-        this._removeWritingError(tip);
+        this._removeWritingError(tip, 'accepted');
         this._applyWritingText(newText);
         this._refreshWritingTipsAfterChange();
     }
@@ -33223,7 +33806,7 @@ Important:
     ignoreWritingTip() {
         const tip = this._writingTips[this._writingTipIndex];
         if (!tip) return;
-        this._removeWritingError(tip);
+        this._removeWritingError(tip, 'dismissed');
         const editor = document.getElementById('writingEditor');
         this._applyWritingText(editor ? this._getWritingText(editor) : '');
         this._refreshWritingTipsAfterChange();

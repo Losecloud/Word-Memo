@@ -26,8 +26,9 @@
     --cefr-b2: #b6620e;
     --cefr-c1: #b32e27;
     --cefr-c2: #b1296d;
-    /* 结算页散点图象限底色：右上「快而准」/ 左下「慢而易错」（深色模式在下方覆盖） */
-    --scatter-quad-tr: #f4dee1;
+    /* 结算页散点图象限底色：右上「快而准」用主色浅底（淡绿 primary-light，替代原淡红）、
+       左下「慢而易错」保持冷灰（深色模式在下方覆盖） */
+    --scatter-quad-tr: var(--primary-light);
     --scatter-quad-bl: #dee2ed;
     /* switch 开关：关闭态轨道色与滑块色（深色模式在下方覆盖） */
     --switch-off: #ccc;
@@ -79,8 +80,8 @@
     --border-color: #3A3F4B;
     --hover-bg: #3A3F4B;
     --primary-light: #2d4443;
-    /* 散点图象限底色：深色模式改用以 --surface 为基底的暗色块，避免浅色块刺眼 */
-    --scatter-quad-tr: #3E2C31;
+    /* 散点图象限底色：右上「快而准」同样走主色浅底（深色主色 #2d4443），与浅色模式语义一致 */
+    --scatter-quad-tr: var(--primary-light);
     --scatter-quad-bl: #2A3346;
     /* switch 开关：深色模式改用暗色轨道 + 浅灰滑块，避免浅色轨道刺眼 */
     --switch-off: #4A5060;
@@ -3131,11 +3132,75 @@ body.nebula-word-themed .nebula-card {
     margin-bottom: 20%;
 }
 
+/* 首页快捷入口：学习新词 / 复习生词（并列，位于上传区上方） */
+/* 按钮宽度由 gap 决定：两个按钮各占 (容器宽 - gap) / 2，gap 越大按钮越窄 */
+.welcome-quick-actions {
+    display: flex;
+    gap: 25px;
+    align-items: center;
+    margin: 0 50px 80px 50px;
+    flex-wrap: wrap;
+}
+
+.btn-quick {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 60px;
+    padding: 0 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+/* 左侧：白色（跟随主题的卡片底色）次要按钮 */
+.btn-quick-learn {
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-quick-learn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+/* 右侧：主色按钮 */
+.btn-quick-review {
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-quick-review:hover {
+    background: var(--primary-emphasis);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.btn-quick:active {
+    transform: translateY(0);
+}
+
+.btn-quick:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .upload-area {
-    width: 400px;
     max-width: 100%;
-    margin-left: auto;
-    margin-right: auto;
+    margin-left: 50px;
+    margin-right: 50px;
     padding: var(--spacing-xl);
     border: 2px dashed var(--border-color);
     border-radius: var(--radius-lg);
@@ -4435,6 +4500,55 @@ body.nebula-word-themed .nebula-card {
     padding-left: var(--spacing-md);
     border-left: 3px solid var(--primary-color);
     transition: border-left-color 0.3s ease-out;
+}
+
+/* 拼写模式：例句下划线逐字回填（下划线保持原来的连续 `_` 文本，字母用标准字距居中覆盖） */
+.example-blank {
+    position: relative;
+    display: inline-block;
+    /* 下划线字符本身已加长，这里不再用 padding 撑宽，避免与前后单词间距变大 */
+    padding: 0;
+    /* 跟随例句字体样式：例句斜体则字母也斜体，例句改为正体时自动跟随 */
+    font-style: inherit;
+}
+
+.example-blank-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.34em;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+}
+
+/* 等宽占位框：宽度由隐藏的目标词撑出，保证整词范围提前居中固定 */
+.example-blank-box {
+    position: relative;
+    white-space: pre;
+}
+
+.example-blank-ghost {
+    visibility: hidden;
+    font-style: inherit;
+    line-height: 1;
+}
+
+/* 已输入字母从等宽框左端开始逐字出现，不再随长度变化左右漂移 */
+.example-blank-visible {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    color: var(--text-primary);
+    font-style: inherit;
+    font-weight: inherit;
+    line-height: 1;
+    white-space: pre;
+}
+
+/* 例句回填中拼错的字母：与主拼写区域一致用错误色 */
+.example-blank-visible .wrong {
+    color: var(--error);
 }
 
 /* 答错时显示的例句容器 */
@@ -16294,6 +16408,9 @@ body.spell-cursor-on.spell-typing .letter-slot.active {
     line-height: 1.55;
     font-weight: 500;
     overflow-y: auto;
+    /* 纵向滚动时 overflow-x 会被计算为 auto，正文负外边距会造成几像素横向溢出而冒出水平滚动条，这里显式裁掉 */
+    overflow-x: hidden;
+    overflow-wrap: break-word;
     max-height: 100%;
     min-width: 0;
     scrollbar-width: thin;

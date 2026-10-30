@@ -1553,6 +1553,33 @@ const Storage = {
         return filtered;
     },
 
+    /**
+     * 跨词单共享单词练习统计：同一词形在所有词书中写成同一份 totalAttempts/wrongTimes 等，
+     * 避免同一单词在不同词单各记一套正确率。
+     * @param {string} wordText 单词
+     * @param {object} stats { totalAttempts, wrongTimes, lastWrongDate, wrongByMode }
+     * @returns {number} 写入的词书条目数（0 表示未找到）
+     */
+    saveWordStatsShared(wordText, stats) {
+        if (!stats) return 0;
+        const books = this.loadBooks();
+        if (!books.length) return 0;
+        const target = this._normWord(wordText);
+        let count = 0;
+        books.forEach(book => {
+            (book.words || []).forEach(w => {
+                if (!w || this._normWord(w.word) !== target) return;
+                w.totalAttempts = stats.totalAttempts || 0;
+                w.wrongTimes = stats.wrongTimes || 0;
+                if (stats.wrongByMode) w.wrongByMode = { ...stats.wrongByMode };
+                if (stats.lastWrongDate) w.lastWrongDate = stats.lastWrongDate;
+                count++;
+            });
+        });
+        if (count) this.saveBooks(books);
+        return count;
+    },
+
     getBook(bookId) {
         const books = this.loadBooks();
         return books.find(b => b.id === bookId);
@@ -1723,29 +1750,87 @@ const Storage = {
         }
     },
 
-    /** 获取单个单词的记忆状态 */
+    /** 规范化词形：同一单词出现在不同词单时以此匹配，共用一套记忆状态 */
+    _normWord(word) {
+        return String(word == null ? '' : word).trim().toLowerCase();
+    },
+
+    /** 查找同词形的其它记忆键（不同词单上的同一单词） */
+    _siblingMemoryKeys(map, word, excludeKey) {
+        const target = this._normWord(word);
+        const out = [];
+        for (const [key, mem] of Object.entries(map)) {
+            if (key === excludeKey) continue;
+            const at = key.indexOf(':');
+            if (at < 0) continue;
+            // 词形可能改变大小写（如上传词单首字母大写），故按规范化词形比对
+            if (this._normWord(key.slice(at + 1)) !== target) continue;
+            out.push({ key, mem });
+        }
+        return out;
+    },
+
+    /** 获取单个单词的记忆状态（本词单无记录时继承同词形其它词单已学到的状态） */
     getWordMemory(bookId, word) {
         const map = this.loadAllMemory();
         const key = `${bookId}:${word}`;
-        return map[key] ? { ...map[key], history: map[key].history ? [...map[key].history] : [] } : null;
+        const own = map[key];
+        if (own) return { ...own, history: own.history ? [...own.history] : [] };
+
+        let best = null;
+        for (const it of this._siblingMemoryKeys(map, word, key)) {
+            if (!it.mem || !(it.mem.totalReviews > 0)) continue;
+            if (!best || (it.mem.totalReviews || 0) > (best.totalReviews || 0)) best = it.mem;
+        }
+        return best ? { ...best, history: best.history ? [...best.history] : [] } : null;
     },
 
-    /** 保存/更新单个单词的记忆状态 */
+    /** 保存/更新单个单词的记忆状态（同词形在所有词单同步为同一份，避免重复练习） */
     setWordMemory(bookId, word, memory) {
         const map = this.loadAllMemory();
         const key = `${bookId}:${word}`;
         map[key] = memory;
+        for (const it of this._siblingMemoryKeys(map, word, key)) {
+            map[it.key] = {
+                ...memory,
+                history: memory.history ? memory.history.map(h => ({ ...h })) : [],
+                // 「太简单」标记只增不减，任一副本被标记即整词共享
+                blacklist: !!(memory.blacklist || (it.mem && it.mem.blacklist))
+            };
+        }
         this.saveAllMemory(map);
     },
 
-    /** 标记「太简单」：标记后该词不再进入复习队列 */
+    /** 标记「太简单」：标记后该词不再进入复习队列（同词形跨词单同步，避免换词单再练到） */
     markWordTooEasy(bookId, word) {
         const map = this.loadAllMemory();
         const key = `${bookId}:${word}`;
+        const target = this._normWord(word);
+
+        // 各词单里的同一单词一并标记（含尚未建立记忆记录的副本），学习清单按 `${bookId}:${word}` 过滤
+        const config = this.getUserConfig();
+        const books = (config && config.bookList && config.bookList.books) || [];
+        books.forEach(b => {
+            (b.words || []).forEach(w => {
+                if (!w || this._normWord(w.word) !== target) return;
+                const k = `${b.id}:${w.word}`;
+                const m = map[k] || this._defaultMemory();
+                m.blacklist = true;
+                m.nextReviewDate = null;
+                map[k] = m;
+            });
+        });
+
+        // 兜底：不在任何词书里的副本（如临时练习）及其它同词形记录同样标记
         const mem = map[key] || this._defaultMemory();
         mem.blacklist = true;
         mem.nextReviewDate = null; // 立即移出待复习队列
         map[key] = mem;
+        for (const it of this._siblingMemoryKeys(map, word, key)) {
+            if (!it.mem) continue;
+            it.mem.blacklist = true;
+            it.mem.nextReviewDate = null;
+        }
         this.saveAllMemory(map);
     },
 
@@ -1881,7 +1966,17 @@ const Storage = {
         // 按到期时间排序（最急的先）
         results.sort((a, b) => new Date(a.memory.nextReviewDate) - new Date(b.memory.nextReviewDate));
 
-        return limit ? results.slice(0, limit) : results;
+        // 同一单词跨词单只复习一次（记忆状态已共享），降低重复曝光
+        const seen = new Set();
+        const unique = [];
+        for (const it of results) {
+            const w = this._normWord(it.word);
+            if (seen.has(w)) continue;
+            seen.add(w);
+            unique.push(it);
+        }
+
+        return limit ? unique.slice(0, limit) : unique;
     },
 
     /** 每日掌握分布快照：按当前 EF 三桶统计已记忆单词数（排除「太简单」黑名单）
@@ -1889,9 +1984,13 @@ const Storage = {
     computeEfBuckets() {
         const map = this.loadAllMemory();
         const b = { strong: 0, fuzzy: 0, weak: 0 };
+        const seen = new Set(); // 同一单词跨词单只计一次
         for (const key of Object.keys(map)) {
             const mem = map[key];
             if (!mem || mem.blacklist) continue;
+            const w = this._normWord(key.slice(key.indexOf(':') + 1));
+            if (seen.has(w)) continue;
+            seen.add(w);
             const ef = (mem.ef != null) ? mem.ef : 2.5;
             if (ef >= 2.5) b.strong++;
             else if (ef >= 2.0) b.fuzzy++;
@@ -1908,11 +2007,15 @@ const Storage = {
 
         let totalWords = 0;
         let avgEF = 0, avgInterval = 0;
+        const seen = new Set(); // 同一单词跨词单只计一次
 
-        for (const mem of Object.values(map)) {
+        for (const [key, mem] of Object.entries(map)) {
             // 「太简单」黑名单词不再参与学习，按全局口径排除出统计（与图表/日报快照/到期队列一致），
             // 否则「已记忆」会大于图表「已学」，虚高
             if (!mem || mem.blacklist) continue;
+            const w = this._normWord(key.slice(key.indexOf(':') + 1));
+            if (seen.has(w)) continue;
+            seen.add(w);
             totalWords++;
             avgEF += mem.ef || 2.5;
             avgInterval += mem.interval || 0;

@@ -54,8 +54,8 @@ const DICT_DISPLAY_NAMES = {
   '牛津同义词词词典-dict.json': '牛津同义词 Oxford Thesaurus',
   '英语词根词缀词频-dict.json': '词根词缀词频 Roots & Affixes',
   'collins-dict.json': '柯林斯高阶 Collins COBUILD',
-  // 牛津10简明（精简版）：纯中文名，与完整版牛津词典区分，避免简写成「牛津」产生歧义
-  'oaldpe10-lite-dict.json': '牛津10简明',
+  // 牛津10简明（精简版）：全称 = 中文名 + 英文名，与柯林斯高阶 Collins COBUILD 的命名保持一致
+  'oaldpe10-lite-dict.json': '牛津10简明 OALD10 Lite',
 };
 
 // 更新 dict-manifest.js：只 upsert 本次导入的词典条目，保留其余条目原样。

@@ -1,6 +1,6 @@
 // 由 tools/web2ob.py 自动生成：词典数据安装清单（AI 工坊「词典」类目按此渲染）
 var DICT_CATALOG = {
- "updated": "2026-10-23",
+ "updated": "2026-10-30",
  "dicts": [
   {
    "file": "englishwords-dict.json",
@@ -9,7 +9,7 @@ var DICT_CATALOG = {
    "name": "基础词典 Basic",
    "desc": "10.3 万条英汉词条，覆盖日常与学术词汇，默认词典",
    "icon": "🔤",
-   "size": 9628314,
+   "size": 9626137,
    "url": "https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json",
    "mirrors": [
     "https://gh.monlor.com/https://raw.githubusercontent.com/Losecloud/Word-Memo/main/data/englishwords-dict.json",
@@ -96,8 +96,8 @@ var DICT_CATALOG = {
   {
    "file": "oaldpe10-lite-dict.json",
    "varName": "OALDPE10_LITE_DICT",
-   "label": "牛津10简明",
-   "name": "牛津10简明",
+   "label": "牛津10简明 OALD10 Lite",
+   "name": "牛津10简明 OALD10 Lite",
    "desc": "牛津高阶英汉双解（第10版）精简版，含音标、词性释义、例句、CEFR、习语与同义词辨析",
    "icon": "📕",
    "size": 76669118,

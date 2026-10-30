@@ -145,8 +145,8 @@ DICT_CATALOG = [
     {
         "file": "oaldpe10-lite-dict.json",
         "varName": "OALDPE10_LITE_DICT",
-        "label": "牛津10简明",
-        "name": "牛津10简明",
+        "label": "牛津10简明 OALD10 Lite",
+        "name": "牛津10简明 OALD10 Lite",
         "desc": "牛津高阶英汉双解（第10版）精简版，含音标、词性释义、例句、CEFR、习语与同义词辨析",
         "icon": "📕",
         "source": "reciting",
@@ -331,14 +331,17 @@ def sync_plugin_readmes():
         want = _shared_block(src.read_text(encoding="utf-8"), src)
         # newline=""：不做 CRLF↔LF 转换。否则比对时两边都被归一化而漏判，
         # 且写入会把共享块变成 CRLF，与文件其余部分换行风格不一致
-        cur = dst.read_text(encoding="utf-8", newline="")
+        # 用 open() 而非 read_text(write_text)：后者在 Python 3.9 不支持 newline 参数
+        with dst.open("r", encoding="utf-8", newline="") as f:
+            cur = f.read()
         begin = cur.find(README_SHARED_BEGIN)
         end = cur.find(README_SHARED_END)
         if begin < 0 or end < begin:
             raise SystemExit("插件 README 缺少共享块标记：%s" % dst)
         new = cur[:begin] + want + cur[end + len(README_SHARED_END):]
         if new != cur:
-            dst.write_text(new, encoding="utf-8", newline="")
+            with dst.open("w", encoding="utf-8", newline="") as f:
+                f.write(new)
             print("已同步插件 README 共享块：%s" % dst)
 
 

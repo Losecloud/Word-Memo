@@ -667,6 +667,10 @@
             user-select: none;
         }
         .dict-sidebar-logo { display: block; width: 18px; height: 18px; }
+        /* 右侧操作区：分栏按钮与设置按钮并排（分栏紧挨设置左侧） */
+        .dict-sidebar-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+        #dictSidebarSplitBtn i { font-size: 18px; }
+        #dictSidebarSplitBtn.active { color: var(--primary-color); }
         /* 侧栏顶部栏中部的「识别中 / 查询中」提示：文字 + 三点跳动动画，深浅主题通用 */
         .dict-sidebar-status {
             display: flex;
@@ -1103,12 +1107,17 @@
                     <span id="dictSidebarStatusText">查询中</span>
                     <span class="dict-status-dots"><span></span><span></span><span></span></span>
                 </div>
-                <button type="button" class="btn-icon" id="dictSidebarSettingsBtn" title="设置">
+                <div class="dict-sidebar-actions">
+                    <button type="button" class="btn-icon" id="dictSidebarSplitBtn" title="分栏对照词典">
+                        <i class="fi-rr-table-columns"></i>
+                    </button>
+                    <button type="button" class="btn-icon" id="dictSidebarSettingsBtn" title="设置">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
-                </button>
+                    </button>
+                </div>
             </div>
             <div class="header-left">
                 <div class="logo" id="appLogo" title="关于词忆" role="button" tabindex="0">
@@ -1304,7 +1313,17 @@
                     </div>
                     <h1 class="welcome-title">欢迎来到词忆</h1>
                     <p class="welcome-subtitle">专攻难词 · 趣味高效</p>
-                    
+
+                    <!-- 快捷入口：学习新词 / 复习生词（与右侧 SM-2 面板同一入口） -->
+                    <div class="welcome-quick-actions">
+                        <button class="btn-quick btn-quick-learn" id="homeQuickLearnBtn">
+                            <i class="fi-rr-book-alt"></i><span>学习新词</span>
+                        </button>
+                        <button class="btn-quick btn-quick-review" id="homeQuickReviewBtn">
+                            <i class="fi-rr-refresh"></i><span>复习生词</span>
+                        </button>
+                    </div>
+
                     <div class="upload-area" id="uploadArea">
                         <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -4707,7 +4726,7 @@
                     </div>
                     <div class="setting-group">
                         <label class="setting-label">例句填充</label>
-                        <select class="setting-select" id="exampleFillDict"></select>
+                        <select class="setting-select" id="exampleFillDict" multiple></select>
                         <div class="setting-hint" id="exampleFillHint">
                             练习时若单词缺少有效例句，自动从所选词典提取「第一个释义的第一个例句」补位。
                         </div>
@@ -5928,6 +5947,34 @@
         // 布局覆盖见上方 html.wm-sidebar-mode 系列样式，此处仅切换行为
         const SIDEBAR = new URLSearchParams(location.search).get('wmView') === 'dict';
         if (SIDEBAR) document.documentElement.classList.add('wm-sidebar-mode');
+        // 「分栏对照」：侧栏顶部栏按钮状态持久化，引擎就绪后下发；实心图标表示已开启
+        const SPLIT_KEY = 'dictSidebarSplit';
+        let splitOn = false;
+        try { splitOn = localStorage.getItem(SPLIT_KEY) === '1'; } catch (e) { /* 忽略 */ }
+        function applySplitBtn() {
+            const btn = document.getElementById('dictSidebarSplitBtn');
+            if (!btn) return;
+            btn.classList.toggle('active', splitOn);
+            const ic = btn.querySelector('i');
+            if (ic) ic.className = splitOn ? 'fi-sr-table-columns' : 'fi-rr-table-columns';
+            btn.title = splitOn ? '关闭分栏对照' : '分栏对照词典';
+        }
+        function pushSplitState() {
+            if (!SIDEBAR || !window.__dictLookupReady) return;
+            post({ cmd: 'set-split', enabled: splitOn });
+        }
+        if (SIDEBAR) {
+            const splitBtn = document.getElementById('dictSidebarSplitBtn');
+            if (splitBtn) {
+                applySplitBtn();
+                splitBtn.addEventListener('click', function () {
+                    splitOn = !splitOn;
+                    try { localStorage.setItem(SPLIT_KEY, splitOn ? '1' : '0'); } catch (e) { /* 忽略 */ }
+                    applySplitBtn();
+                    pushSplitState();
+                });
+            }
+        }
         // Obsidian 宿主（主视图带 wmHost=1，由插件附加）：右侧栏查词视图可用，
         // 页面内所有「查看词典详情」跳转改由右侧栏承接，主页不再弹结果窗口
         const HOST = !SIDEBAR && new URLSearchParams(location.search).get('wmHost') === '1';
@@ -6961,12 +7008,15 @@
                 // 清除"无匹配结果"占位，避免结果排在占位文字之后
                 const empty = results.querySelector('.dl-empty');
                 if (empty) empty.remove();
-                // 逆向查词为"次"结果：插入分隔线之后（AI 入口保持在分隔线上方）
+                // 基础词典作为最后的兜底：有分隔线（主次结果）时排在线后；否则插在 AI 入口之前，
+                // 保证顺序为「首选/其它词典命中 → 基础词典兜底 → AI 在线翻译」
                 const divider = results.querySelector('.dl-alt-divider');
+                const aiEntry = results.querySelector('.dl-ai-entry');
                 added.forEach(function (it) {
                     const el = createItem(it);
                     el.classList.add('__real');
                     if (divider) results.insertBefore(el, divider.nextSibling);
+                    else if (aiEntry) results.insertBefore(el, aiEntry);
                     else results.appendChild(el);
                 });
             });
@@ -7340,6 +7390,7 @@
                 syncTheme(); // 就绪后同步当前主题（深色/浅色）到引擎
                 pushNoteHeight(); // 就绪后下发已保存的详情笔记高度，避免重开时回落到默认高度
                 pushUserConfig(); // 就绪后下发「以文件为准」的用户配置（引擎据此读发音等基本设置）
+                pushSplitState(); // 就绪后下发分栏按钮的持久化状态（侧栏模式）
                 if (lastQuery) post({ cmd: 'search', q: lastQuery });
                 else if (SIDEBAR) showRecent(); // 侧栏：直接展示最近查词，保持常驻展开
                 else if (document.activeElement === input && !input.value.trim()) post({ cmd: 'recent' });
@@ -7350,7 +7401,7 @@
                 renderDropdown(d.words, !!d.recent);
                 // 「我的笔记」全文检索：插在词典完整命中之后、候选/兜底/AI 之前（最近查词视图不追加）
                 if (!d.recent) appendNoteMatches(d.q);
-                if (d.hasDicts !== false) {
+                if (d.hasDicts !== false && !/[\u4e00-\u9fa5]/.test(String(d.q || ''))) {
                     // 有词典：词典词（精准/近似）优先展示后，再在清单末尾追加形近词
                     appendSimilarWords(d.words, d.q);
                 }
@@ -7451,10 +7502,13 @@
                 return;
             }
             if (d.type === 'example-result') {
-                // 引擎返回例句查询结果
-                const cb = window.__exampleLookupCallbacks && window.__exampleLookupCallbacks[d.word];
+                // 引擎返回例句查询结果：优先按请求 id 配对（同一单词并发查询时不会串台）
+                const id = d.id;
+                const cb = (id != null && window.__exampleLookupCallbacks && window.__exampleLookupCallbacks['id:' + id])
+                    || (window.__exampleLookupCallbacks && window.__exampleLookupCallbacks[d.word]);
                 if (cb) {
                     cb(d.example, d.dictName || '');
+                    if (id != null) delete window.__exampleLookupCallbacks['id:' + id];
                     delete window.__exampleLookupCallbacks[d.word];
                 }
                 return;
@@ -7731,12 +7785,14 @@
                 if (!word) { resolve(''); return; }
                 // 初始化回调存储
                 if (!window.__exampleLookupCallbacks) window.__exampleLookupCallbacks = {};
+                // 每个请求独立 id：同一单词的并发查询（预热 + 当前词即时补位）按 id 配对，互不覆盖
+                const reqId = 'id:' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
                 // 设置超时（8秒后放弃）
                 const timer = setTimeout(function () {
-                    delete window.__exampleLookupCallbacks[word];
+                    delete window.__exampleLookupCallbacks[reqId];
                     resolve('');
                 }, 8000);
-                window.__exampleLookupCallbacks[word] = function (example, dictName) {
+                window.__exampleLookupCallbacks[reqId] = function (example, dictName) {
                     clearTimeout(timer);
                     resolve(example || '');
                 };
@@ -7744,18 +7800,18 @@
                 const frame = document.getElementById('dictLookupFrame');
                 if (frame && frame.contentWindow) {
                     try {
-                        const msg = { __dictLookup: 1, cmd: 'lookup-example', word: word };
+                        const msg = { __dictLookup: 1, cmd: 'lookup-example', word: word, id: reqId.replace('id:', '') };
                         if (dict) msg.dict = dict;
                         if (idx) msg.idx = idx;
                         frame.contentWindow.postMessage(msg, '*');
                     } catch (e) {
                         clearTimeout(timer);
-                        delete window.__exampleLookupCallbacks[word];
+                        delete window.__exampleLookupCallbacks[reqId];
                         resolve('');
                     }
                 } else {
                     clearTimeout(timer);
-                    delete window.__exampleLookupCallbacks[word];
+                    delete window.__exampleLookupCallbacks[reqId];
                     resolve('');
                 }
             });
@@ -8209,42 +8265,52 @@
         return { refresh: function () { renderPicker(); notify('get-state'); } };
     }
 
-    // ===== 「例句填充」下拉：仅列出「能提供例句」的已启用词典 =====
-    // 目前词忆官方仅「柯林斯高阶 Collins COBUILD」具备成句例句可稳定提取，故在此白名单登记；
-    // 未安装/未启用时保持仅「关闭」项，并提示前往下载，避免出现选了却填不出的空档。
-    const EXAMPLE_FILL_VARS = { COLLINS_DICT: true };
+    // ===== 「例句填充」下拉多选：仅列出「能提供例句」的已启用词典 =====
+    // 目前适配两类词条：柯林斯（HTML 词条）与牛津10简明（结构化 parts/senses 词条）。
+    // 原生 select 带 multiple，由 _buildSettingPicker 渲染成与其它设置项一致的下拉多选面板；
+    // 多选后每次补位随机取一个来源，取不到时自动换另一本兜底；未安装/未启用时给出下载提示。
+    const EXAMPLE_FILL_VARS = { COLLINS_DICT: true, OALDPE10_LITE_DICT: true };
     window.renderExampleFillOptions = function (list) {
         const sel = document.getElementById('exampleFillDict');
         if (!sel) return;
         const src = list || window.__dictPickerList || [];
         const capable = src.filter(x => EXAMPLE_FILL_VARS[x.varName] && x.enabled);
-        const saved = (window.app && window.app.settings && window.app.settings.exampleFillDict) || '';
-        let html = '<option value="">关闭（不填充）</option>';
+        const s = (window.app && window.app.settings) || {};
+        const saved = Array.isArray(s.exampleFillDicts) && s.exampleFillDicts.length
+            ? s.exampleFillDicts.slice()
+            : (s.exampleFillDict ? [String(s.exampleFillDict)] : []);
+        let html = '';
         capable.forEach(x => {
-            html += '<option value="' + x.varName + '">' + String(x.name || x.varName).replace(/</g, '&lt;') + '</option>';
+            const varName = String(x.varName);
+            let label = String(x.name || varName).replace(/</g, '&lt;');
+            // 牛津10简明：补上英文名并显示全称
+            if (varName === 'OALDPE10_LITE_DICT') {
+                label = (x.name ? label : '牛津10简明').replace(/\s*OALD10 Lite$/i, '') + ' OALD10 Lite';
+            }
+            const selected = saved.indexOf(varName) >= 0 ? ' selected' : '';
+            html += '<option value="' + varName + '"' + selected + '>' + label + '</option>';
         });
         sel.innerHTML = html;
-        // 仅在已安装该词典时回填；否则回落「关闭」，避免保留一个取不到数据的悬空选择
-        sel.value = capable.some(x => x.varName === saved) ? saved : '';
         sel.dataset.synced = '1';
         const hint = document.getElementById('exampleFillHint');
         if (hint) {
             hint.innerHTML = capable.length
-                ? '练习时若单词缺少有效例句，自动从所选词典提取「第一个释义的第一个例句」补位。'
-                : '暂未检测到可用于例句填充的词典，建议下载并启用「<i class="fi-rr-cloud-download"></i> 柯林斯高阶 Collins COBUILD」。';
+                ? '可多选：练习时若单词缺少有效例句，随机从所选词典提取例句补位，取不到会自动换另一本兜底。'
+                : '暂未检测到可用于例句填充的词典，建议下载并启用「<i class="fi-rr-cloud-download"></i> 柯林斯高阶 Collins COBUILD」或「牛津10简明 OALD10 Lite」。';
         }
-        // 选项已重建：同步自绘下拉的触发器文字与面板（若已构建）
+        // 已构建的自绘下拉：同步触发器文字与面板勾选
         if (window.app && typeof window.app.refreshSettingPicker === 'function') window.app.refreshSettingPicker(sel);
     };
-    // 选择即时生效并落盘（与「看单词选释义 Pro」一致，无需再点「保存」）
+    // 多选变更即时生效并落盘（与「看单词选释义 Pro」一致，无需再点「保存」）
     (function () {
         const sel = document.getElementById('exampleFillDict');
         if (!sel) return;
         sel.addEventListener('change', function () {
-            if (window.app && window.app.settings) {
-                window.app.settings.exampleFillDict = sel.value || '';
-                if (typeof window.app.persistExampleFillDict === 'function') window.app.persistExampleFillDict();
-            }
+            if (!window.app || !window.app.settings) return;
+            const vals = Array.from(sel.selectedOptions || []).map(o => o.value).filter(Boolean);
+            window.app.settings.exampleFillDicts = vals;
+            window.app.settings.exampleFillDict = vals[0] || ''; // 同步旧字段，兼容旧版本读取
+            if (typeof window.app.persistExampleFillDict === 'function') window.app.persistExampleFillDict();
         });
     })();
 

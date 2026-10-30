@@ -3400,8 +3400,11 @@
     // window.__exFillCache 供 bookStatMap 兜底读取；预热完成后清空锦囊缓存并重绘。
     function warmBookExamples() {
         var app = window.app;
-        var dictVar = app && app.settings && app.settings.exampleFillDict;
-        if (!dictVar || !app || typeof app.fillMissingExample !== 'function') return;
+        var hasFill = app && app.settings && (
+            (Array.isArray(app.settings.exampleFillDicts) && app.settings.exampleFillDicts.length)
+            || app.settings.exampleFillDict
+        );
+        if (!hasFill || !app || typeof app.fillMissingExample !== 'function') return;
         var ids = (S.cfg && S.cfg.bookIds) || [];
         var words = [];
         try {
